@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Wikimapia Viewer</title>
+  <link rel="stylesheet" href="css/leaflet.css">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" id="theme-color-meta" content="#ffffff">
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Верхняя информационная панель -->
+  <header class="topbar" id="ui-topbar">
+    <div class="limit-row" id="limit-row">
+      <div id="limit-badge" class="limit-badge" title="Запросов за 5 минут">🔑 0/100</div>
+      <button id="btn-force-refresh" class="limit-reset-btn" title="Сбросить таймеры и загрузить объекты">🔄</button>
+    </div>
+    <div id="status" class="status-bar">Загрузка базы…</div>
+    <!-- Кнопка перехода в получение ключей при исчерпании лимита -->
+    <button id="btn-get-key-top" class="topbar-action-btn" hidden>🔑 Получить ключ</button>
+  </header>
+
+  <!-- Прицел перекрестия -->
+  <div id="crosshair" hidden aria-hidden="true"></div>
+
+  <!-- Нижняя кнопка-подсказка объекта -->
+  <button id="hover-pill" class="hover-pill" hidden></button>
+
+  <button id="btn-search" class="square-btn-top" title="Поиск мест и объектов">🔍</button>
+
+  <!-- Плавающие круглые кнопки управления -->
+  <nav class="floating-controls" id="ui-floating-controls">
+    <button id="btn-mode-toggle" class="floating-btn" title="Режим выбора: Палец">👆</button>
+    <button id="btn-download-area" class="floating-btn" title="Скачать область">📥</button>
+    <button id="btn-location" class="floating-btn" title="Моя геопозиция">📍</button>
+    <button id="btn-theme-toggle" class="floating-btn" title="Сменить тему">🌙</button>
+    <button id="btn-settings" class="floating-btn" title="Настройки">⚙️</button>
+  </nav>
+
+  <!-- Модальное окно поиска -->
+  <div id="modal-search" class="modal-overlay">
+    <div class="modal-box modal-box-large">
+      <div class="modal-header">
+        <h3>🔍 Поиск мест и объектов</h3>
+        <button class="modal-close-x" id="search-x">✕</button>
+      </div>
+      <div class="search-input-wrap">
+        <input type="text" id="search-input" class="styled-input" placeholder="Название, адрес или ID Wikimapia…" autocomplete="off">
+        <button id="search-clear-btn" class="search-clear-btn" hidden>✕</button>
+      </div>
+      <div class="search-tabs">
+        <button class="search-tab-btn active" data-source="all">Все</button>
+        <button class="search-tab-btn" data-source="wm">Wikimapia</button>
+        <button class="search-tab-btn" data-source="osm">Геокодер (OSM)</button>
+      </div>
+      <div id="search-results" class="search-results-list">
+        <div class="muted">Введите от 2 символов для поиска…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Карточка объекта (шторка снизу / сайдбар на ПК) -->
+  <section id="sheet" class="sheet" aria-modal="true" role="dialog">
+    <div class="sheet-head" id="sheet-head">
+      <button id="sheet-expand" class="icon-btn" title="Развернуть">⤢</button>
+      <div class="sheet-handle" id="sheet-handle"></div>
+      <button id="sheet-close" class="icon-btn" title="Закрыть">✕</button>
+    </div>
+    <h3 id="sheet-title" class="sheet-title"></h3>
+    <div id="sheet-alts" class="sheet-alts"></div>
+    <div class="tabs" id="tabs">
+      <button data-tab="info" class="tab-btn active">Инфо</button>
+      <button data-tab="photos" class="tab-btn">Фото</button>
+      <button data-tab="comments" class="tab-btn">Отзывы</button>
+    </div>
+    <div id="sheet-body" class="sheet-body"></div>
+  </section>
+
+  <!-- Просмотрщик изображений с удобным масштабированием -->
+  <div id="lightbox" class="lightbox" hidden>
+    <button id="lb-close" class="lb-btn lb-close" title="Закрыть">✕</button>
+    
+    <div class="lb-viewport" id="lb-viewport">
+      <img id="lb-img" alt="" draggable="false">
+    </div>
+
+    <!-- Панель управления масштабированием -->
+    <div class="lb-bottom-bar">
+      <div class="lb-zoom-controls">
+        <button id="lb-zoom-out" class="lb-zoom-btn" title="Отдалить">−</button>
+        <div class="lb-slider-wrap">
+          <input type="range" id="lb-zoom-range" min="1" max="5" step="0.1" value="1" class="lb-zoom-slider" title="Масштаб фото">
+          <span id="lb-zoom-val" class="lb-zoom-val">100%</span>
+        </div>
+        <button id="lb-zoom-in" class="lb-zoom-btn" title="Приблизить">+</button>
+        <button id="lb-zoom-reset" class="lb-zoom-reset-btn" title="Сбросить масштаб">↺ 1:1</button>
+      </div>
+      <div id="lb-cap" class="lb-cap"></div>
+    </div>
+  </div>
+
+  <!-- Модальное окно предзагрузки области -->
+  <div id="modal-precache" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>📥 Скачать область в память</h3>
+        <button class="modal-close-x" id="precache-x">✕</button>
+      </div>
+      <p class="modal-desc">Сохраняет полигоны и описания на видимом участке карты для автономной работы без интернета.</p>
+      
+      <div class="form-group">
+        <label for="precache-zoom">Детализация (уровень зума)</label>
+        <select id="precache-zoom" class="styled-select">
+          <option value="14">Обзорный (zoom 14)</option>
+          <option value="15" selected>Стандартный (zoom 15)</option>
+          <option value="16">Максимальный (zoom 16)</option>
+        </select>
+      </div>
+
+      <div class="progress-wrap" id="precache-progress-wrap" hidden>
+        <div class="progress-track"><div id="precache-progress-bar" class="progress-fill"></div></div>
+        <div id="precache-status" class="progress-status">Скачивание...</div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="precache-cancel" class="btn btn-secondary">Отмена</button>
+        <button id="precache-start" class="btn btn-primary">Скачать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно настроек -->
+  <div id="modal" class="modal-overlay">
+    <div class="modal-box modal-box-large">
+      <div class="modal-header">
+        <h3>⚙️ Настройки приложения</h3>
+        <button class="modal-close-x" id="modal-x">✕</button>
+      </div>
+
+      <div class="modal-content-scroll">
+        <details class="spoiler" open>
+          <summary class="spoiler-title">
+            <span>🗺️ Режим загрузки карты</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body">
+            <div class="work-modes-group">
+              <label class="mode-card">
+                <input type="radio" name="app-work-mode" value="manual" checked>
+                <div class="mode-card-content">
+                  <div class="mode-card-header">
+                    <span class="mode-name">Полностью ручной</span>
+                    <span class="mode-badge badge-eco">Минимум API</span>
+                  </div>
+                  <p class="mode-desc">Работает исключительно растровая карта на любых масштабах. Полигоны загружаются строго по клику или наведению.</p>
+                </div>
+              </label>
+
+              <label class="mode-card">
+                <input type="radio" name="app-work-mode" value="hybrid">
+                <div class="mode-card-content">
+                  <div class="mode-card-header">
+                    <span class="mode-name">Гибридный</span>
+                    <span class="mode-badge badge-mid">Средний расход API</span>
+                  </div>
+                  <p class="mode-desc">На общем плане отображаются легкие растровые контуры, а при приближении автоматически подгружаются векторные объекты.</p>
+                </div>
+              </label>
+
+              <label class="mode-card">
+                <input type="radio" name="app-work-mode" value="auto">
+                <div class="mode-card-content">
+                  <div class="mode-card-header">
+                    <span class="mode-name">Полностью автоматический</span>
+                    <span class="mode-badge badge-max">Максимум API</span>
+                  </div>
+                  <p class="mode-desc">Объекты загружаются автоматически во всём поле видимости на любых масштабах.</p>
+                </div>
+              </label>
+            </div>
+          </div>
+        </details>
+
+        <details class="spoiler" open>
+          <summary class="spoiler-title">
+            <span>🎯 Автоматическая загрузка объектов</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body toggles-list">
+            <label class="toggle-item">
+              <div>
+                <span style="font-weight:600; display:block;">Автозагрузка по удержанию / наведению</span>
+                <small class="hint-text" style="margin:2px 0 0;">Загружает объект при удержании центра перекрестия или курсора дольше 1 секунды.</small>
+              </div>
+              <input type="checkbox" id="toggle-auto-hover">
+              <span class="toggle-switch"></span>
+            </label>
+          </div>
+        </details>
+
+        <details class="spoiler" id="spoiler-keys">
+          <summary class="spoiler-title">
+            <span>🔑 API Ключи Wikimapia (<span id="keys-count">0</span>)</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body">
+            <!-- Кнопки перехода на сайт, пакетной вставки и инструкции -->
+            <div class="key-tools-row">
+              <a href="https://wikimapia.org/api/?action=my_keys" target="_blank" rel="noopener noreferrer" class="key-tool-btn">🔗 Получить ключ ↗</a>
+              <button type="button" id="btn-paste-keys" class="key-tool-btn">📋 Вставить из буфера</button>
+              <button type="button" id="btn-keys-guide" class="key-tool-btn">📖 Инструкция</button>
+            </div>
+
+            <div id="keys-list" class="keys-list"></div>
+            
+            <div class="key-add-row">
+              <input type="text" id="new-key-input" placeholder="Вставьте API ключ или пачку ключей" class="styled-input">
+              <button id="btn-add-key" class="btn btn-primary">+ Добавить</button>
+            </div>
+            <small class="hint-text">Кликните на ключ в списке, чтобы сделать его активным. Лимиты сбрасываются в полночь по тихоокеанскому времени (PT).</small>
+          </div>
+        </details>
+
+        <details class="spoiler">
+          <summary class="spoiler-title">
+            <span>👁️ Видимость элементов интерфейса</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body toggles-list">
+            <label class="toggle-item">
+              <span>Верхняя плашка статуса</span>
+              <input type="checkbox" id="toggle-ui-status" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <span>Счетчик запросов (лимит ключа)</span>
+              <input type="checkbox" id="toggle-ui-limit" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <span>Нижняя кнопка-подсказка</span>
+              <input type="checkbox" id="toggle-ui-pill" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <span>Кнопки масштаба карты (+ / -)</span>
+              <input type="checkbox" id="toggle-ui-zoom" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <span>Список слоёв карт</span>
+              <input type="checkbox" id="toggle-ui-layers" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <span>Кнопка поиска</span>
+              <input type="checkbox" id="toggle-ui-search" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <span>Кнопка смены режима (палец / перекрестие)</span>
+              <input type="checkbox" id="toggle-ui-mode" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <span>Кнопка «Скачать область»</span>
+              <input type="checkbox" id="toggle-ui-precache" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <span>Кнопка «Моя геопозиция»</span>
+              <input type="checkbox" id="toggle-ui-location" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <span>Кнопка смены темы</span>
+              <input type="checkbox" id="toggle-ui-theme" checked>
+              <span class="toggle-switch"></span>
+            </label>
+          </div>
+        </details>
+
+        <details class="spoiler">
+          <summary class="spoiler-title">
+            <span>🎨 Внешний вид контуров</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body">
+            <div class="style-group">
+              <div class="style-group-header">
+                <span class="style-group-title">📐 Векторные контуры</span>
+                <button id="btn-reset-vector-style" type="button" class="btn-link">Сброс</button>
+              </div>
+
+              <div class="style-row">
+                <label for="vec-stroke-color">Цвет границ</label>
+                <div class="color-input-wrap">
+                  <input type="color" id="vec-stroke-color" value="#f97316">
+                  <span class="color-val" id="vec-stroke-color-val">#f97316</span>
+                </div>
+              </div>
+
+              <div class="style-row">
+                <label for="vec-stroke-width">Толщина границы: <b id="vec-stroke-width-val">1.5 px</b></label>
+                <input type="range" id="vec-stroke-width" min="0.5" max="6" step="0.5" value="1.5" class="styled-range">
+              </div>
+
+              <div class="style-row">
+                <label for="vec-fill-color">Цвет заливки</label>
+                <div class="color-input-wrap">
+                  <input type="color" id="vec-fill-color" value="#fb923c">
+                  <span class="color-val" id="vec-fill-color-val">#fb923c</span>
+                </div>
+              </div>
+
+              <div class="style-row">
+                <label for="vec-fill-opacity">Прозрачность заливки: <b id="vec-fill-opacity-val">18%</b></label>
+                <input type="range" id="vec-fill-opacity" min="0" max="80" step="2" value="18" class="styled-range">
+              </div>
+
+              <div class="style-row">
+                <label for="vec-hover-color">Цвет наведения / прицела</label>
+                <div class="color-input-wrap">
+                  <input type="color" id="vec-hover-color" value="#facc15">
+                  <span class="color-val" id="vec-hover-color-val">#facc15</span>
+                </div>
+              </div>
+
+              <div class="style-row">
+                <label for="vec-sel-color">Цвет выбранного объекта</label>
+                <div class="color-input-wrap">
+                  <input type="color" id="vec-sel-color" value="#ef4444">
+                  <span class="color-val" id="vec-sel-color-val">#ef4444</span>
+                </div>
+              </div>
+            </div>
+
+            <hr class="style-divider">
+
+            <div class="style-group">
+              <div class="style-group-header">
+                <span class="style-group-title">🗺️ Растровые контуры (тайлы)</span>
+                <button id="btn-reset-raster-style" type="button" class="btn-link">Сброс</button>
+              </div>
+
+              <div class="style-row">
+                <label for="rast-opacity">Прозрачность: <b id="rast-opacity-val">100%</b></label>
+                <input type="range" id="rast-opacity" min="10" max="100" step="5" value="100" class="styled-range">
+              </div>
+
+              <div class="style-row">
+                <label for="rast-contrast">Контрастность: <b id="rast-contrast-val">240%</b></label>
+                <input type="range" id="rast-contrast" min="50" max="350" step="10" value="240" class="styled-range">
+              </div>
+
+              <div class="style-row">
+                <label for="rast-saturate">Насыщенность: <b id="rast-saturate-val">300%</b></label>
+                <input type="range" id="rast-saturate" min="0" max="350" step="10" value="300" class="styled-range">
+              </div>
+
+              <div class="style-row">
+                <label for="rast-brightness">Яркость: <b id="rast-brightness-val">100%</b></label>
+                <input type="range" id="rast-brightness" min="50" max="200" step="5" value="100" class="styled-range">
+              </div>
+
+              <label class="toggle-item" style="margin-top: 8px;">
+                <span>Микро-обводка (Drop-Shadow)</span>
+                <input type="checkbox" id="rast-shadow" checked>
+                <span class="toggle-switch"></span>
+              </label>
+
+              <label class="toggle-item" style="margin-top: 8px;">
+                <span>Инвертировать цвета (негатив)</span>
+                <input type="checkbox" id="rast-invert">
+                <span class="toggle-switch"></span>
+              </label>
+            </div>
+          </div>
+        </details>
+
+        <details class="spoiler">
+          <summary class="spoiler-title">
+            <span>🌐 Сеть и резервная копия</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body">
+            <div class="form-group">
+              <label for="net-mode">Режим отправки запросов</label>
+              <select id="net-mode" class="styled-select">
+                <option value="direct">Напрямую (рекомендуется для WebView / APK)</option>
+                <option value="auto">Авто (напрямую, при блокировке — прокси)</option>
+                <option value="proxy">Всегда через CORS-прокси</option>
+              </select>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px;">
+              <button id="btn-export-db" class="btn btn-secondary" style="width: 100%; text-align: center;">💾 Экспорт базы Wikimapia в JSON (Бэкап)</button>
+              <button id="btn-import-db-trigger" class="btn btn-secondary" style="width: 100%; text-align: center;">📂 Импорт базы Wikimapia из JSON</button>
+              <input type="file" id="input-import-file" accept=".json" style="display: none;">
+
+              <button id="btn-clear-tiles" class="btn btn-secondary" style="width: 100%; text-align: center; margin-top: 6px;">🗺️ Очистить кэш подложек карт (освободить память)</button>
+              <button id="btn-clear-all" class="btn btn-danger-outline" style="width: 100%; text-align: center;">💥 Полная очистка всего кэша (включая объекты)</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="modal-actions">
+        <button id="modal-cancel" class="btn btn-secondary">Закрыть</button>
+        <button id="modal-save" class="btn btn-primary">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="js/leaflet.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/cache.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/loader.js"></script>
+  <script src="js/view.js"></script>
+  <script src="js/picker.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+
+
+  <div id="modal-keys-guide" class="modal-overlay">
+    <div class="modal-box modal-box-large">
+      <div class="modal-header">
+        <h3>📖 Инструкция: получение ключей</h3>
+        <button class="modal-close-x" id="keys-guide-x">✕</button>
+      </div>
+      <div class="modal-content-scroll guide-content">
+        <ol class="guide-steps">
+          <li>
+            <b>Перейдите по ссылке</b>: откройте <a href="https://wikimapia.org/api/?action=my_keys" target="_blank" rel="noopener noreferrer" class="link-colored">wikimapia.org/api/?action=my_keys ↗</a> и авторизуйтесь (или зарегистрируйтесь на Wikimapia).
+          </li>
+          <li>
+            <b>Генерация</b>: в нижней части страницы нажмите кнопку <code>Create new key</code>.
+          </li>
+          <li>
+            <b>Согласие</b>: поставьте галочку <code>I have read Wikimapia Terms of Service</code>.
+          </li>
+          <li>
+            <b>Сайт</b>: в поле <i>site</i> вбейте любой произвольный текст или адрес (например, <code>myapp</code>, <code>test</code> или <code>localhost</code>).
+          </li>
+          <li>
+            <b>Завершение</b>: нажмите кнопку <code>I accept, Create API KEY</code>.
+          </li>
+        </ol>
+
+        <div class="guide-tip-box">
+          <div class="guide-tip-title">💡 Быстрое добавление сразу многих ключей:</div>
+          <p>
+            На странице Wikimapia вы можете нажать кнопку и создать сразу несколько ключей подряд (например, 5–10 штук).
+          </p>
+          <p>
+            После этого <b>выделите весь текст страницы</b> (комбинация <b>Ctrl+A</b> на компьютере или долгое нажатие и «Выбрать всё» на смартфоне) и скопируйте его (<b>Ctrl+C</b>).
+          </p>
+          <p>
+            Затем нажмите в приложении кнопку <b>«📋 Вставить из буфера»</b>. Приложение само найдёт среди скопированного текста все ключи и добавит их по отдельности!
+          </p>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <a href="https://wikimapia.org/api/?action=my_keys" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">🔗 Открыть Wikimapia ↗</a>
+        <button id="keys-guide-close" class="btn btn-primary">Понятно</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно вставки текста для гарантированного извлечения ключей -->
+  <div id="modal-paste-keys" class="modal-overlay">
+    <div class="modal-box modal-box-large">
+      <div class="modal-header">
+        <h3>📋 Вставка текста с ключами</h3>
+        <button class="modal-close-x" id="paste-keys-x">✕</button>
+      </div>
+      <p class="modal-desc">Вставьте скопированный со страницы Wikimapia текст целиком (или отдельные ключи). Скрипт распознает и добавит все ключи автоматически.</p>
+      <div class="form-group">
+        <textarea id="paste-keys-textarea" class="styled-input" rows="8" placeholder="Вставьте сюда любой скопированный фрагмент или всю страницу сайта..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button id="paste-keys-cancel" class="btn btn-secondary">Отмена</button>
+        <button id="paste-keys-submit" class="btn btn-primary">🔍 Распознать и добавить</button>
+      </div>
+    </div>
+  </div>
+
+
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('SW зарегистрирован:', reg.scope))
+          .catch(err => console.warn('Ошибка SW:', err));
+      });
+    }
+  </script>
+</body>
+</html>
