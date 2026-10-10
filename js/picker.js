@@ -1,10 +1,10 @@
 (function () {
   const WM = window.WM, C = WM.config, G = WM.geo;
-  // Было: let map, mode = 'tap', ...
   let map, mode = 'cross', raf = 0, hoverObj = null, hoverAlts = [];
   let isFetchingPoint = false;
 
   let holdTimer = null;
+  let touchPreviewTimer = null;
   let lastAnchorPix = null;
   let lastAnchorLatLng = null;
 
@@ -123,8 +123,13 @@
       if (hits.length) {
         if (autoOpen) {
           select(hits[0], hits.slice(0, 8));
-        } else {
+        } else if (mode === 'cross') {
           updateCross();
+        } else {
+          hoverAlts = hits;
+          hoverObj = hits[0];
+          WM.view.setHover(hoverObj);
+          WM.ui.setPill(hoverObj, hits.length);
         }
       } else if (autoOpen) {
         WM.ui.closeSheet();
@@ -192,10 +197,8 @@
       const hits = hitTest(center, { strictScreenFit: true });
 
       if (hits.length) {
-        // Полигон уже был загружен в память — открываем карточку
         select(hits[0], hits.slice(0, 8));
       } else {
-        // Полигоны еще не загружены — первый тап только прогружает геометрию
         await ensurePointLoaded(center, false, true);
       }
       return;
@@ -214,6 +217,7 @@
 
       container.addEventListener('touchstart', e => {
         lastTouchTime = Date.now();
+        if (touchPreviewTimer) { clearTimeout(touchPreviewTimer); touchPreviewTimer = null; }
 
         if (e.touches.length !== 1) {
           if (pendingTapTimer) { clearTimeout(pendingTapTimer); pendingTapTimer = null; }
@@ -222,8 +226,8 @@
             map.dragging.enable();
           }
           resetHoldTimer();
-          touchMoved = true; // Отмечаем, что идет жест масштабирования несколькими пальцами
-          suppressClickUntil = Date.now() + 400; // Подавляем случайный тап при отпускании пальцев
+          touchMoved = true;
+          suppressClickUntil = Date.now() + 400;
           return;
         }
 
@@ -261,7 +265,20 @@
 
         lastAnchorPix = pt;
         lastAnchorLatLng = map.containerPointToLatLng(pt);
+
+        // Интерактивная подсветка и вывод подсказки при удержании пальца на прогруженном объекте
         if (mode !== 'cross') {
+          const hits = hitTest(lastAnchorLatLng, { strictScreenFit: false });
+          if (hits.length > 0) {
+            touchPreviewTimer = setTimeout(() => {
+              if (!touchMoved) {
+                hoverAlts = hits;
+                hoverObj = hits[0];
+                WM.view.setHover(hoverObj);
+                WM.ui.setPill(hoverObj, hits.length);
+              }
+            }, 180);
+          }
           startHoldTimer(lastAnchorLatLng);
         }
       }, { passive: false });
@@ -303,10 +320,18 @@
 
         if (touchStartPos && pt.distanceTo(touchStartPos) > (C.TAP_MAX_MOVE_PX || 8)) {
           touchMoved = true;
+          if (touchPreviewTimer) { clearTimeout(touchPreviewTimer); touchPreviewTimer = null; }
           resetHoldTimer();
           if (pendingTapTimer) {
             clearTimeout(pendingTapTimer);
             pendingTapTimer = null;
+          }
+          // При сдвиге карты сбрасываем подсветку
+          if (mode !== 'cross' && hoverObj) {
+            hoverObj = null;
+            hoverAlts = [];
+            WM.view.setHover(null);
+            WM.ui.setPill(null);
           }
         }
 
@@ -317,6 +342,7 @@
 
       container.addEventListener('touchend', e => {
         lastTouchTime = Date.now();
+        if (touchPreviewTimer) { clearTimeout(touchPreviewTimer); touchPreviewTimer = null; }
         resetHoldTimer();
         lastAnchorPix = null;
 
@@ -374,6 +400,7 @@
 
       container.addEventListener('touchcancel', () => {
         lastTouchTime = Date.now();
+        if (touchPreviewTimer) { clearTimeout(touchPreviewTimer); touchPreviewTimer = null; }
         if (isDoubleTapDragging) {
           isDoubleTapDragging = false;
           map.dragging.enable();
@@ -412,11 +439,31 @@
             mouseDownInfo.hasMoved = true;
           }
         }
+
+        // Подсветка курсором мыши в режиме свободного перемещения
         if (mode !== 'cross') {
-          const pt = L.point(e.clientX, e.clientY);
           const rect = container.getBoundingClientRect();
-          const localPt = L.point(pt.x - rect.left, pt.y - rect.top);
-          onPointerMoveCheck(localPt, map.containerPointToLatLng(localPt));
+          const localPt = L.point(e.clientX - rect.left, e.clientY - rect.top);
+          const latlng = map.containerPointToLatLng(localPt);
+
+          const hits = hitTest(latlng, { strictScreenFit: false });
+          if (hits.length > 0) {
+            hoverAlts = hits;
+            hoverObj = hits[0];
+            WM.view.setHover(hoverObj);
+            WM.ui.setPill(hoverObj, hits.length);
+            container.style.cursor = 'pointer';
+          } else {
+            if (hoverObj) {
+              hoverObj = null;
+              hoverAlts = [];
+              WM.view.setHover(null);
+              WM.ui.setPill(null);
+              container.style.cursor = '';
+            }
+          }
+
+          onPointerMoveCheck(localPt, latlng);
         }
       });
 
@@ -458,6 +505,13 @@
       container.addEventListener('mouseleave', () => {
         resetHoldTimer();
         lastAnchorPix = null;
+        if (mode !== 'cross' && hoverObj) {
+          hoverObj = null;
+          hoverAlts = [];
+          WM.view.setHover(null);
+          WM.ui.setPill(null);
+          container.style.cursor = '';
+        }
       });
     },
     select,
@@ -470,10 +524,14 @@
       mode = m;
       resetHoldTimer();
       lastAnchorPix = null;
+      hoverObj = null;
+      hoverAlts = [];
       WM.view.setHover(null);
+      WM.ui.setPill(null);
+      if (map) map.getContainer().style.cursor = '';
+
       const ch = document.getElementById('crosshair');
       if (ch) ch.hidden = m !== 'cross';
-      WM.ui.setPill(null);
 
       const btn = document.getElementById('btn-mode-toggle');
       if (btn) {
@@ -492,7 +550,6 @@
         ensurePointLoaded(map.getCenter(), true, true);
       }
     },
-    // Метод для загрузки объектов вокруг перекрестия по кнопке сброса
     async fetchAtCrosshair() {
       const center = map.getCenter();
       return await ensurePointLoaded(center, false, true);
