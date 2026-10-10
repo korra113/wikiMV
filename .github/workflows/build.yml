@@ -18,28 +18,34 @@ jobs:
         with:
           node-version: 20
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v5
+      # Используем Java 21, требуемую для Capacitor 7
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: '21'
 
+      # Копируем веб-ассеты во временную папку www
       - name: Prepare Web Assets
         run: |
           mkdir -p www
-          for item in *; do
-            if [ "$item" != "www" ]; then
-              cp -r "$item" www/
-            fi
-          done
+          cp -r index.html manifest.json sw.js icon-*.png css js www/ 2>/dev/null || true
+          # Если есть другие файлы или папки (например, images):
+          cp -r images www/ 2>/dev/null || true
 
       - name: Setup Project and Capacitor
         run: |
-          # Создаем package.json напрямую, чтобы избежать ошибки с заглавными буквами в wikiMV
           echo '{"name": "wikimapia-app", "version": "1.0.0"}' > package.json
           npm install @capacitor/core @capacitor/cli @capacitor/android
           npx cap init "Wikimapia Viewer" "com.wikimapia.viewer" --web-dir www
           npx cap add android
+
+          # Разрешаем HTTP-трафик для тайлов и API Wikimapia
+          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
+
+          # Добавляем разрешения для кнопки геолокации
+          sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-feature android:name="android.hardware.location.gps" />' android/app/src/main/AndroidManifest.xml
+
           npx cap sync android
 
       - name: Build Debug APK
