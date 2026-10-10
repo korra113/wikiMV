@@ -917,7 +917,24 @@ body.sheet-open .hover-pill {
 .topbar-action-btn.warning-banner:hover {
   background: #b45309;
 }
+/* Заливка пустоты под шторкой при вытягивании вверх */
+.sheet::after {
+  content: "";
+  position: absolute;
+  top: calc(100% - 1px); /* -1px устраняет микрозазор субпиксельного сглаживания */
+  left: 0;
+  right: 0;
+  height: 120vh; /* с запасом перекрывает всю высоту экрана при подъеме */
+  background: var(--bg-glass-strong);
+  pointer-events: none;
+}
 
+/* Отключаем псевдоэлемент на десктопе, где шторка превращается в боковую панель */
+@media (min-width: 800px) {
+  .sheet::after {
+    display: none !important;
+  }
+}
 @keyframes pulseTopWarnBtn {
   0%, 100% {
     box-shadow: 0 4px 14px rgba(217, 119, 6, 0.45);
