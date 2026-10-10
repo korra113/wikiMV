@@ -34,7 +34,13 @@ jobs:
       - name: Setup Project and Capacitor
         run: |
           echo '{"name": "wikimapia-app", "version": "1.0.0"}' > package.json
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets
+
+          # Создаем структуру ассетов для генератора иконок
+          mkdir -p assets
+          cp icon-512.png assets/icon-only.png
+          cp icon-512.png assets/icon-foreground.png
+          cp icon-512.png assets/icon.png
 
           # Конфигурация Capacitor
           cat << 'EOF' > capacitor.config.json
@@ -51,6 +57,31 @@ jobs:
           EOF
 
           npx cap add android
+
+          # Генерируем все иконки (включая адаптивные под все версии Android)
+          npx capacitor-assets generate --android --iconBackgroundColor "#111827"
+
+          # --- ВОЗВРАТ СТАТУСБАРА И НАСТРОЙКА ЕГО ЦВЕТА ---
+          sed -i '/<style name="AppTheme"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:fitsSystemWindows">true</item>\n        <item name="android:statusBarColor">#111827</item>\n        <item name="android:windowLightStatusBar">false</item>\n        <item name="android:navigationBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
+
+          sed -i '/<style name="AppTheme.NoActionBarLaunch"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:statusBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
+
+          # --- РАЗРЕШЕНИЯ В ANDROIDMANIFEST ---
+          sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true"/' android/app/src/main/AndroidManifest.xml
+          sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-feature android:name="android.hardware.location.gps" />' android/app/src/main/AndroidManifest.xml
+
+          # --- УСТРАНЕНИЕ КОНФЛИКТА ДУБЛИРУЮЩИХСЯ КЛАССОВ KOTLIN ---
+          cat << 'EOF' >> android/build.gradle
+
+          allprojects {
+              configurations.all {
+                  exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+                  exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+              }
+          }
+          EOF
+
+          npx cap sync android
 
           # --- 1. НАРЕЗКА ИКОНОК ИЗ icon-512.png (средствами Java 21) ---
           if [ -f "icon-512.png" ]; then
