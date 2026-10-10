@@ -180,6 +180,13 @@
   async function handleIntentionalTap(clickedLatLng) {
     if (Date.now() < suppressClickUntil) return;
 
+    // Если шторка открыта в половинчатом виде — одиночный тап по карте закрывает её
+    const sheet = document.getElementById('sheet');
+    if (sheet && sheet.classList.contains('open') && !sheet.classList.contains('full')) {
+      WM.ui.closeSheet();
+      return;
+    }
+
     if (mode === 'cross') {
       const center = map.getCenter();
       const hits = hitTest(center, { strictScreenFit: true });
@@ -215,6 +222,8 @@
             map.dragging.enable();
           }
           resetHoldTimer();
+          touchMoved = true; // Отмечаем, что идет жест масштабирования несколькими пальцами
+          suppressClickUntil = Date.now() + 400; // Подавляем случайный тап при отпускании пальцев
           return;
         }
 
