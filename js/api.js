@@ -201,6 +201,10 @@
     get keys() { return [...keyList]; },
     get activeKey() { return keyList[activeIndex] || 'example'; },
     get activeIndex() { return activeIndex; },
+    // ПРОВЕРКА: есть ли пользовательские ключи (отличные от example)
+    hasCustomKey() {
+      return keyList.some(k => k && k.toLowerCase() !== 'example');
+    },
     netMode: store.get('wm_net') || 'auto',
     store,
 
