@@ -1,6 +1,7 @@
 (function () {
   const WM = window.WM, C = WM.config, G = WM.geo;
-  let map, mode = 'tap', raf = 0, hoverObj = null, hoverAlts = [];
+  // Было: let map, mode = 'tap', ...
+  let map, mode = 'cross', raf = 0, hoverObj = null, hoverAlts = [];
   let isFetchingPoint = false;
 
   let holdTimer = null;
