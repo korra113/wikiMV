@@ -156,7 +156,8 @@
       state.blockedUntil = getMidnightPTTimestamp();
     }
 
-    const q = Object.entries({ ...params, format: 'json', language: 'ru', key: curKey })
+    // Параметры params (включая language) имеют приоритет над дефолтным language: 'ru'
+    const q = Object.entries({ format: 'json', language: 'ru', ...params, key: curKey })
       .map(([k, v]) => k + '=' + encodeURIComponent(v).replace(/%2C/g, ',')).join('&');
 
     let lastErr;
@@ -354,20 +355,35 @@
       }
     },
 
-    async place(id) {
-      if (detailsMem.has(id)) return detailsMem.get(id);
-      const offline = await WM.cache.getDetail(id);
-      if (offline) { detailsMem.set(id, offline); return offline; }
-      if (inflight.has(id)) return inflight.get(id);
+    async place(id, lang = 'ru') {
+      const cacheKey = `${id}:${lang}`;
+      if (detailsMem.has(cacheKey)) {
+        return detailsMem.get(cacheKey);
+      }
 
-      const p = request({ function: 'place.getbyid', id, data_blocks: 'main,photos,comments,location' })
+      const offline = await WM.cache.getDetail(id, lang);
+      if (offline) {
+        detailsMem.set(cacheKey, offline);
+        return offline;
+      }
+
+      if (inflight.has(cacheKey)) return inflight.get(cacheKey);
+
+      const p = request({ 
+        function: 'place.getbyid', 
+        id, 
+        language: lang, 
+        data_blocks: 'main,photos,comments,location,translate' 
+      })
         .then(d => {
-          detailsMem.set(id, d);
-          WM.cache.saveDetail(id, d);
+          detailsMem.set(cacheKey, d);
+          WM.cache.saveDetail(id, d, lang);
           if (detailsMem.size > C.DETAIL_CACHE_MAX) detailsMem.delete(detailsMem.keys().next().value);
           return d;
-        }).finally(() => inflight.delete(id));
-      inflight.set(id, p);
+        })
+        .finally(() => inflight.delete(cacheKey));
+
+      inflight.set(cacheKey, p);
       return p;
     }
   };
