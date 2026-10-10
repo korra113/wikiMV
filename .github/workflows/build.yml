@@ -36,13 +36,13 @@ jobs:
           echo '{"name": "wikimapia-app", "version": "1.0.0"}' > package.json
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets
 
-          # Создаем структуру ассетов для генератора иконок
+          # Подготовка исходников иконки для генератора
           mkdir -p assets
           cp icon-512.png assets/icon-only.png
           cp icon-512.png assets/icon-foreground.png
           cp icon-512.png assets/icon.png
 
-          # Конфигурация Capacitor
+          # Конфигурация Capacitor (cleartext: true уже включает HTTP-трафик)
           cat << 'EOF' > capacitor.config.json
           {
             "appId": "com.wikimapia.viewer",
@@ -57,6 +57,45 @@ jobs:
           EOF
 
           npx cap add android
+
+          # Генерация всех иконок под Android
+          npx capacitor-assets generate --android --iconBackgroundColor "#111827"
+
+          # Корректное добавление разрешений геолокации в AndroidManifest.xml без повреждения XML
+          python3 - << 'EOF'
+          path = "android/app/src/main/AndroidManifest.xml"
+          with open(path, "r", encoding="utf-8") as f:
+              content = f.read()
+
+          permissions = """
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-feature android:name="android.hardware.location.gps" />
+          </manifest>"""
+
+          if "</manifest>" in content and "ACCESS_FINE_LOCATION" not in content:
+              content = content.replace("</manifest>", permissions)
+
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          EOF
+
+          # Настройка цветов статусбара в styles.xml
+          sed -i '/<style name="AppTheme"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:fitsSystemWindows">true</item>\n        <item name="android:statusBarColor">#111827</item>\n        <item name="android:windowLightStatusBar">false</item>\n        <item name="android:navigationBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
+          sed -i '/<style name="AppTheme.NoActionBarLaunch"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:statusBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
+
+          # Исключение дублирующихся зависимостей Kotlin
+          cat << 'EOF' >> android/build.gradle
+
+          allprojects {
+              configurations.all {
+                  exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+                  exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+              }
+          }
+          EOF
+
+          npx cap sync android
 
           # Генерируем все иконки (включая адаптивные под все версии Android)
           npx capacitor-assets generate --android --iconBackgroundColor "#111827"
