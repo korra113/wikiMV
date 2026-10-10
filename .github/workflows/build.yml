@@ -52,24 +52,56 @@ jobs:
 
           npx cap add android
 
-          # --- 1. НАРЕЗКА ИКОНОК ИЗ icon-512.png ---
+          # --- 1. НАРЕЗКА ИКОНОК ИЗ icon-512.png (средствами Java 21) ---
           if [ -f "icon-512.png" ]; then
-            RES="android/app/src/main/res"
-            for item in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-              density="${item%%:*}"
-              size="${item##*:}"
-              mkdir -p "$RES/mipmap-$density"
-              convert icon-512.png -resize "${size}x${size}" "$RES/mipmap-$density/ic_launcher.png"
-              convert icon-512.png -resize "${size}x${size}" "$RES/mipmap-$density/ic_launcher_round.png"
-            done
-            echo "Иконки успешно сгенерированы из icon-512.png"
+            cat << 'EOF' > ResizeIcons.java
+            import javax.imageio.ImageIO;
+            import java.awt.Graphics2D;
+            import java.awt.RenderingHints;
+            import java.awt.image.BufferedImage;
+            import java.io.File;
+
+            public class ResizeIcons {
+                public static void main(String[] args) throws Exception {
+                    File srcFile = new File("icon-512.png");
+                    if (!srcFile.exists()) return;
+                    BufferedImage src = ImageIO.read(srcFile);
+
+                    Object[][] targets = {
+                        {"mdpi", 48},
+                        {"hdpi", 72},
+                        {"xhdpi", 96},
+                        {"xxhdpi", 144},
+                        {"xxxhdpi", 192}
+                    };
+
+                    for (Object[] t : targets) {
+                        String dir = (String) t[0];
+                        int size = (Integer) t[1];
+
+                        BufferedImage scaled = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+                        Graphics2D g = scaled.createGraphics();
+                        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                        g.drawImage(src, 0, 0, size, size, null);
+                        g.dispose();
+
+                        File outDir = new File("android/app/src/main/res/mipmap-" + dir);
+                        outDir.mkdirs();
+                        ImageIO.write(scaled, "png", new File(outDir, "ic_launcher.png"));
+                        ImageIO.write(scaled, "png", new File(outDir, "ic_launcher_round.png"));
+                    }
+                    System.out.println("Все иконки успешно сгенерированы из icon-512.png!");
+                }
+            }
+          EOF
+            java ResizeIcons.java
+            rm -f ResizeIcons.java
           fi
 
           # --- 2. ВОЗВРАТ СТАТУСБАРА И НАСТРОЙКА ЕГО ЦВЕТА ---
-          # Убираем полноэкранный режим и красим статусбар и навбар в #111827 с белыми иконками
+          # Убираем полноэкранный режим и красим статусбар и навбар в #111827
           sed -i '/<style name="AppTheme"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:fitsSystemWindows">true</item>\n        <item name="android:statusBarColor">#111827</item>\n        <item name="android:windowLightStatusBar">false</item>\n        <item name="android:navigationBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
 
-          # Также для темы запуска (NoActionBarLaunch) отключаем фуллскрин:
           sed -i '/<style name="AppTheme.NoActionBarLaunch"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:statusBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
 
           # --- 3. РАЗРЕШЕНИЯ В ANDROIDMANIFEST ---
