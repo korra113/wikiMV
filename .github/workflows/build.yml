@@ -18,19 +18,17 @@ jobs:
         with:
           node-version: 20
 
-      # Используем Java 21, требуемую для Capacitor 7
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '21'
 
-      # Копируем веб-ассеты во временную папку www
+      # Подготовка веб-ассетов
       - name: Prepare Web Assets
         run: |
           mkdir -p www
           cp -r index.html manifest.json sw.js icon-*.png css js www/ 2>/dev/null || true
-          # Если есть другие файлы или папки (например, images):
           cp -r images www/ 2>/dev/null || true
 
       - name: Setup Project and Capacitor
@@ -40,11 +38,22 @@ jobs:
           npx cap init "Wikimapia Viewer" "com.wikimapia.viewer" --web-dir www
           npx cap add android
 
-          # Разрешаем HTTP-трафик для тайлов и API Wikimapia
+          # 1. Разрешаем HTTP-трафик для растровых тайлов и API Wikimapia
           sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
 
-          # Добавляем разрешения для кнопки геолокации
+          # 2. Добавляем права на геолокацию
           sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-feature android:name="android.hardware.location.gps" />' android/app/src/main/AndroidManifest.xml
+
+          # 3. Устраняем конфликт дублирующихся классов Kotlin (checkDebugDuplicateClasses)
+          cat << 'EOF' >> android/build.gradle
+
+          allprojects {
+              configurations.all {
+                  exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+                  exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+              }
+          }
+          EOF
 
           npx cap sync android
 
