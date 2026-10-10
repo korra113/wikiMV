@@ -59,7 +59,7 @@ html, body {
 #map {
   width: 100%;
   height: 100%;
-  z-index: 1;
+  z-index: auto;
 }
 
 [hidden] {
@@ -894,7 +894,40 @@ body.sheet-open .hover-pill {
 .topbar-action-btn:active {
   transform: scale(0.95);
 }
+/* Дополнительные стили для плашки в style.css */
+.topbar-action-btn {
+  max-width: calc(100vw - 36px);
+  line-height: 1.35;
+  text-align: center;
+}
 
+.topbar-action-btn u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Предупреждающий режим для первого запуска (без ключа) */
+.topbar-action-btn.warning-banner {
+  background: #d97706;
+  border-color: #fbbf24;
+  color: #ffffff;
+  animation: pulseTopWarnBtn 2.2s infinite ease-in-out;
+}
+
+.topbar-action-btn.warning-banner:hover {
+  background: #b45309;
+}
+
+@keyframes pulseTopWarnBtn {
+  0%, 100% {
+    box-shadow: 0 4px 14px rgba(217, 119, 6, 0.45);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow: 0 6px 22px rgba(217, 119, 6, 0.85);
+    transform: translateY(-2px);
+  }
+}
 @keyframes pulseTopBtn {
   0%, 100% {
     box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
@@ -1408,16 +1441,32 @@ body.sheet-open .hover-pill {
 .leaflet-top.leaflet-right {
   top: env(safe-area-inset-top, 0px);
   right: env(safe-area-inset-right, 0px);
-  z-index: 2500;
+  z-index: 2500 !important;
 }
+
 .leaflet-control-layers {
   z-index: 2500 !important;
   box-shadow: var(--shadow-float) !important;
+  background: var(--bg-glass-strong) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
 }
+
 .leaflet-control-layers-expanded {
   z-index: 2500 !important;
   box-shadow: var(--shadow-float) !important;
+  background: var(--bg-glass-strong) !important;
+  color: var(--text-main) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-md) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
+
+.leaflet-control-layers-expanded label {
+  color: var(--text-main) !important;
+}
+
 [data-theme="dark"] .leaflet-control-layers-expanded {
   background: var(--bg-glass-strong) !important;
   color: var(--text-main) !important;
