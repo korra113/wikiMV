@@ -928,7 +928,46 @@ body.sheet-open .hover-pill {
   background: var(--bg-glass-strong);
   pointer-events: none;
 }
+.sheet-langs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 0 18px 8px;
+  scrollbar-width: none;
+}
+.sheet-langs::-webkit-scrollbar {
+  display: none;
+}
+.sheet-langs:empty {
+  display: none;
+}
 
+.lang-chip {
+  flex: none;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  border-radius: 12px;
+  padding: 3px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.lang-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-main);
+}
+.lang-chip.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+  font-weight: 700;
+}
 /* Отключаем псевдоэлемент на десктопе, где шторка превращается в боковую панель */
 @media (min-width: 800px) {
   .sheet::after {
