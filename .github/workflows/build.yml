@@ -1,50 +1,52 @@
-name: Build Offline APK
-
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Setup Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '21'
-
-      # Подготовка веб-ассетов
-      - name: Prepare Web Assets
-        run: |
-          mkdir -p www
-          cp -r index.html manifest.json sw.js icon-*.png css js www/ 2>/dev/null || true
-          cp -r images www/ 2>/dev/null || true
-
-      - name: Setup Project and Capacitor
+- name: Setup Project and Capacitor
         run: |
           echo '{"name": "wikimapia-app", "version": "1.0.0"}' > package.json
           npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "Wikimapia Viewer" "com.wikimapia.viewer" --web-dir www
+
+          # Конфигурация Capacitor
+          cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.wikimapia.viewer",
+            "appName": "WikiMV",
+            "webDir": "www",
+            "backgroundColor": "#111827",
+            "server": {
+              "cleartext": true,
+              "androidScheme": "https"
+            }
+          }
+          EOF
+
           npx cap add android
 
-          # 1. Разрешаем HTTP-трафик для растровых тайлов и API Wikimapia
-          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
+          # --- 1. НАРЕЗКА ИКОНОК ИЗ icon-512.png ---
+          if [ -f "icon-512.png" ]; then
+            RES="android/app/src/main/res"
+            for item in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+              density="${item%%:*}"
+              size="${item##*:}"
+              mkdir -p "$RES/mipmap-$density"
+              convert icon-512.png -resize "${size}x${size}" "$RES/mipmap-$density/ic_launcher.png"
+              convert icon-512.png -resize "${size}x${size}" "$RES/mipmap-$density/ic_launcher_round.png"
+            done
+            echo "Иконки успешно сгенерированы из icon-512.png"
+          fi
 
-          # 2. Добавляем права на геолокацию
+          # --- 2. ВОЗВРАТ СТАТУСБАРА И НАСТРОЙКА ЕГО ЦВЕТА ---
+          # Убираем полноэкранный режим и красим статусбар и навбар в #111827 с белыми иконками
+          sed -i '/<style name="AppTheme"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:fitsSystemWindows">true</item>\n        <item name="android:statusBarColor">#111827</item>\n        <item name="android:windowLightStatusBar">false</item>\n        <item name="android:navigationBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
+
+          # Также для темы запуска (NoActionBarLaunch) отключаем фуллскрин:
+          sed -i '/<style name="AppTheme.NoActionBarLaunch"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:statusBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
+
+          # --- 3. РАЗРЕШЕНИЯ В ANDROIDMANIFEST ---
+          # Разрешаем HTTP и аппаратное ускорение Leaflet
+          sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true"/' android/app/src/main/AndroidManifest.xml
+
+          # Разрешения геопозиции
           sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-feature android:name="android.hardware.location.gps" />' android/app/src/main/AndroidManifest.xml
 
-          # 3. Устраняем конфликт дублирующихся классов Kotlin (checkDebugDuplicateClasses)
+          # --- 4. УСТРАНЕНИЕ КОНФЛИКТА ДУБЛИРУЮЩИХСЯ КЛАССОВ KOTLIN ---
           cat << 'EOF' >> android/build.gradle
 
           allprojects {
@@ -56,15 +58,3 @@ jobs:
           EOF
 
           npx cap sync android
-
-      - name: Build Debug APK
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Wikimapia-Offline-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
