@@ -82,14 +82,14 @@
   // Синхронизация растрового слоя в зависимости от выбранного режима работы
   function syncOverlayMode() {
     const mode = WM.ui ? WM.ui.getWorkMode() : 'hybrid';
-    if (mode === 'manual') {
-      // В ручном режиме растровые контуры активны всегда
+    
+    if (mode === 'manual' || mode === 'nakarte') {
+      // В ручном режиме и режиме Nakarte растровые контуры активны всегда
       if (!map.hasLayer(wmContours)) map.addLayer(wmContours);
     } else if (mode === 'auto') {
-      // В полностью автоматическом режиме вектор покрывает карту; растр отключаем для избежания дублирования
       if (map.hasLayer(wmContours)) map.removeLayer(wmContours);
     } else {
-      // Гибридный режим: растр на дальних масштабах (< VECTOR_ZOOM), скрыт на близких
+      // Гибридный режим
       if (map.getZoom() >= C.VECTOR_ZOOM) {
         if (map.hasLayer(wmContours)) map.removeLayer(wmContours);
       } else {
