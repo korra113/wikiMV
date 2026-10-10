@@ -421,6 +421,11 @@
     const sheet = $('sheet');
     sheet.style.transform = '';
     sheet.classList.remove('open', 'full');
+    const expandBtn = $('sheet-expand');
+    if (expandBtn) {
+      expandBtn.textContent = '⤢';
+      expandBtn.title = 'Развернуть';
+    }
     document.body.classList.remove('sheet-open');
     cur = null;
     WM.view.setSelected(null);
@@ -571,13 +576,15 @@
     }, { passive: true });
   }
 
-  function initSheetSwipeDown() {
+function initSheetGestures() {
     const sheet = $('sheet');
     const handleArea = $('sheet-head');
     let startY = 0, curDeltaY = 0, isDraggingSheet = false;
 
     handleArea.addEventListener('touchstart', e => {
       if (e.touches.length !== 1) return;
+      // Не перехватываем жесты, если нажатие пришлось на кнопки закрытия или разворачивания
+      if (e.target.closest('.icon-btn')) return;
       startY = e.touches[0].clientY;
       curDeltaY = 0;
       isDraggingSheet = true;
@@ -587,8 +594,19 @@
     window.addEventListener('touchmove', e => {
       if (!isDraggingSheet) return;
       const dy = e.touches[0].clientY - startY;
-      if (dy > 0) {
-        curDeltaY = dy;
+      curDeltaY = dy;
+      const isFull = sheet.classList.contains('full');
+
+      if (isFull) {
+        if (dy < 0) {
+          // Легкое сопротивление, если тянут выше полного экрана
+          sheet.style.transform = `translateY(${dy * 0.18}px)`;
+        } else {
+          // Стягивание вниз из полноэкранного режима
+          sheet.style.transform = `translateY(${dy}px)`;
+        }
+      } else {
+        // В половинчатом режиме: смещение вверх или вниз за пальцем
         sheet.style.transform = `translateY(${dy}px)`;
       }
     }, { passive: true });
@@ -597,13 +615,48 @@
       if (!isDraggingSheet) return;
       isDraggingSheet = false;
       sheet.style.transition = '';
-      if (curDeltaY > 80) {
-        closeSheet();
+
+      const isFull = sheet.classList.contains('full');
+      const expandBtn = $('sheet-expand');
+      const winH = window.innerHeight;
+
+      if (isFull) {
+        if (curDeltaY > Math.max(240, winH * 0.38)) {
+          // Протянули далеко вниз — закрываем полностью
+          closeSheet();
+        } else if (curDeltaY > 70) {
+          // Потянули вниз на среднее расстояние — сворачиваем обратно в половину
+          sheet.style.transform = '';
+          sheet.classList.remove('full');
+          if (expandBtn) { expandBtn.textContent = '⤢'; expandBtn.title = 'Развернуть'; }
+        } else {
+          // Сдвиг недостаточный — возвращаем на полный экран
+          sheet.style.transform = '';
+        }
       } else {
-        sheet.style.transform = '';
+        if (curDeltaY < -60) {
+          // Потянули вверх — разворачиваем на весь экран
+          sheet.style.transform = '';
+          sheet.classList.add('full');
+          if (expandBtn) { expandBtn.textContent = '⤡'; expandBtn.title = 'Свернуть'; }
+        } else if (curDeltaY > 70) {
+          // Потянули вниз — закрываем
+          closeSheet();
+        } else {
+          // Сдвиг недостаточный — возвращаем в половину
+          sheet.style.transform = '';
+        }
       }
       curDeltaY = 0;
     }, { passive: true });
+
+    window.addEventListener('touchcancel', () => {
+      if (!isDraggingSheet) return;
+      isDraggingSheet = false;
+      sheet.style.transition = '';
+      sheet.style.transform = '';
+      curDeltaY = 0;
+    });
   }
 
   let searchSource = 'all';
@@ -889,6 +942,9 @@
       })));
       $('sheet-body').scrollTop = 0;
       $('sheet').style.transform = '';
+      $('sheet').classList.remove('full'); // Открываем новый объект изначально в половинчатом виде
+      const expandBtn = $('sheet-expand');
+      if (expandBtn) { expandBtn.textContent = '⤢'; expandBtn.title = 'Развернуть'; }
       $('sheet').classList.add('open'); document.body.classList.add('sheet-open');
       load(obj);
     },
@@ -973,7 +1029,11 @@
 
       $('tabs').onclick = e => { const t = e.target.dataset.tab; if (t) { tab = t; renderBody(); } };
       $('sheet-close').onclick = closeSheet;
-      $('sheet-expand').onclick = () => $('sheet').classList.toggle('full');
+      $('sheet-expand').onclick = () => {
+        const isFull = $('sheet').classList.toggle('full');
+        $('sheet-expand').textContent = isFull ? '⤡' : '⤢';
+        $('sheet-expand').title = isFull ? 'Свернуть' : 'Развернуть';
+      };
       $('hover-pill').onclick = () => WM.picker.openHover();
       $('lb-close').onclick = () => { $('lightbox').hidden = true; resetLbTransform(); };
 
@@ -988,7 +1048,7 @@
 
       initSearchUI();
       initLightboxGestures();
-      initSheetSwipeDown();
+      initSheetGestures();
 
       const onVecInput = () => {
         const cfg = readVectorInputs();
