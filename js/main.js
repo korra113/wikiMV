@@ -195,7 +195,7 @@
     }, e => alert('Ошибка геопозиции: ' + e.message), { enableHighAccuracy: true, timeout: 15000 });
   };
 
-  const savedMode = WM.api.store.get('wm_mode') || 'tap';
+  const savedMode = WM.api.store.get('wm_mode') || 'cross';
   WM.picker.setMode(savedMode);
 
   WM.view.render();
