@@ -194,21 +194,52 @@
     WM.api.store.set('wm_ui_vis', JSON.stringify(uiVis));
   }
 
-  function toggleTopGetKeyBtn(show) {
+  // Управление верхней плашкой-кнопкой (первый запуск / исчерпание лимитов)
+  function toggleTopGetKeyBtn(forceShowBlocked = false) {
     const btn = $('btn-get-key-top');
     if (!btn) return;
-    btn.hidden = !show || !uiVis.limit;
+
+    if (!uiVis.limit) {
+      btn.hidden = true;
+      return;
+    }
+
+    const hasKeys = WM.api.hasCustomKey ? WM.api.hasCustomKey() : WM.api.keys.some(k => k && k.toLowerCase() !== 'example');
+
+    // 1. Первый запуск: пользователь еще не добавил свои ключи
+    if (!hasKeys) {
+      btn.hidden = false;
+      btn.classList.add('warning-banner');
+      btn.innerHTML = '⚠️ Нужен API ключ Wikimapia · <u>Добавить</u>';
+      return;
+    }
+
+    btn.classList.remove('warning-banner');
+
+    // 2. Лимит всех добавленных ключей исчерпан
+    const pool = WM.api.getPoolStatus();
+    if (forceShowBlocked || pool.allBlocked) {
+      btn.hidden = false;
+      btn.innerHTML = '🔑 Лимит исчерпан · <u>Добавить ключ</u>';
+    } else {
+      btn.hidden = true;
+    }
   }
 
   function updateLimitHUD() {
     const badge = $('limit-badge');
     if (!badge || !uiVis.limit) return;
 
+    const hasKeys = WM.api.hasCustomKey ? WM.api.hasCustomKey() : WM.api.keys.some(k => k && k.toLowerCase() !== 'example');
     const pool = WM.api.getPoolStatus();
     let newText = '';
     let isDanger = false;
 
-    if (pool.allBlocked) {
+    if (!hasKeys) {
+      newText = '🔑 Ключ не задан';
+      isDanger = true;
+      toggleTopGetKeyBtn(false);
+    } else if (pool.allBlocked) {
       newText = `🔑 Лимит исчерпан · ${fmtTimer(pool.waitMs)}`;
       isDanger = true;
       toggleTopGetKeyBtn(true);
@@ -906,6 +937,7 @@
       });
 
       setInterval(updateLimitHUD, 1000);
+      updateLimitHUD(); 
 
       // Кнопка под плашкой в топе
       const btnGetKeyTop = $('btn-get-key-top');
