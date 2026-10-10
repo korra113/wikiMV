@@ -103,13 +103,28 @@
       if (tile) this.saveTileMeta(tile);
       return added;
     },
-    saveDetail(id, data) { dbPut('details', { id, data }); },
-    getDetail(id) {
+    saveDetail(id, data, lang = 'ru') { 
+      const key = `${id}:${lang}`;
+      dbPut('details', { id: key, data }); 
+    },
+    getDetail(id, lang = 'ru') {
+      const key = `${id}:${lang}`;
       return new Promise((resolve) => {
         if (!db) return resolve(null);
         try {
-          const req = db.transaction('details', 'readonly').objectStore('details').get(id);
-          req.onsuccess = () => resolve(req.result ? req.result.data : null);
+          const req = db.transaction('details', 'readonly').objectStore('details').get(key);
+          req.onsuccess = () => {
+            if (req.result) {
+              resolve(req.result.data);
+            } else if (lang === 'ru') {
+              // Обратная совместимость для старых записей, сохранённых только по id
+              const fallbackReq = db.transaction('details', 'readonly').objectStore('details').get(id);
+              fallbackReq.onsuccess = () => resolve(fallbackReq.result ? fallbackReq.result.data : null);
+              fallbackReq.onerror = () => resolve(null);
+            } else {
+              resolve(null);
+            }
+          };
           req.onerror = () => resolve(null);
         } catch (e) { resolve(null); }
       });
