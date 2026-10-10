@@ -1,0 +1,51 @@
+name: Build Offline APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: # Позволяет запускать сборку вручную кнопкой
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Package web files for Capacitor
+        run: |
+          mkdir -p www
+          # Копируем всё содержимое проекта в папку www, исключая служебные файлы гитхаба
+          find . -maxdepth 1 ! -name '.' ! -name 'www' ! -name '.git' ! -name '.github' -exec cp -r {} www/ \;
+
+      - name: Initialize Capacitor and Android
+        run: |
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npx cap init "Wikimapia Viewer" "com.wikimapia.viewer" --web-dir www
+          npx cap add android
+          npx cap sync android
+
+      - name: Build Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wikimapia-Offline-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
