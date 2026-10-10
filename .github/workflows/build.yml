@@ -24,25 +24,37 @@ jobs:
           distribution: 'zulu'
           java-version: '21'
 
-      # Подготовка веб-ассетов
+      # 1. Раскладываем веб-ассеты по правильным папкам
       - name: Prepare Web Assets
         run: |
-          mkdir -p www
-          cp -r index.html manifest.json sw.js icon-*.png css js www/ 2>/dev/null || true
+          mkdir -p www/css www/js
+          cp index.html manifest.json sw.js icon-*.png www/ 2>/dev/null || true
           cp -r images www/ 2>/dev/null || true
 
+          # Если есть папки css и js в репозитории — копируем их
+          [ -d css ] && cp -r css/* www/css/ 2>/dev/null || true
+          [ -d js ] && cp -r js/* www/js/ 2>/dev/null || true
+
+          # Если файлы лежат прямо в корне — переносим по местам
+          cp *.css www/css/ 2>/dev/null || true
+          cp *.js www/js/ 2>/dev/null || true
+
+          # sw.js должен лежать строго в корне www
+          cp sw.js www/sw.js 2>/dev/null || true
+
+      # 2. Инициализация Capacitor и сборка ассетов
       - name: Setup Project and Capacitor
         run: |
           echo '{"name": "wikimapia-app", "version": "1.0.0"}' > package.json
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets
 
-          # Подготовка исходников иконки для генератора
+          # Подготовка исходников для автоматического генератора иконок
           mkdir -p assets
           cp icon-512.png assets/icon-only.png
           cp icon-512.png assets/icon-foreground.png
           cp icon-512.png assets/icon.png
 
-          # Конфигурация Capacitor (cleartext: true уже включает HTTP-трафик)
+          # Конфигурация Capacitor
           cat << 'EOF' > capacitor.config.json
           {
             "appId": "com.wikimapia.viewer",
@@ -56,35 +68,35 @@ jobs:
           }
           EOF
 
+          # Создаем проект Android
           npx cap add android
 
-          # Генерация всех иконок под Android
+          # Генерируем все разрешения иконок (включая адаптивные круглые/квадратные)
           npx capacitor-assets generate --android --iconBackgroundColor "#111827"
 
-          # Корректное добавление разрешений геолокации в AndroidManifest.xml без повреждения XML
+          # Добавляем разрешения GPS без риска сломать XML манифеста
           python3 - << 'EOF'
           path = "android/app/src/main/AndroidManifest.xml"
           with open(path, "r", encoding="utf-8") as f:
               content = f.read()
 
-          permissions = """
-              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+          permissions = """    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
               <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
               <uses-feature android:name="android.hardware.location.gps" />
           </manifest>"""
 
-          if "</manifest>" in content and "ACCESS_FINE_LOCATION" not in content:
+          if "ACCESS_FINE_LOCATION" not in content and "</manifest>" in content:
               content = content.replace("</manifest>", permissions)
 
           with open(path, "w", encoding="utf-8") as f:
               f.write(content)
           EOF
 
-          # Настройка цветов статусбара в styles.xml
+          # Настройка цветов статусбара в styles.xml (темная тема #111827)
           sed -i '/<style name="AppTheme"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:fitsSystemWindows">true</item>\n        <item name="android:statusBarColor">#111827</item>\n        <item name="android:windowLightStatusBar">false</item>\n        <item name="android:navigationBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
           sed -i '/<style name="AppTheme.NoActionBarLaunch"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:statusBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
 
-          # Исключение дублирующихся зависимостей Kotlin
+          # Исключение конфликтующих зависимостей Kotlin
           cat << 'EOF' >> android/build.gradle
 
           allprojects {
@@ -95,111 +107,17 @@ jobs:
           }
           EOF
 
+          # Финальная синхронизация проекта
           npx cap sync android
 
-          # Генерируем все иконки (включая адаптивные под все версии Android)
-          npx capacitor-assets generate --android --iconBackgroundColor "#111827"
-
-          # --- ВОЗВРАТ СТАТУСБАРА И НАСТРОЙКА ЕГО ЦВЕТА ---
-          sed -i '/<style name="AppTheme"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:fitsSystemWindows">true</item>\n        <item name="android:statusBarColor">#111827</item>\n        <item name="android:windowLightStatusBar">false</item>\n        <item name="android:navigationBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
-
-          sed -i '/<style name="AppTheme.NoActionBarLaunch"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:statusBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
-
-          # --- РАЗРЕШЕНИЯ В ANDROIDMANIFEST ---
-          sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true"/' android/app/src/main/AndroidManifest.xml
-          sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-feature android:name="android.hardware.location.gps" />' android/app/src/main/AndroidManifest.xml
-
-          # --- УСТРАНЕНИЕ КОНФЛИКТА ДУБЛИРУЮЩИХСЯ КЛАССОВ KOTLIN ---
-          cat << 'EOF' >> android/build.gradle
-
-          allprojects {
-              configurations.all {
-                  exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
-                  exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
-              }
-          }
-          EOF
-
-          npx cap sync android
-
-          # --- 1. НАРЕЗКА ИКОНОК ИЗ icon-512.png (средствами Java 21) ---
-          if [ -f "icon-512.png" ]; then
-            cat << 'EOF' > ResizeIcons.java
-            import javax.imageio.ImageIO;
-            import java.awt.Graphics2D;
-            import java.awt.RenderingHints;
-            import java.awt.image.BufferedImage;
-            import java.io.File;
-
-            public class ResizeIcons {
-                public static void main(String[] args) throws Exception {
-                    File srcFile = new File("icon-512.png");
-                    if (!srcFile.exists()) return;
-                    BufferedImage src = ImageIO.read(srcFile);
-
-                    Object[][] targets = {
-                        {"mdpi", 48},
-                        {"hdpi", 72},
-                        {"xhdpi", 96},
-                        {"xxhdpi", 144},
-                        {"xxxhdpi", 192}
-                    };
-
-                    for (Object[] t : targets) {
-                        String dir = (String) t[0];
-                        int size = (Integer) t[1];
-
-                        BufferedImage scaled = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
-                        Graphics2D g = scaled.createGraphics();
-                        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-                        g.drawImage(src, 0, 0, size, size, null);
-                        g.dispose();
-
-                        File outDir = new File("android/app/src/main/res/mipmap-" + dir);
-                        outDir.mkdirs();
-                        ImageIO.write(scaled, "png", new File(outDir, "ic_launcher.png"));
-                        ImageIO.write(scaled, "png", new File(outDir, "ic_launcher_round.png"));
-                    }
-                    System.out.println("Все иконки успешно сгенерированы из icon-512.png!");
-                }
-            }
-          EOF
-            java ResizeIcons.java
-            rm -f ResizeIcons.java
-          fi
-
-          # --- 2. ВОЗВРАТ СТАТУСБАРА И НАСТРОЙКА ЕГО ЦВЕТА ---
-          # Убираем полноэкранный режим и красим статусбар и навбар в #111827
-          sed -i '/<style name="AppTheme"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:fitsSystemWindows">true</item>\n        <item name="android:statusBarColor">#111827</item>\n        <item name="android:windowLightStatusBar">false</item>\n        <item name="android:navigationBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
-
-          sed -i '/<style name="AppTheme.NoActionBarLaunch"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:statusBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
-
-          # --- 3. РАЗРЕШЕНИЯ В ANDROIDMANIFEST ---
-          # Разрешаем HTTP и аппаратное ускорение Leaflet
-          sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true"/' android/app/src/main/AndroidManifest.xml
-
-          # Разрешения геопозиции
-          sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-feature android:name="android.hardware.location.gps" />' android/app/src/main/AndroidManifest.xml
-
-          # --- 4. УСТРАНЕНИЕ КОНФЛИКТА ДУБЛИРУЮЩИХСЯ КЛАССОВ KOTLIN ---
-          cat << 'EOF' >> android/build.gradle
-
-          allprojects {
-              configurations.all {
-                  exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
-                  exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
-              }
-          }
-          EOF
-
-          npx cap sync android
-
+      # 3. Компиляция APK
       - name: Build Debug APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
 
+      # 4. Выгрузка готового APK в артефакты
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
