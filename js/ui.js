@@ -3,6 +3,34 @@
   let cur = null, tab = 'info', lb = { list: [], i: 0 };
   let editingKeys = [], editingActiveIndex = 0;
 
+  const LANG_NAMES = {
+    ru: { name: 'Русский', flag: '🇷🇺' },
+    en: { name: 'English', flag: '🇬🇧' },
+    uk: { name: 'Українська', flag: '🇺🇦' },
+    be: { name: 'Беларуская', flag: '🇧🇾' },
+    de: { name: 'Deutsch', flag: '🇩🇪' },
+    fr: { name: 'Français', flag: '🇫🇷' },
+    es: { name: 'Español', flag: '🇪🇸' },
+    it: { name: 'Italiano', flag: '🇮🇹' },
+    pl: { name: 'Polski', flag: '🇵🇱' },
+    tr: { name: 'Türkçe', flag: '🇹🇷' },
+    zh: { name: '中文', flag: '🇨🇳' },
+    ja: { name: '日本語', flag: '🇯🇵' },
+    ar: { name: 'العربية', flag: '🇸🇦' },
+    he: { name: 'עברית', flag: '🇮🇱' },
+    pt: { name: 'Português', flag: '🇵🇹' },
+    el: { name: 'Ελληνικά', flag: '🇬🇷' },
+    cs: { name: 'Čeština', flag: '🇨🇿' },
+    ro: { name: 'Română', flag: '🇷🇴' },
+    hu: { name: 'Magyar', flag: '🇭🇺' },
+    bg: { name: 'Български', flag: '🇧🇬' },
+    ka: { name: 'ქართული', flag: '🇬🇪' },
+    hy: { name: 'Հայերեն', flag: '🇦🇲' },
+    az: { name: 'Azərbaycan', flag: '🇦🇿' },
+    kk: { name: 'Қазақша', flag: '🇰🇿' },
+    uz: { name: 'Oʻzbekcha', flag: '🇺🇿' }
+  };
+
   const UI_VIS_DEFAULT = {
     status: true,
     limit: true,
@@ -95,22 +123,16 @@
     return `${pad(m)}:${pad(s)}`;
   }
 
-  // --- НАДЕЖНОЕ ИЗВЛЕЧЕНИЕ КЛЮЧЕЙ WIKIMAPIA ИЗ ЛЮБОГО ТЕКСТА ---
   function extractWikimapiaKeys(rawText) {
     if (!rawText || typeof rawText !== 'string') return [];
 
-    // 1. Нормализуем все виды тире/дефисов/минусов к стандартному ASCII '-'
     let text = rawText.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-');
-    // 2. Нормализуем все виды неразрывных и нулевых пробелов
     text = text.replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, ' ');
 
     const foundKeys = new Set();
-
-    // 3. Схлопываем случайные пробелы и переносы строк вокруг дефисов между частями ключа
     let cleaned = text.replace(/([0-9a-fA-F]{8})\s*-\s*([0-9a-fA-F])/g, '$1-$2');
     cleaned = cleaned.replace(/([0-9a-fA-F]{8})\s*-\s*([0-9a-fA-F])/g, '$1-$2');
 
-    // Ключ Wikimapia: 8 hex-групп по 8 символов через дефис (ровно 7 дефисов, 71 символ)
     const standardRegex = /[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{8}){7}/gi;
     const matches = cleaned.match(standardRegex);
     if (matches) {
@@ -119,7 +141,6 @@
       }
     }
 
-    // 4. Поиск непрерывных 64 hex символов (если ключ скопирован без дефисов)
     const hex64Regex = /\b([0-9a-fA-F]{64})\b/gi;
     let h64;
     while ((h64 = hex64Regex.exec(cleaned)) !== null) {
@@ -149,7 +170,7 @@
 
   function applyTheme(theme) {
     const isDark = theme === 'dark';
-    const statusBarColor = isDark ? '#111827' : '#ffffff'; // Цвета под фон вашей темы
+    const statusBarColor = isDark ? '#111827' : '#ffffff';
 
     if (isDark) {
       document.documentElement.setAttribute('data-theme', 'dark');
@@ -159,7 +180,6 @@
       $('btn-theme-toggle').textContent = '🌙';
     }
 
-    // Динамически перекрашиваем верхний статус-бар телефона
     const meta = document.getElementById('theme-color-meta') || document.querySelector('meta[name="theme-color"]');
     if (meta) {
       meta.setAttribute('content', statusBarColor);
@@ -194,7 +214,6 @@
     WM.api.store.set('wm_ui_vis', JSON.stringify(uiVis));
   }
 
-  // Управление верхней плашкой-кнопкой (первый запуск / исчерпание лимитов)
   function toggleTopGetKeyBtn(forceShowBlocked = false) {
     const btn = $('btn-get-key-top');
     if (!btn) return;
@@ -206,7 +225,6 @@
 
     const hasKeys = WM.api.hasCustomKey ? WM.api.hasCustomKey() : WM.api.keys.some(k => k && k.toLowerCase() !== 'example');
 
-    // 1. Первый запуск: пользователь еще не добавил свои ключи
     if (!hasKeys) {
       btn.hidden = false;
       btn.classList.add('warning-banner');
@@ -216,7 +234,6 @@
 
     btn.classList.remove('warning-banner');
 
-    // 2. Лимит всех добавленных ключей исчерпан
     const pool = WM.api.getPoolStatus();
     if (forceShowBlocked || pool.allBlocked) {
       btn.hidden = false;
@@ -328,6 +345,132 @@
     }
   }
 
+  // Извлечение списка доступных языков из ответа объекта Wikimapia
+  function extractAvailableLanguages(detail, selectedLang = 'ru') {
+    const res = new Map();
+
+    // Базовые языки, которые доступны для принудительного переключения ВСЕГДА
+    const defaultIsos = ['ru', 'en'];
+    for (const iso of defaultIsos) {
+      const meta = LANG_NAMES[iso];
+      res.set(iso, {
+        iso,
+        name: meta ? `${meta.flag} ${meta.name}` : iso.toUpperCase()
+      });
+    }
+
+    // Если текущий выбранный язык не ru и не en — добавляем его
+    if (selectedLang && !res.has(selectedLang.toLowerCase())) {
+      const iso = selectedLang.toLowerCase();
+      const meta = LANG_NAMES[iso];
+      res.set(iso, {
+        iso,
+        name: meta ? `${meta.flag} ${meta.name}` : iso.toUpperCase()
+      });
+    }
+
+    if (!detail) return Array.from(res.values());
+
+    // Язык самой карточки из ответа сервера (если объект исходно на другом языке)
+    const curIso = (
+      detail.language_iso ||
+      detail.language ||
+      detail.shortcut ||
+      detail.lang ||
+      detail.language_code ||
+      ''
+    ).toLowerCase();
+
+    if (curIso && !res.has(curIso)) {
+      const meta = LANG_NAMES[curIso];
+      res.set(curIso, { 
+        iso: curIso, 
+        name: meta ? `${meta.flag} ${meta.name}` : (detail.language_name || curIso.toUpperCase()) 
+      });
+    }
+
+    // Дополнительные переводы из блока API
+    const rawTranslate = detail.translate || detail.translations || detail.available_languages || detail.languages;
+    if (rawTranslate) {
+      const entries = Array.isArray(rawTranslate)
+        ? rawTranslate.map(v => [null, v])
+        : (typeof rawTranslate === 'object' ? Object.entries(rawTranslate) : []);
+
+      for (const [key, item] of entries) {
+        if (!item && !key) continue;
+        let iso = '', name = '';
+
+        if (key && typeof key === 'string' && (key.length === 2 || key.length === 3 || LANG_NAMES[key.toLowerCase()])) {
+          iso = key.toLowerCase();
+        }
+
+        if (typeof item === 'string') {
+          const itemLower = item.toLowerCase();
+          if (!iso && (item.length === 2 || item.length === 3 || LANG_NAMES[itemLower])) {
+            iso = itemLower;
+          } else if (iso && !name) {
+            name = item;
+          }
+        } else if (item && typeof item === 'object') {
+          const propIso = (
+            item.language_iso ||
+            item.shortcut ||
+            item.iso ||
+            item.code ||
+            item.lang ||
+            item.language_code ||
+            (typeof item.language === 'string' && item.language.length <= 3 ? item.language : '')
+          );
+          if (propIso) iso = String(propIso).toLowerCase();
+          name = item.language_name || item.name || (typeof item.language === 'string' && item.language.length > 3 ? item.language : '');
+        }
+
+        if (iso && !res.has(iso)) {
+          const meta = LANG_NAMES[iso];
+          res.set(iso, { 
+            iso, 
+            name: meta ? `${meta.flag} ${meta.name}` : (name || iso.toUpperCase()) 
+          });
+        }
+      }
+    }
+
+    return Array.from(res.values());
+  }
+
+  function renderLangsUI() {
+    const container = $('sheet-langs');
+    if (!container) return;
+    container.textContent = '';
+    if (!cur) return;
+
+    const curIso = (cur.lang || (cur.detail && cur.detail.language_iso) || 'ru').toLowerCase();
+    const langs = extractAvailableLanguages(cur.detail, curIso);
+
+    langs.forEach(l => {
+      const isAct = l.iso === curIso;
+      const isLoading = cur.loadingLang === l.iso;
+      const chip = el('button', {
+        class: 'lang-chip' + (isAct ? ' active' : ''),
+        text: l.name + (isLoading ? ' ⏳' : ''),
+        onclick: () => switchLanguage(l.iso)
+      });
+      container.append(chip);
+    });
+  }
+
+  function switchLanguage(targetLang) {
+    if (!cur || !cur.obj) return;
+    const curIso = (cur.lang || (cur.detail && cur.detail.language_iso) || 'ru').toLowerCase();
+    if (curIso === targetLang && cur.detail && !cur.loadingLang) return;
+
+    cur.lang = targetLang;
+    cur.loadingLang = targetLang;
+    cur.detail = null; // сбрасываем текущее тело карточки на время загрузки
+    renderLangsUI();
+    load(cur.obj, targetLang);
+  }
+
   function renderInfo(body, o, d) {
     body.append(el('p', { class: 'desc', text: (d && d.description) || (d ? 'Описание отсутствует.' : 'Загрузка…') }));
     
@@ -344,7 +487,13 @@
     const geoUri = `geo:${coords.lat},${coords.lon}?q=${coords.lat},${coords.lon}(${titleEncoded})`;
     const yandexUrl = `https://yandex.ru/maps/?pt=${coords.lon},${coords.lat}&z=17&l=map`;
     const googleUrl = `https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lon}`;
-    const wmUrl = safeUrl((d && (d.urlhtml || d.url)) || o.url) || `https://wikimapia.org/${o.id}/ru/`;
+    const curLang = (cur && cur.lang) || 'ru';
+    let wmUrl = safeUrl((d && (d.urlhtml || d.url)) || o.url);
+    if (wmUrl) {
+      wmUrl = wmUrl.replace(/(wikimapia\.org\/\d+\/)[a-z]{2,3}(\/|$)/i, `$1${curLang}$2`);
+    } else {
+      wmUrl = `https://wikimapia.org/${o.id}/${curLang}/`;
+    }
 
     const actionBlock = el('div', { class: 'card-action-block' },
       el('div', {
@@ -410,13 +559,36 @@
     if (error) body.append(el('div', { class: 'muted', text: 'Ошибка: ' + error }));
   }
 
-  function load(obj) {
-    cur.error = null; renderBody();
-    WM.api.place(obj.id).then(d => {
-      if (cur && cur.obj.id === obj.id) { cur.detail = d; if (d.title) $('sheet-title').textContent = d.title; renderBody(); }
-    }).catch(e => { if (cur && cur.obj.id === obj.id) { cur.error = e.message; renderBody(); } });
-  }
+  function load(obj, lang = 'ru') {
+    cur.error = null;
+    cur.loadingLang = lang;
+    renderLangsUI();
+    renderBody();
 
+    WM.api.place(obj.id, lang).then(d => {
+      if (cur && cur.obj.id === obj.id) { 
+        cur.detail = d;
+        cur.loadingLang = null;
+        cur.lang = lang;
+        if (d.title) $('sheet-title').textContent = d.title;
+        renderLangsUI();
+        renderBody(); 
+
+        // Проверяем, вернул ли сервер текст на запрошенном языке
+        const respIso = (d.language_iso || '').toLowerCase();
+        if (lang !== 'ru' && respIso && respIso !== lang && !d.description) {
+          showToast(`Для этого объекта нет описания на ${LANG_NAMES[lang]?.name || lang}`);
+        }
+      }
+    }).catch(e => { 
+      if (cur && cur.obj.id === obj.id) { 
+        cur.error = e.message; 
+        cur.loadingLang = null;
+        renderLangsUI();
+        renderBody(); 
+      } 
+    });
+  }
   function closeSheet() {
     const sheet = $('sheet');
     sheet.style.transform = '';
@@ -576,14 +748,13 @@
     }, { passive: true });
   }
 
-function initSheetGestures() {
+  function initSheetGestures() {
     const sheet = $('sheet');
     const handleArea = $('sheet-head');
     let startY = 0, curDeltaY = 0, isDraggingSheet = false;
 
     handleArea.addEventListener('touchstart', e => {
       if (e.touches.length !== 1) return;
-      // Не перехватываем жесты, если нажатие пришлось на кнопки закрытия или разворачивания
       if (e.target.closest('.icon-btn')) return;
       startY = e.touches[0].clientY;
       curDeltaY = 0;
@@ -599,14 +770,11 @@ function initSheetGestures() {
 
       if (isFull) {
         if (dy < 0) {
-          // Легкое сопротивление, если тянут выше полного экрана
           sheet.style.transform = `translateY(${dy * 0.18}px)`;
         } else {
-          // Стягивание вниз из полноэкранного режима
           sheet.style.transform = `translateY(${dy}px)`;
         }
       } else {
-        // В половинчатом режиме: смещение вверх или вниз за пальцем
         sheet.style.transform = `translateY(${dy}px)`;
       }
     }, { passive: true });
@@ -622,28 +790,22 @@ function initSheetGestures() {
 
       if (isFull) {
         if (curDeltaY > Math.max(240, winH * 0.38)) {
-          // Протянули далеко вниз — закрываем полностью
           closeSheet();
         } else if (curDeltaY > 70) {
-          // Потянули вниз на среднее расстояние — сворачиваем обратно в половину
           sheet.style.transform = '';
           sheet.classList.remove('full');
           if (expandBtn) { expandBtn.textContent = '⤢'; expandBtn.title = 'Развернуть'; }
         } else {
-          // Сдвиг недостаточный — возвращаем на полный экран
           sheet.style.transform = '';
         }
       } else {
         if (curDeltaY < -60) {
-          // Потянули вверх — разворачиваем на весь экран
           sheet.style.transform = '';
           sheet.classList.add('full');
           if (expandBtn) { expandBtn.textContent = '⤡'; expandBtn.title = 'Свернуть'; }
         } else if (curDeltaY > 70) {
-          // Потянули вниз — закрываем
           closeSheet();
         } else {
-          // Сдвиг недостаточный — возвращаем в половину
           sheet.style.transform = '';
         }
       }
@@ -934,19 +1096,28 @@ function initSheetGestures() {
 
   WM.ui = {
     openPlace(obj, alts) {
-      cur = { obj, detail: null, error: null }; tab = 'info';
+      cur = { obj, detail: null, error: null, lang: 'ru', loadingLang: 'ru' }; 
+      tab = 'info';
       $('sheet-title').textContent = obj.title || 'Безымянный объект';
+      
       const a = $('sheet-alts'); a.textContent = '';
       if (alts.length > 1) alts.forEach(x => a.append(el('button', {
-        class: 'chip' + (x.id === obj.id ? ' active' : ''), text: x.title || ('#' + x.id), onclick: () => WM.picker.select(x, alts)
+        class: 'chip' + (x.id === obj.id ? ' active' : ''), 
+        text: x.title || ('#' + x.id), 
+        onclick: () => WM.picker.select(x, alts)
       })));
+
+      // Рисуем кнопки языков сразу, не дожидаясь ответа сервера
+      renderLangsUI();
+
       $('sheet-body').scrollTop = 0;
       $('sheet').style.transform = '';
-      $('sheet').classList.remove('full'); // Открываем новый объект изначально в половинчатом виде
+      $('sheet').classList.remove('full');
       const expandBtn = $('sheet-expand');
       if (expandBtn) { expandBtn.textContent = '⤢'; expandBtn.title = 'Развернуть'; }
-      $('sheet').classList.add('open'); document.body.classList.add('sheet-open');
-      load(obj);
+      $('sheet').classList.add('open'); 
+      document.body.classList.add('sheet-open');
+      load(obj, 'ru');
     },
     closeSheet,
     showToast,
@@ -995,7 +1166,6 @@ function initSheetGestures() {
       setInterval(updateLimitHUD, 1000);
       updateLimitHUD(); 
 
-      // Кнопка под плашкой в топе
       const btnGetKeyTop = $('btn-get-key-top');
       if (btnGetKeyTop) {
         btnGetKeyTop.onclick = openKeysSettings;
@@ -1124,7 +1294,6 @@ function initSheetGestures() {
         $('modal').classList.add('open');
       };
 
-      // Добавление ключа из поля ввода (поддерживает и одиночный ввод, и вставленную пачку)
       const inputNewKey = $('new-key-input');
       const handleAddKeyInput = () => {
         const val = inputNewKey.value.trim();
@@ -1150,7 +1319,6 @@ function initSheetGestures() {
         if (e.key === 'Enter') handleAddKeyInput();
       };
 
-      // Кнопка «Вставить из буфера» с умным фолбэком на удобный диалог ввода
       $('btn-paste-keys').onclick = async () => {
         let clipText = '';
         let readSuccess = false;
@@ -1172,7 +1340,6 @@ function initSheetGestures() {
           }
         }
 
-        // Если прямой доступ к буферу заблокирован (file://, WebView) или ключи не найдены сразу:
         const pasteModal = $('modal-paste-keys');
         const pasteTextarea = $('paste-keys-textarea');
         if (pasteModal && pasteTextarea) {
@@ -1182,7 +1349,6 @@ function initSheetGestures() {
         }
       };
 
-      // Обработка модального окна вставки текста
       $('paste-keys-submit').onclick = () => {
         const val = $('paste-keys-textarea').value;
         const keys = extractWikimapiaKeys(val);
@@ -1197,7 +1363,6 @@ function initSheetGestures() {
       $('paste-keys-cancel').onclick = () => $('modal-paste-keys').classList.remove('open');
       $('paste-keys-x').onclick = () => $('modal-paste-keys').classList.remove('open');
 
-      // Модальное окно инструкции
       $('btn-keys-guide').onclick = () => $('modal-keys-guide').classList.add('open');
       $('keys-guide-close').onclick = () => $('modal-keys-guide').classList.remove('open');
       $('keys-guide-x').onclick = () => $('modal-keys-guide').classList.remove('open');
