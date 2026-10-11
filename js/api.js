@@ -38,7 +38,6 @@
       ptMidnight.setHours(24, 0, 0, 0);
       return Math.max(1000, ptMidnight.getTime() - ptNow.getTime());
     } catch (e) {
-      // Fallback на полночь UTC, если браузер не поддерживает timeZone
       const now = new Date();
       const utcMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
       return Math.max(1000, utcMidnight.getTime() - now.getTime());
@@ -57,13 +56,11 @@
     }
     const now = Date.now();
 
-    // Если наступила полночь PT — сбрасываем блокировку и счётчики
     if (state.blockedUntil && now >= state.blockedUntil) {
       state.blockedUntil = 0;
       state.timestamps = [];
     }
 
-    // Удаляем запросы, сделанные до начала текущих суток PT
     const dayStart = now - (24 * 3600 * 1000 - getMsUntilMidnightPT());
     if (state.timestamps.length) {
       state.timestamps = state.timestamps.filter(t => t >= dayStart);
@@ -156,7 +153,6 @@
       state.blockedUntil = getMidnightPTTimestamp();
     }
 
-    // Параметры params (включая language) имеют приоритет над дефолтным language: 'ru'
     const q = Object.entries({ format: 'json', language: 'ru', ...params, key: curKey })
       .map(([k, v]) => k + '=' + encodeURIComponent(v).replace(/%2C/g, ',')).join('&');
 
@@ -196,13 +192,33 @@
     throw lastErr || new Error('Нет соединения');
   }
 
+  // Извлечение и нормализация полигонов из любого ответа API
+  function extractValidPlaces(data) {
+    if (!data) return [];
+    const raw = data.places || data.folder || (Array.isArray(data) ? data : []);
+    if (!Array.isArray(raw)) return [];
+    const res = [];
+    for (const it of raw) {
+      if (!it || it.id == null) continue;
+      let poly = it.polygon || (it.location && it.location.polygon);
+      // Если PHP вернул ассоциативный объект вместо массива — конвертируем
+      if (poly && !Array.isArray(poly) && typeof poly === 'object') {
+        poly = Object.values(poly);
+      }
+      if (Array.isArray(poly) && poly.length >= 3) {
+        it.polygon = poly;
+        res.push(it);
+      }
+    }
+    return res;
+  }
+
   const detailsMem = new Map(), inflight = new Map();
 
   WM.api = {
     get keys() { return [...keyList]; },
     get activeKey() { return keyList[activeIndex] || 'example'; },
     get activeIndex() { return activeIndex; },
-    // ПРОВЕРКА: есть ли пользовательские ключи (отличные от example)
     hasCustomKey() {
       return keyList.some(k => k && k.toLowerCase() !== 'example');
     },
@@ -250,8 +266,14 @@
       lastGood = null;
     },
 
-    box(b, page) {
-      return request({ function: 'box', coordsby: 'bbox', bbox: [b.w, b.s, b.e, b.n].join(','), count: C.PAGE_SIZE, page });
+    box(b, page = 1) {
+      return request({ 
+        function: 'box', 
+        coordsby: 'bbox', 
+        bbox: [b.w, b.s, b.e, b.n].join(','), 
+        count: 100, 
+        page 
+      });
     },
 
     categoryBox(b, category, page = 1) {
@@ -266,26 +288,44 @@
     },
 
     async point(lat, lon) {
-      try {
-        const data = await request({
-          function: 'place.getnearest',
-          lat,
-          lon,
-          count: 30
-        });
-        const items = data.places || data.folder || (Array.isArray(data) ? data : []);
-        const valid = items.filter(it => it && Array.isArray(it.polygon) && it.polygon.length >= 3);
-        if (valid.length) return valid;
-      } catch (e) {
-        console.warn('[WM API] place.getnearest error, fallback to box:', e.message);
+      const map = WM.map;
+      const zoom = map ? Math.round(map.getZoom()) : 14;
+      const mapSize = map ? map.getSize() : { x: 400, y: 700 };
+      const minDim = Math.max(320, Math.min(mapSize.x, mapSize.y));
+
+      // 1. Оцениваем плотность объектов в видимой области экрана по локальному кэшу
+      let localDensity = 0;
+      if (map && WM.cache) {
+        const b = map.getBounds();
+        const vb = { w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() };
+        for (const o of WM.cache.objects.values()) {
+          if (WM.geo.intersects(o.bbox, vb)) localDensity++;
+        }
       }
 
-      const zoom = (WM.map && WM.map.getZoom()) || 13;
+      // 2. Адаптивный расчёт радиуса захвата (в экранных пикселях)
+      // Чем ниже плотность и дальше зум — тем шире захват (в глуши берём почти весь экран)
+      let searchRadiusPx;
+      if (zoom <= 12) {
+        searchRadiusPx = Math.round(minDim * 0.9); // обзорный масштаб
+      } else if (zoom <= 14) {
+        searchRadiusPx = localDensity < 5 ? Math.round(minDim * 0.85) : (localDensity < 25 ? Math.round(minDim * 0.6) : 200);
+      } else if (zoom <= 16) {
+        searchRadiusPx = localDensity < 5 ? Math.round(minDim * 0.7) : (localDensity < 25 ? Math.round(minDim * 0.45) : 160);
+      } else {
+        // Zoom 17+ (детальный городской уровень)
+        searchRadiusPx = localDensity < 10 ? 200 : 130;
+      }
+
       const degPerPx = 360 / (256 * 2 ** zoom);
       const cosLat = Math.cos(lat * Math.PI / 180) || 1;
-      const epsLon = Math.max(0.0015, degPerPx * 35);
-      const epsLat = Math.max(0.0015, (degPerPx * 35) / cosLat);
 
+      // Симметричный расчёт без искажений проекции Меркатора
+      const epsLon = degPerPx * searchRadiusPx;
+      const epsLat = degPerPx * searchRadiusPx * cosLat;
+
+      // 3. Основной запрос: адаптивный BOX с максимальной квотой count: 100
+      // Метод BOX за 1 запрос гарантированно возвращает все объекты в округе без отсечения по дистанции
       try {
         const data = await this.box({
           w: lon - epsLon,
@@ -293,9 +333,30 @@
           e: lon + epsLon,
           n: lat + epsLat
         }, 1);
-        const items = Array.isArray(data.folder) ? data.folder : [];
-        if (items.length) return items;
-      } catch (e) {}
+        const valid = extractValidPlaces(data);
+        if (valid.length > 0) {
+          return valid;
+        }
+      } catch (e) {
+        console.warn('[WM API] Adaptive box error, fallback to getnearest:', e.message);
+      }
+
+      // 4. Fallback: если в рассчитанном квадрате совсем пусто (глухая тайга/пустыня),
+      // запрашиваем place.getnearest с count: 100. Сервер найдёт даже одиночный удалённый объект.
+      try {
+        const data = await request({
+          function: 'place.getnearest',
+          lat,
+          lon,
+          count: 100
+        });
+        const valid = extractValidPlaces(data);
+        if (valid.length > 0) {
+          return valid;
+        }
+      } catch (e) {
+        console.warn('[WM API] place.getnearest fallback error:', e.message);
+      }
 
       return [];
     },
