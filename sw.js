@@ -1,9 +1,7 @@
---- START OF FILE sw.js ---
-
 const SHELL_CACHE = 'wm-shell-v13';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 1800; // Ограничение на количество тайлов в кэше
-const TILE_TIMEOUT_MS = 6500;  // Таймаут для тайлов (6.5 сек)
+const TILE_TIMEOUT_MS = 3200;  // Сниженный таймаут (3.2 сек): мгновенно освобождает сокеты браузера
 
 // Прозрачный 1x1 GIF для мгновенного завершения загрузки упавших тайлов
 const EMPTY_TILE_BYTES = Uint8Array.from(
@@ -22,7 +20,7 @@ function emptyTileResponse() {
 }
 
 const ASSETS_TO_CACHE = [
-  '/',
+  './',
   'index.html',
   'manifest.json',
   'css/leaflet.css',
@@ -72,12 +70,12 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Запрос с таймаутом и поддержкой внешней отмены от Leaflet
+// Запрос с быстрым таймаутом и поддержкой внешней отмены
 async function fetchTileWithTimeout(req, timeoutMs) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
 
-  // Если браузер/Leaflet отменил тайл (скролл/зум) — сбрасываем запрос сразу
+  // Если браузер или Leaflet уже отменили запрос при скролле — прерываем сразу
   if (req.signal) {
     if (req.signal.aborted) {
       clearTimeout(timer);
@@ -91,7 +89,10 @@ async function fetchTileWithTimeout(req, timeoutMs) {
   }
 
   try {
-    const res = await fetch(req, { signal: ctl.signal });
+    const res = await fetch(req, { 
+      signal: ctl.signal,
+      priority: 'low'
+    });
     clearTimeout(timer);
     return res;
   } catch (err) {
@@ -100,32 +101,45 @@ async function fetchTileWithTimeout(req, timeoutMs) {
   }
 }
 
-// Фоновая очистка старых тайлов при переполнении
+// Фоновая оптимизированная очистка кэша (не блокирует поток и сеть)
+let isTrimming = false;
+let lastTrimTime = 0;
+
 async function trimTileCache(cache) {
+  const now = Date.now();
+  // Запускаем очистку не чаще 1 раза в 45 секунд
+  if (isTrimming || (now - lastTrimTime < 45000)) return;
+  isTrimming = true;
+  lastTrimTime = now;
+
   try {
     const keys = await cache.keys();
     if (keys.length > MAX_CACHED_TILES) {
-      const deleteCount = keys.length - MAX_CACHED_TILES + 100;
-      for (let i = 0; i < deleteCount; i++) {
-        await cache.delete(keys[i]);
-      }
+      const deleteCount = keys.length - MAX_CACHED_TILES + 150;
+      const toDelete = keys.slice(0, deleteCount);
+      // Удаляем пачкой через Promise.all, а не в медленном цикле
+      await Promise.all(toDelete.map(k => cache.delete(k)));
     }
-  } catch (e) {}
+  } catch (e) {
+  } finally {
+    isTrimming = false;
+  }
 }
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = req.url;
 
-  // 1. Навигация
+  // 1. Навигация (возврат HTML оффлайн)
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).catch(async () => {
         const cache = await caches.open(SHELL_CACHE);
         return (
           (await cache.match('index.html')) ||
-          (await cache.match('/')) ||
           (await cache.match('./index.html')) ||
+          (await cache.match('./')) ||
+          (await cache.match('/')) ||
           new Response('Оффлайн-режим активен', { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
         );
       })
@@ -133,7 +147,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. Тайлы подложек карт
+  // 2. Тайлы подложек карт и растровых контуров
   const isTile =
     url.includes('arcgisonline.com') ||
     url.includes('google.com/vt') ||
@@ -141,7 +155,8 @@ self.addEventListener('fetch', (event) => {
     url.includes('opentopomap.org') ||
     url.includes('openrailwaymap.org') ||
     url.includes('tiles.nakarte.me') ||
-    url.includes('wikimapia.org/?x=');
+    url.includes('wikimapia.org/?x=') ||
+    url.includes('wikimapia.org/x=');
 
   if (isTile) {
     event.respondWith(
@@ -154,13 +169,13 @@ self.addEventListener('fetch', (event) => {
           const res = await fetchTileWithTimeout(req, TILE_TIMEOUT_MS);
           if (res && res.status === 200) {
             cache.put(req, res.clone());
-            // Фоновая проверка лимита без блокировки ответа
+            // Запуск чистки в фоне без ожидания завершения
             trimTileCache(cache);
           }
           return res;
         } catch (e) {
-          // Если сеть отвалилась или сработал таймаут — отдаем прозрачный пиксель.
-          // Это предотвращает зависание Leaflet и сломанные значки.
+          // Если сеть отвалилась или сработал таймаут 3.2 сек —
+          // мгновенно отдаем прозрачный пиксель, освобождая TCP-сокет браузера
           return emptyTileResponse();
         }
       })()
@@ -168,7 +183,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. API Wikimapia и геокодеры не кэшируем в SW (обрабатываются в api.js / IndexedDB)
+  // 3. API Wikimapia и геокодеры (кэшируются отдельно в IndexedDB)
   if (url.includes('api.wikimapia.org') || url.includes('nominatim') || url.includes('photon')) {
     return;
   }
