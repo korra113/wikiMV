@@ -22,20 +22,29 @@
     <!-- Кнопка перехода в получение ключей при исчерпании лимита -->
     <button id="btn-get-key-top" class="topbar-action-btn" hidden>🔑 Получить ключ</button>
   </header>
-
+  <div id="tag-filter-badge" class="tag-filter-badge" hidden>
+    <span id="tag-filter-text">🏷️ Тег</span>
+    <button id="tag-filter-refresh" class="tag-filter-action-btn" title="Искать в текущей области карты">🔄</button>
+    <button id="tag-filter-clear" class="tag-filter-action-btn" title="Сбросить подсветку тега">✕</button>
+  </div>
   <!-- Прицел перекрестия -->
   <div id="crosshair" aria-hidden="true"></div>
 
   <!-- Нижняя кнопка-подсказка объекта -->
   <button id="hover-pill" class="hover-pill" hidden></button>
+  
+
 
   <button id="btn-search" class="square-btn-top" title="Поиск мест и объектов">🔍</button>
 
   <!-- Плавающие круглые кнопки управления -->
   <nav class="floating-controls" id="ui-floating-controls">
     <button id="btn-mode-toggle" class="floating-btn active" title="Режим: Перекрестие (нажмите для смены)">✛</button>
+    <button id="btn-measure" class="floating-btn" title="Линейка (измерение расстояний)">📏</button>
+    <!-- Кнопка добавления пользовательской метки -->
+    <button id="btn-add-marker" class="floating-btn" title="Добавить метку">📍</button>
     <button id="btn-download-area" class="floating-btn" title="Скачать область">📥</button>
-    <button id="btn-location" class="floating-btn" title="Моя геопозиция">📍</button>
+    <button id="btn-location" class="floating-btn" title="Моя геопозиция">🛰️</button>
     <button id="btn-theme-toggle" class="floating-btn" title="Сменить тему">🌙</button>
     <button id="btn-settings" class="floating-btn" title="Настройки">⚙️</button>
   </nav>
@@ -71,6 +80,8 @@
     </div>
     <h3 id="sheet-title" class="sheet-title"></h3>
     <div id="sheet-alts" class="sheet-alts"></div>
+
+
     <!-- Переключатель доступных языков объекта -->
     <div id="sheet-langs" class="sheet-langs"></div>
     <div class="tabs" id="tabs">
@@ -85,6 +96,10 @@
   <div id="lightbox" class="lightbox" hidden>
     <button id="lb-close" class="lb-btn lb-close" title="Закрыть">✕</button>
     
+    <!-- Стрелки перелистывания для ПК / больших экранов -->
+    <button id="lb-prev" class="lb-btn lb-nav lb-prev" title="Предыдущее фото" hidden>‹</button>
+    <button id="lb-next" class="lb-btn lb-nav lb-next" title="Следующее фото" hidden>›</button>
+
     <div class="lb-viewport" id="lb-viewport">
       <img id="lb-img" alt="" draggable="false">
     </div>
@@ -398,13 +413,13 @@
               </select>
             </div>
 
-            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px;">
-              <button id="btn-export-db" class="btn btn-secondary" style="width: 100%; text-align: center;">💾 Экспорт базы Wikimapia в JSON (Бэкап)</button>
-              <button id="btn-import-db-trigger" class="btn btn-secondary" style="width: 100%; text-align: center;">📂 Импорт базы Wikimapia из JSON</button>
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 32px;">
+              <button id="btn-export-db" class="btn btn-secondary" style="width: 100%; text-align: center;">💾 Экспорт БД, меток, объектов, измерений (Бэкап)</button>
+              <button id="btn-import-db-trigger" class="btn btn-secondary" style="width: 100%; text-align: center;">📂 Импорт базы данных из JSON</button>
               <input type="file" id="input-import-file" accept=".json" style="display: none;">
 
               <button id="btn-clear-tiles" class="btn btn-secondary" style="width: 100%; text-align: center; margin-top: 6px;">🗺️ Очистить кэш подложек карт (освободить память)</button>
-              <button id="btn-clear-all" class="btn btn-danger-outline" style="width: 100%; text-align: center;">💥 Полная очистка всего кэша (включая объекты)</button>
+              <button id="btn-clear-all" class="btn btn-danger-outline" style="width: 100%; text-align: center;">💥 Полная очистка (объекты, метки, измерения, карты)</button>
             </div>
           </div>
         </details>
@@ -445,6 +460,8 @@
   <script src="js/view.js"></script>
   <script src="js/picker.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/markers.js"></script> 
+  <script src="js/measure.js"></script>
   <script src="js/main.js"></script>
 
 
@@ -522,5 +539,63 @@
       });
     }
   </script>
+
+  <div id="modal-marker" class="modal-overlay">
+    <div class="modal-box modal-box-large">
+      <div class="modal-header">
+        <h3 id="marker-modal-title">📍 Новая метка</h3>
+        <button class="modal-close-x" id="marker-modal-x">✕</button>
+      </div>
+
+      <div class="modal-content-scroll">
+        <!-- Выбор эмодзи -->
+        <label class="form-label-small">Выберите иконку (эмодзи):</label>
+        <div id="marker-emoji-grid" class="marker-emoji-grid"></div>
+
+        <!-- Выбор цвета облачка -->
+        <label class="form-label-small" style="margin-top: 14px;">Цвет облачка:</label>
+        <div class="color-palette-row" id="marker-color-palette" style="margin-bottom: 12px;"></div>
+
+        <!-- Поле заметки (до 200 символов) -->
+        <div class="form-group" style="margin-top: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label for="marker-text-input" style="margin: 0;">Текст заметки:</label>
+            <span id="marker-char-count" class="hint-text" style="margin: 0; font-weight: 600;">0 / 200</span>
+          </div>
+          <textarea id="marker-text-input" class="styled-input" rows="3" maxlength="200" placeholder="Краткая заметка к метке (необязательно)..."></textarea>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="justify-content: space-between;">
+        <button id="marker-delete-btn" class="btn btn-danger-outline" hidden>🗑️ Удалить</button>
+        <div style="display: flex; gap: 8px; margin-left: auto;">
+          <button id="marker-cancel-btn" class="btn btn-secondary">Отмена</button>
+          <button id="marker-save-btn" class="btn btn-primary">Поставить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="measure-hud" class="measure-hud" hidden>
+    <div class="measure-hud-header">
+      <div class="measure-hud-selector-wrap">
+        <select id="measure-track-select" class="measure-hud-select" title="Выбрать активное измерение"></select>
+        <button id="btn-measure-rename" class="measure-hud-btn" title="Переименовать это измерение">✏️</button>
+        <button id="btn-measure-new" class="measure-hud-btn" title="Создать новое измерение">＋ Новый</button>
+      </div>
+      <button id="btn-measure-close" class="measure-hud-btn-close" title="Закрыть панель линейки">✕</button>
+    </div>
+    <div class="measure-hud-body">
+      <div class="measure-hud-info">
+        <div class="measure-hud-title">Длина: <b id="measure-total-dist">0 м</b></div>
+        <div id="measure-points-count" class="measure-hud-count">Узлов: 0</div>
+      </div>
+      <div class="measure-hud-actions">
+        <button id="btn-measure-undo" class="measure-hud-btn" title="Отменить последний узел">↩</button>
+        <button id="btn-measure-finish" class="measure-hud-btn primary" title="Зафиксировать измерение">✓ Готово</button>
+        <button id="btn-measure-clear" class="measure-hud-btn danger" title="Удалить выбранное измерение">🗑️</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
