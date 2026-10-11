@@ -64,6 +64,7 @@
         <button class="search-tab-btn active" data-source="all">Все</button>
         <button class="search-tab-btn" data-source="wm">Wikimapia</button>
         <button class="search-tab-btn" data-source="osm">Геокодер (OSM)</button>
+        <button class="search-tab-btn" data-source="tags">Теги</button>
       </div>
       <div id="search-results" class="search-results-list">
         <div class="muted">Введите от 2 символов для поиска…</div>
@@ -177,7 +178,7 @@
           <div class="spoiler-body">
             <div class="work-modes-group">
               <label class="mode-card">
-                <input type="radio" name="app-work-mode" value="manual" checked>
+                <input type="radio" name="app-work-mode" value="manual">
                 <div class="mode-card-content">
                   <div class="mode-card-header">
                     <span class="mode-name">Полностью ручной</span>
@@ -188,13 +189,13 @@
               </label>
 
               <label class="mode-card">
-                <input type="radio" name="app-work-mode" value="hybrid">
+                <input type="radio" name="app-work-mode" value="hybrid" checked>
                 <div class="mode-card-content">
                   <div class="mode-card-header">
                     <span class="mode-name">Гибридный</span>
-                    <span class="mode-badge badge-mid">Средний расход API</span>
+                    <span class="mode-badge badge-mid">Рекомендуемый</span>
                   </div>
-                  <p class="mode-desc">На общем плане отображаются легкие растровые контуры, а при приближении автоматически подгружаются векторные объекты.</p>
+                  <p class="mode-desc">На общем плане отображаются растровые контуры, а при приближении автоматически подгружаются векторные объекты с сохранением подложки.</p>
                 </div>
               </label>
 
@@ -220,12 +221,41 @@
           <div class="spoiler-body toggles-list">
             <label class="toggle-item">
               <div>
-                <span style="font-weight:600; display:block;">Автозагрузка по удержанию / наведению</span>
-                <small class="hint-text" style="margin:2px 0 0;">Загружает объект при удержании центра перекрестия или курсора дольше 1 секунды.</small>
+                <span style="font-weight:600; display:block;">Автозагрузка по удержанию</span>
+                <small class="hint-text">Загружает объект при удержании центра перекрестия или курсора дольше 1 секунды.</small>
               </div>
               <input type="checkbox" id="toggle-auto-hover">
               <span class="toggle-switch"></span>
             </label>
+
+            <label class="toggle-item">
+              <div>
+                <span style="font-weight:600; display:block;">Фоновая загрузка карточек</span>
+                <small class="hint-text">
+                  Скачивает описания, фото и отзывы для видимых объектов по направлению от центра экрана.
+                </small>
+              </div>
+              <input type="checkbox" id="toggle-auto-details">
+              <span class="toggle-switch"></span>
+            </label>
+
+            <!-- Дополнительная поднастройка: видна только при включении базовой -->
+            <div id="sub-auto-details-wrap" style="padding-left: 18px; margin-top: -4px;" hidden>
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight:600; display:block;">Загружать только на перекрестии</span>
+                  <small class="hint-text">
+                    Скачивает карточку только при удержании центра прицела на объекте от 200 мс.
+                  </small>
+                  <!-- Предупреждение о высоком расходе API показывается только при выключении перекрестия -->
+                  <small id="warn-auto-details-bulk" class="hint-text-warn" hidden>
+                    ⚠️ 1 API-запрос на каждый объект! Рекомендуется использовать совместно с ручным режимом.
+                  </small>
+                </div>
+                <input type="checkbox" id="toggle-auto-details-crosshair" checked>
+                <span class="toggle-switch"></span>
+              </label>
+            </div>
           </div>
         </details>
 
@@ -235,6 +265,14 @@
             <span class="chevron">▼</span>
           </summary>
           <div class="spoiler-body">
+            <!-- Плашка с пояснением -->
+            <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 12px;">
+              <div class="guide-tip-title">ℹ️ Встроенный ключ активен</div>
+              <p>
+                По умолчанию приложение использует встроенный ключ. Если у вас перестали загружаться объекты или появились ошибки лимита, попробуйте добавить свой собственный ключ (или несколько ключей), воспользовавшись кнопками и инструкцией ниже.
+              </p>
+            </div>
+
             <!-- Кнопки перехода на сайт, пакетной вставки и инструкции -->
             <div class="key-tools-row">
               <a href="https://wikimapia.org/api/?action=my_keys" target="_blank" rel="noopener noreferrer" class="key-tool-btn">🔗 Получить ключ ↗</a>
@@ -248,7 +286,7 @@
               <input type="text" id="new-key-input" placeholder="Вставьте API ключ или пачку ключей" class="styled-input">
               <button id="btn-add-key" class="btn btn-primary">+ Добавить</button>
             </div>
-            <small class="hint-text">Кликните на ключ в списке, чтобы сделать его активным. Лимиты сбрасываются в полночь по тихоокеанскому времени (PT).</small>
+            <small class="hint-text">Кликните на ключ в списке, чтобы сделать его активным. Если удалить все ключи, приложение вернется к использованию встроенного ключа.</small>
           </div>
         </details>
 
