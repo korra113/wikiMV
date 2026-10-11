@@ -1988,7 +1988,10 @@
 
       $('precache-start').onclick = () => {
         const b = WM.map.getBounds();
+        const bounds = { w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() };
         const z = +$('precache-zoom').value;
+        const withDetails = $('precache-details') ? $('precache-details').checked : false;
+
         const pWrap = $('precache-progress-wrap');
         const pBar = $('precache-progress-bar');
         const pStatus = $('precache-status');
@@ -1996,14 +1999,24 @@
         pWrap.hidden = false;
         $('precache-start').disabled = true;
 
-        WM.loader.precacheArea({ w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() }, z, (done, total) => {
-          pStatus.textContent = `Скачано тайлов: ${done} из ${total}`;
-          pBar.style.width = Math.round((done / total) * 100) + '%';
-          if (done >= total) {
+        WM.loader.precacheArea(bounds, z, withDetails, (prog) => {
+          if (prog.stage === 'tiles') {
+            pStatus.textContent = `[1/2] Контуры: ${prog.done} из ${prog.total} тайлов`;
+            pBar.style.width = Math.round((prog.done / prog.total) * (withDetails ? 40 : 100)) + '%';
+          } else if (prog.stage === 'details') {
+            pStatus.textContent = `[2/2] Карточки: ${prog.done} из ${prog.total} объектов`;
+            const pct = prog.total > 0 ? 40 + Math.round((prog.done / prog.total) * 60) : 100;
+            pBar.style.width = pct + '%';
+          } else if (prog.stage === 'waiting') {
+            pStatus.textContent = `⏳ Пауза лимита API (${fmtTimer(prog.waitMs)})…`;
+          }
+
+          if ((!withDetails && prog.stage === 'tiles' && prog.done >= prog.total) ||
+              (withDetails && prog.stage === 'details' && prog.done >= prog.total)) {
             setTimeout(() => {
               closePrecache();
-              alert('Предзагрузка завершена!');
-            }, 500);
+              showToast('✅ Область успешно сохранена в память');
+            }, 600);
           }
         });
       };
