@@ -2020,6 +2020,30 @@
           }
         });
       };
-    }
+
+      // =========================================================================
+      // 👇 ВСТАВИТЬ СЮДА: Открытие скачивания APK/исходников во внешнем браузере
+      // =========================================================================
+      document.querySelectorAll('.btn-external-dl').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const url = btn.href;
+          if (!url || !url.startsWith('http')) return;
+
+          // Проверяем, запущено ли приложение внутри Android WebView / Capacitor
+          const isAndroidApp = window.Capacitor !== undefined || /wv|Android.*Version\/[0-9.]+/i.test(navigator.userAgent);
+
+          if (isAndroidApp) {
+            e.preventDefault();
+            // Вызываем Android Intent — это заставляет систему свернуть приложение
+            // и передать ссылку браузеру Chrome/Samsung Internet, который начнёт загрузку
+            const noProto = url.replace(/^https?:\/\//i, '');
+            const scheme = url.startsWith('https') ? 'https' : 'http';
+            window.location.href = `intent://${noProto}#Intent;scheme=${scheme};action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end`;
+          }
+        });
+      });
+      // =========================================================================
+
+    } // <-- это закрывающая скобка init()
   };
 })();
