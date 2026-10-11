@@ -1,6 +1,6 @@
 --- START OF FILE sw.js ---
 
-const SHELL_CACHE = 'wm-shell-v12';
+const SHELL_CACHE = 'wm-shell-v13';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 1800; // Ограничение на количество тайлов в кэше
 const TILE_TIMEOUT_MS = 6500;  // Таймаут для тайлов (6.5 сек)
