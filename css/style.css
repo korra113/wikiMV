@@ -2289,7 +2289,55 @@ body.sheet-open .measure-hud {
   color: var(--text-main) !important;
   border: 1px solid var(--border) !important;
 }
+/* Всплывающий тултип при долгом тапе */
+.ui-tooltip {
+  position: fixed;
+  z-index: 6000;
+  max-width: 280px;
+  background: rgba(15, 23, 42, 0.94);
+  color: #ffffff;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 500;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.92);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  text-align: center;
+  white-space: pre-line;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
 
+[data-theme="dark"] .ui-tooltip {
+  background: rgba(2, 6, 23, 0.96);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.ui-tooltip.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Отключение браузерного контекстного меню на элементах управления для комфортного долгого тапа */
+.floating-btn,
+.square-btn-top,
+.limit-badge,
+.limit-reset-btn,
+.topbar-action-btn,
+.status-bar,
+.tag-filter-badge,
+.hover-pill,
+.leaflet-control-zoom a,
+.leaflet-control-layers-toggle {
+  -webkit-touch-callout: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
 /* --- 2. КВАДРАТНАЯ КНОПКА ПОИСКА ПОД СПИСКОМ КАРТ --- */
 .square-btn-top {
   position: absolute;
