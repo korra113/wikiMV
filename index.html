@@ -242,6 +242,7 @@
         </details>
 
         <details class="spoiler">
+          <details class="spoiler">
           <summary class="spoiler-title">
             <span>👁️ Видимость элементов интерфейса</span>
             <span class="chevron">▼</span>
@@ -283,6 +284,16 @@
               <span class="toggle-switch"></span>
             </label>
             <label class="toggle-item">
+              <span>Кнопка «Линейка» (измерения)</span>
+              <input type="checkbox" id="toggle-ui-measure" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <span>Кнопка «Добавить метку»</span>
+              <input type="checkbox" id="toggle-ui-marker" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
               <span>Кнопка «Скачать область»</span>
               <input type="checkbox" id="toggle-ui-precache" checked>
               <span class="toggle-switch"></span>
@@ -299,6 +310,7 @@
             </label>
           </div>
         </details>
+
 
         <details class="spoiler">
           <summary class="spoiler-title">
@@ -597,5 +609,7 @@
       </div>
     </div>
   </div>
+  
+<div id="ui-tooltip" class="ui-tooltip" hidden></div>
 </body>
 </html>
