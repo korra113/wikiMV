@@ -201,13 +201,15 @@
     return 0;
   }
 
-  async function precacheArea(bounds, zoom, onProgress) {
+  async function precacheArea(bounds, zoom, withDetails, onProgress) {
     if (isPrecaching) return;
-    isPrecaching = true; precacheAbort = false;
+    isPrecaching = true;
+    precacheAbort = false;
     const lod = lodFor(zoom) || { tz: zoom, pages: 1 };
     const tiles = G.tilesFor(bounds, lod.tz, 150);
     let done = 0, total = tiles.length;
 
+    // Этап 1: Загрузка векторных тайлов (полигонов)
     for (const t of tiles) {
       if (precacheAbort) break;
       const e = WM.cache.tile(t);
@@ -227,10 +229,50 @@
         await new Promise(r => setTimeout(r, 1200));
       }
       done++;
-      onProgress && onProgress(done, total);
+      onProgress && onProgress({ stage: 'tiles', done, total });
     }
+
+    // Этап 2: Загрузка полных описаний, фото и отзывов (если включен чекбокс)
+    if (withDetails && !precacheAbort) {
+      // Собираем уникальные объекты, попавшие в область bounds, у которых ещё нет деталей
+      const targetObjects = [];
+      for (const o of WM.cache.objects.values()) {
+        if (G.intersects(o.bbox, bounds)) {
+          if (!o.hasDetail) {
+            targetObjects.push(o);
+          }
+        }
+      }
+
+      let objDone = 0;
+      const objTotal = targetObjects.length;
+
+      onProgress && onProgress({ stage: 'details', done: 0, total: objTotal });
+
+      for (const obj of targetObjects) {
+        if (precacheAbort) break;
+        try {
+          // WM.api.place автоматически сохраняет карточку в IndexedDB
+          // и вызывает WM.cache.markVisited, сохраняя кол-во фото и комментариев
+          await WM.api.place(obj.id, 'ru');
+          objDone++;
+          onProgress && onProgress({ stage: 'details', done: objDone, total: objTotal });
+        } catch (err) {
+          if (err.rateLimit) {
+            const wait = err.retryAfterMs || 5000;
+            onProgress && onProgress({ stage: 'waiting', waitMs: wait });
+            await new Promise(r => setTimeout(r, wait));
+            continue;
+          }
+        }
+        // Небольшая задержка между запросами к API для стабильности
+        await new Promise(r => setTimeout(r, 700));
+      }
+    }
+
     isPrecaching = false;
     cb.onChange && cb.onChange();
+    if (WM.view) WM.view.render();
     update();
   }
 
