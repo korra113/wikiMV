@@ -71,7 +71,28 @@ jobs:
           # Создаем проект Android
           npx cap add android
 
-          # Обучаем WebView в APK скачивать файлы через системный менеджер Android
+          # 1. ГЕНЕРАЦИЯ ИКОНОК (нарезает и раскладывает по папкам mipmap)
+          npx capacitor-assets generate --android --iconBackgroundColor "#111827"
+
+          # 2. РАЗРЕШЕНИЯ GPS (чтобы работала кнопка геолокации на карте)
+          python3 - << 'EOF'
+          path = "android/app/src/main/AndroidManifest.xml"
+          with open(path, "r", encoding="utf-8") as f:
+              content = f.read()
+
+          permissions = """    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-feature android:name="android.hardware.location.gps" />
+          </manifest>"""
+
+          if "ACCESS_FINE_LOCATION" not in content and "</manifest>" in content:
+              content = content.replace("</manifest>", permissions)
+
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          EOF
+
+          # 3. ПЕРЕХВАТ СКАЧИВАНИЯ (чтобы работали кнопки скачивания APK и исходников)
           python3 - << 'EOF'
           path = "android/app/src/main/java/com/wikimapia/viewer/MainActivity.java"
           code = """package com.wikimapia.viewer;
