@@ -421,6 +421,28 @@
                 <button id="btn-reset-raster-style" type="button" class="btn-link">Сброс</button>
               </div>
 
+              <label class="toggle-item" style="margin-top: 10px;">
+                <div>
+                  <span style="font-weight: 600; display: block;">Монохромная покраска (как в Nakarte)</span>
+                  <small class="hint-text" style="margin: 2px 0 0;">Перекрашивает все линии в один выбранный цвет</small>
+                </div>
+                <input type="checkbox" id="rast-tint-enabled">
+                <span class="toggle-switch"></span>
+              </label>
+
+              <div class="style-row" id="rast-tint-color-row" style="margin-top: 8px;">
+                <label for="rast-tint-color">Цвет контуров</label>
+                <div class="color-input-wrap">
+                  <input type="color" id="rast-tint-color" value="#8B4513">
+                  <span class="color-val" id="rast-tint-color-val">#8B4513</span>
+                </div>
+              </div>
+
+              <div class="style-row" style="margin-top: 10px;">
+                <label for="rast-width">Толщина линий: <b id="rast-width-val">Исходная (0)</b></label>
+                <input type="range" id="rast-width" min="-1" max="2" step="0.5" value="0" class="styled-range">
+              </div>
+
               <div class="style-row">
                 <label for="rast-opacity">Прозрачность: <b id="rast-opacity-val">100%</b></label>
                 <input type="range" id="rast-opacity" min="10" max="100" step="5" value="100" class="styled-range">
@@ -669,5 +691,26 @@
   </div>
 
 <div id="ui-tooltip" class="ui-tooltip" hidden></div>
+
+<svg style="position: absolute; width: 0; height: 0; overflow: hidden;" aria-hidden="true">
+  <!-- 1. Фильтр только толщины (для обычного цветного режима) -->
+  <filter id="wm-morph-filter">
+    <feMorphology id="wm-morph-standalone" operator="dilate" radius="0" />
+  </filter>
+
+  <!-- 2. Комбинированный фильтр: толщина + окраска по маске альфы -->
+  <filter id="wm-tint-filter" color-interpolation-filters="sRGB">
+    <!-- А. Регулировка толщины линий (если задана ползунком) -->
+    <feMorphology id="wm-morph-tint" in="SourceGraphic" operator="dilate" radius="0" result="morphed" />
+
+    <!-- Б. Тонирование с сохранением яркости (Luminance):
+         Цветные линии и ореолы берут выбранный цвет, а буквы остаются темными и четкими -->
+    <feColorMatrix id="wm-color-matrix" in="morphed" type="matrix"
+      values="0.145 0.487 0.049 0 0
+              0.072 0.242 0.024 0 0
+              0.020 0.067 0.007 0 0
+              0     0     0     1 0" />
+  </filter>
+</svg>
 </body>
 </html>
