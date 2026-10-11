@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v3';
+const SHELL_CACHE = 'wm-shell-v7';
 const TILES_CACHE = 'wm-tiles-v1';
 
 const ASSETS_TO_CACHE = [
@@ -16,6 +16,8 @@ const ASSETS_TO_CACHE = [
   'js/view.js',
   'js/picker.js',
   'js/ui.js',
+  'js/markers.js',  // <-- Добавлено
+  'js/measure.js',  // <-- Добавлено
   'js/main.js'
 ];
 
