@@ -30,7 +30,6 @@
   window.addEventListener('popstate', (e) => {
     const targetView = (e.state && e.state.wmView) || null;
 
-    // 1. Если был открыт просмотр фото, а вернулись назад
     const lbEl = $('lightbox');
     if (lbEl && !lbEl.hidden && targetView !== 'lightbox') {
       closeLightbox(false);
@@ -38,7 +37,6 @@
       return;
     }
 
-    // 2. Если открыто модальное окно настроек / поиска / скачивания
     const openModals = document.querySelectorAll('.modal-overlay.open');
     if (openModals.length > 0 && targetView !== 'modal') {
       openModals.forEach(m => m.classList.remove('open'));
@@ -46,7 +44,6 @@
       return;
     }
 
-    // 3. Закрываем шторку объекта ТОЛЬКО если вернулись к карте
     const sheet = $('sheet');
     if (sheet && sheet.classList.contains('open') && targetView !== 'sheet') {
       closeSheet(false);
@@ -90,12 +87,14 @@
     layers: true,
     search: true,
     mode: true,
+    measure: true,
+    marker: true,
     precache: true,
     location: true,
     theme: true
   };
   let uiVis = { ...UI_VIS_DEFAULT };
-  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'precache', 'location', 'theme'];
+  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'measure', 'marker', 'precache', 'location', 'theme'];
 
   let workMode = WM.api.store.get('wm_work_mode') || 'manual';
   let autoHoverEnabled = WM.api.store.get('wm_auto_hover') === 'true';
@@ -258,6 +257,8 @@
 
     if ($('btn-search')) $('btn-search').style.display = uiVis.search ? '' : 'none';
     if ($('btn-mode-toggle')) $('btn-mode-toggle').style.display = uiVis.mode ? '' : 'none';
+    if ($('btn-measure')) $('btn-measure').style.display = uiVis.measure ? '' : 'none';
+    if ($('btn-add-marker')) $('btn-add-marker').style.display = uiVis.marker ? '' : 'none';
     if ($('btn-download-area')) $('btn-download-area').style.display = uiVis.precache ? '' : 'none';
     if ($('btn-location')) $('btn-location').style.display = uiVis.location ? '' : 'none';
     if ($('btn-theme-toggle')) $('btn-theme-toggle').style.display = uiVis.theme ? '' : 'none';
@@ -519,7 +520,6 @@
   function renderInfo(body, o, d) {
     body.append(el('p', { class: 'desc', text: (d && d.description) || (d ? 'Описание отсутствует.' : 'Загрузка…') }));
     
-    // Кликабельные теги
     const rawTags = list(d && d.tags).filter(t => t && (t.title || t.name));
     if (rawTags.length) {
       const activeTag = (WM.view && WM.view.getActiveTag) ? WM.view.getActiveTag() : null;
@@ -589,7 +589,7 @@
     );
 
     body.append(actionBlock);
-    // Блок установки индивидуального цвета объекта
+
     const PRESETS = ['#ef4444', '#f97316', '#eab308', '#10b981', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'];
     const colorCard = el('div', { class: 'card-color-mark' });
 
@@ -731,7 +731,6 @@
         cur.lang = lang;
         if (d.title) $('sheet-title').textContent = d.title;
 
-        // Отмечаем как просмотренный и обновляем стиль
         if (WM.cache && WM.cache.markVisited) {
           WM.cache.markVisited(obj.id, d);
         }
@@ -1395,6 +1394,176 @@
     };
   }
 
+  // =========================================================================
+  // МОБИЛЬНЫЕ ПОДСКАЗКИ ПРИ ДОЛГОМ НАЖАТИИ (LONG-PRESS TOOLTIP)
+  // =========================================================================
+  function initMobileTooltips() {
+    const tooltipEl = $('ui-tooltip');
+    let holdTimer = null;
+    let targetEl = null;
+    let touchStartPt = null;
+    let longPressTriggered = false;
+    let hideTimer = null;
+
+    const TOOLTIPS = {
+      'btn-mode-toggle': () => {
+        const isCross = WM.picker && WM.picker.getMode() === 'cross';
+        return isCross 
+          ? '🎯 Режим «Перекрестие»\nНаведите прицел в центре экрана для выбора объекта (тапните для смены на палец)' 
+          : '👆 Режим «Палец»\nВыбирайте объекты прямым нажатием на карту (тапните для смены на прицел)';
+      },
+      'btn-measure': () => '📏 Линейка: измерение расстояний на карте, добавление узлов и нескольких треков',
+      'btn-add-marker': () => '📍 Добавить метку: создать заметку с эмодзи в центре экрана с возможностью перемещения',
+      'btn-download-area': () => '📥 Скачать область: сохранить контуры и описания видимой области для автономной работы',
+      'btn-location': () => '🛰️ Моя геопозиция: определить и показать текущие координаты по GPS',
+      'btn-theme-toggle': () => '🌙/☀️ Смена темы: переключение между тёмной и светлой темой оформления',
+      'btn-settings': () => '⚙️ Настройки: режимы расхода API, управление ключами, оформление контуров и экспорт',
+      'btn-search': () => '🔍 Поиск: поиск по названию, адресу, координатам или ID Wikimapia',
+      'limit-badge': () => '🔑 Лимит API: число обращений к сайту Wikimapia за сутки (сброс в полночь по времени PT)',
+      'limit-row': () => '🔑 Лимит API: состояние квоты текущего ключа и кнопка принудительного обновления',
+      'btn-force-refresh': () => '🔄 Обновить: сбросить ограничения и принудительно догрузить недостающие полигоны на экране',
+      'btn-get-key-top': () => '🔑 Добавить ключ: открыть настройки для добавления API-ключа Wikimapia',
+      'status': () => 'ℹ️ Статус системы: текущий режим загрузки, число объектов в памяти и состояние сети',
+      'tag-filter-badge': () => '🏷️ Фильтр тега: подсвечены только объекты выбранной категории',
+      'tag-filter-refresh': () => '🔄 Искать тег: найти объекты данной категории на текущем видимом экране',
+      'tag-filter-clear': () => '✕ Сбросить тег: вернуть стандартное отображение всех объектов',
+      'hover-pill': () => '📑 Карточка объекта: нажмите, чтобы открыть полное описание, фотографии и отзывы',
+      'crosshair': () => '✛ Прицел: центр экрана для точечного выбора и загрузки объектов',
+      'btn-measure-undo': () => '↩ Отменить узел: удалить последнюю поставленную точку измерения',
+      'btn-measure-finish': () => '✓ Фиксация: зафиксировать измерение или продолжить добавление узлов',
+      'btn-measure-clear': () => '🗑️ Удалить измерение: стереть текущую линию с карты',
+      'btn-measure-close': () => '✕ Закрыть линейку: скрыть панель измерений с экрана',
+      'btn-measure-new': () => '＋ Новое измерение: начать рисовать ещё одну независимую линию',
+      'btn-measure-rename': () => '✏️ Переименовать: изменить название текущего измерения'
+    };
+
+    function getTooltipText(elem) {
+      if (!elem) return '';
+      if (elem.id && TOOLTIPS[elem.id]) {
+        return typeof TOOLTIPS[elem.id] === 'function' ? TOOLTIPS[elem.id]() : TOOLTIPS[elem.id];
+      }
+
+      if (elem.classList.contains('leaflet-control-zoom-in')) {
+        return '➕ Приблизить: увеличить масштаб карты';
+      }
+      if (elem.classList.contains('leaflet-control-zoom-out')) {
+        return '➖ Отдалить: уменьшить масштаб карты';
+      }
+      if (elem.classList.contains('leaflet-control-layers-toggle')) {
+        return '🗺️ Слои карты: выбор спутников, топокарт, схем и Ж/Д сетей';
+      }
+
+      const parentKey = Object.keys(TOOLTIPS).find(k => elem.closest && elem.closest('#' + k));
+      if (parentKey) {
+        return typeof TOOLTIPS[parentKey] === 'function' ? TOOLTIPS[parentKey]() : TOOLTIPS[parentKey];
+      }
+
+      const title = elem.getAttribute('title') || elem.getAttribute('aria-label');
+      if (title) return title;
+
+      return '';
+    }
+
+    function showTooltipNear(elem, text) {
+      if (!tooltipEl || !text) return;
+      clearTimeout(hideTimer);
+      tooltipEl.textContent = text;
+      tooltipEl.hidden = false;
+      tooltipEl.classList.add('visible');
+
+      const rect = elem.getBoundingClientRect();
+      const ttW = tooltipEl.offsetWidth || 240;
+      const ttH = tooltipEl.offsetHeight || 60;
+      const winW = window.innerWidth;
+
+      let top = rect.top - ttH - 12;
+      let left = rect.left + rect.width / 2 - ttW / 2;
+
+      if (top < 12) {
+        top = rect.bottom + 12;
+      }
+      if (left < 12) left = 12;
+      if (left + ttW > winW - 12) left = winW - ttW - 12;
+
+      tooltipEl.style.top = `${top}px`;
+      tooltipEl.style.left = `${left}px`;
+
+      hideTimer = setTimeout(hideTooltip, 3000);
+    }
+
+    function hideTooltip() {
+      clearTimeout(hideTimer);
+      if (tooltipEl) {
+        tooltipEl.classList.remove('visible');
+        tooltipEl.hidden = true;
+      }
+    }
+
+    function onTouchStart(e) {
+      if (e.touches.length !== 1) {
+        cancelHold();
+        return;
+      }
+
+      const target = e.target.closest('button, a, .limit-badge, .limit-row, .status-bar, .tag-filter-badge, .hover-pill, .leaflet-control-zoom-in, .leaflet-control-zoom-out, .leaflet-control-layers-toggle');
+      if (!target) return;
+
+      const text = getTooltipText(target);
+      if (!text) return;
+
+      targetEl = target;
+      touchStartPt = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      longPressTriggered = false;
+
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => {
+        longPressTriggered = true;
+        if (navigator.vibrate) navigator.vibrate(35);
+        showTooltipNear(targetEl, text);
+      }, 420);
+    }
+
+    function onTouchMove(e) {
+      if (!touchStartPt) return;
+      const t = e.touches[0];
+      if (Math.hypot(t.clientX - touchStartPt.x, t.clientY - touchStartPt.y) > 10) {
+        cancelHold();
+      }
+    }
+
+    function onTouchEnd() {
+      if (longPressTriggered && targetEl) {
+        const suppressTarget = targetEl;
+        const suppressClick = (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          suppressTarget.removeEventListener('click', suppressClick, true);
+        };
+        suppressTarget.addEventListener('click', suppressClick, true);
+        setTimeout(() => suppressTarget.removeEventListener('click', suppressClick, true), 350);
+      }
+      cancelHold();
+    }
+
+    function cancelHold() {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      touchStartPt = null;
+    }
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: false });
+    window.addEventListener('touchcancel', cancelHold, { passive: true });
+
+    window.addEventListener('contextmenu', (e) => {
+      const target = e.target.closest && e.target.closest('button, a, .floating-btn, .square-btn-top, .limit-badge, .status-bar');
+      if (target) {
+        e.preventDefault();
+      }
+    });
+  }
+
   WM.ui = {
     openPlace(obj, alts) {
       cur = { obj, detail: null, error: null, lang: 'ru', loadingLang: 'ru' }; 
@@ -1494,7 +1663,6 @@
         btnGetKeyTop.onclick = openKeysSettings;
       }
 
-      // Кнопка сброса фильтра по тегу
       const clearTagBtn = $('tag-filter-clear');
       if (clearTagBtn) {
         clearTagBtn.onclick = () => {
@@ -1503,7 +1671,6 @@
           }
         };
       }
-      // Кнопка обновления поиска по текущему положению карты
       const refreshTagBtn = $('tag-filter-refresh');
       if (refreshTagBtn) {
         refreshTagBtn.onclick = async () => {
@@ -1567,6 +1734,7 @@
       initSearchUI();
       initLightboxGestures();
       initSheetGestures();
+      initMobileTooltips();
 
       const onVecInput = () => {
         const cfg = readVectorInputs();
@@ -1736,9 +1904,6 @@
           try {
             const count = await WM.cache.importDump(e.target.result);
             showToast(`Успешно импортировано объектов: ${count}`, 1500);
-            
-            // Перезагружаем страницу через 1 секунду, чтобы мгновенно применились
-            // все восстановленные настройки темы, ключи, слои и стили:
             setTimeout(() => {
               window.location.reload();
             }, 1000);
