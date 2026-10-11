@@ -1625,11 +1625,7 @@ body.sheet-open .hover-pill {
 
 /* СТАЛО: применяем фильтр ТОЛЬКО к самим картинкам тайлов */
 .wm-raster-tile .leaflet-tile {
-  filter: contrast(var(--wm-rast-contrast, 240%))
-          saturate(var(--wm-rast-saturate, 300%))
-          brightness(var(--wm-rast-brightness, 100%))
-          invert(var(--wm-rast-invert, 0%))
-          var(--wm-rast-shadow, none);
+  filter: var(--wm-rast-filter-chain);
   opacity: var(--wm-rast-opacity, 1) !important;
   image-rendering: -webkit-optimize-contrast;
 }
@@ -2559,6 +2555,8 @@ body.sheet-open .measure-hud {
   white-space: pre-line;
   word-break: break-word;
 }
+
+
 /* Отключение браузерного контекстного меню на элементах управления для комфортного долгого тапа */
 .floating-btn,
 .square-btn-top,
