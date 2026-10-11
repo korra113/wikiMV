@@ -178,7 +178,7 @@
     maxZoom: 20,
     opacity: 1.0,
     className: 'wm-raster-tile'
-  }).addTo(map);
+  });
 
   const railwayOverlay = L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
     subdomains: ['a', 'b', 'c'],
@@ -188,24 +188,91 @@
     attribution: '© OpenRailwayMap'
   });
 
+  // 1. Восстанавливаем сохраненное состояние слоев из localStorage
+  // Контуры Wikimapia по умолчанию включены ('true'), если пользователь явно не снял галочку
+  let isContoursEnabled = localStorage.getItem('wm_overlay_contours') !== 'false';
+  // Ж/Д сеть по умолчанию выключена ('false')
+  const isRailwayEnabled = localStorage.getItem('wm_overlay_railway') === 'true';
+
+  if (isRailwayEnabled) {
+    railwayOverlay.addTo(map);
+  }
+
+  // Флаг защиты: предотвращает ложные срабатывания overlayadd/overlayremove 
+  // при программном переключении слоев во время зума
+  let isProgrammaticLayerChange = false;
+
   function syncOverlayMode() {
+    // Если пользователь выключил контуры в меню — гарантированно скрываем их
+    if (!isContoursEnabled) {
+      if (map.hasLayer(wmContours)) {
+        isProgrammaticLayerChange = true;
+        map.removeLayer(wmContours);
+        isProgrammaticLayerChange = false;
+      }
+      return;
+    }
+
     const mode = WM.ui ? WM.ui.getWorkMode() : 'hybrid';
     
     if (mode === 'manual' || mode === 'nakarte') {
-      if (!map.hasLayer(wmContours)) map.addLayer(wmContours);
+      if (!map.hasLayer(wmContours)) {
+        isProgrammaticLayerChange = true;
+        map.addLayer(wmContours);
+        isProgrammaticLayerChange = false;
+      }
     } else if (mode === 'auto') {
-      if (map.hasLayer(wmContours)) map.removeLayer(wmContours);
+      if (map.hasLayer(wmContours)) {
+        isProgrammaticLayerChange = true;
+        map.removeLayer(wmContours);
+        isProgrammaticLayerChange = false;
+      }
     } else {
+      // Гибридный режим: на общем плане (zoom < VECTOR_ZOOM) показываем растр,
+      // а при приближении скрываем его, уступая место векторным полигонам
       if (map.getZoom() >= C.VECTOR_ZOOM) {
-        if (map.hasLayer(wmContours)) map.removeLayer(wmContours);
+        if (map.hasLayer(wmContours)) {
+          isProgrammaticLayerChange = true;
+          map.removeLayer(wmContours);
+          isProgrammaticLayerChange = false;
+        }
       } else {
-        if (!map.hasLayer(wmContours)) map.addLayer(wmContours);
+        if (!map.hasLayer(wmContours)) {
+          isProgrammaticLayerChange = true;
+          map.addLayer(wmContours);
+          isProgrammaticLayerChange = false;
+        }
       }
     }
   }
 
   window.syncRasterOverlay = syncOverlayMode;
   map.on('zoomend', syncOverlayMode);
+
+  // 2. Отслеживаем ручное переключение галочек пользователем в меню слоев
+  map.on('overlayadd', (e) => {
+    if (isProgrammaticLayerChange) return;
+
+    if (e.name === 'Контуры Wikimapia') {
+      isContoursEnabled = true;
+      localStorage.setItem('wm_overlay_contours', 'true');
+      syncOverlayMode();
+    } else if (e.name === 'Ж/Д сеть (OpenRailwayMap)') {
+      localStorage.setItem('wm_overlay_railway', 'true');
+    }
+  });
+
+  map.on('overlayremove', (e) => {
+    if (isProgrammaticLayerChange) return;
+
+    if (e.name === 'Контуры Wikimapia') {
+      isContoursEnabled = false;
+      localStorage.setItem('wm_overlay_contours', 'false');
+      syncOverlayMode();
+    } else if (e.name === 'Ж/Д сеть (OpenRailwayMap)') {
+      localStorage.setItem('wm_overlay_railway', 'false');
+    }
+  });
 
   const overlayLayers = {
     'Контуры Wikimapia': wmContours,
