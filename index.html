@@ -137,6 +137,17 @@
         </select>
       </div>
 
+      <label class="toggle-item" style="margin: 12px 0 6px;">
+        <div>
+          <span style="font-weight:600; display:block;">Включая фото, описания и отзывы</span>
+          <small class="hint-text" style="margin:2px 0 0; color: var(--warning-text, #eab308);">
+            ⚠️ Внимание: 1 отдельный API-запрос на каждый объект!
+          </small>
+        </div>
+        <input type="checkbox" id="precache-details">
+        <span class="toggle-switch"></span>
+      </label>
+
       <div class="progress-wrap" id="precache-progress-wrap" hidden>
         <div class="progress-track"><div id="precache-progress-bar" class="progress-fill"></div></div>
         <div id="precache-status" class="progress-status">Скачивание...</div>
@@ -609,7 +620,7 @@
       </div>
     </div>
   </div>
-  
+
 <div id="ui-tooltip" class="ui-tooltip" hidden></div>
 </body>
 </html>
