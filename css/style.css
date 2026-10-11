@@ -2322,7 +2322,243 @@ body.sheet-open .measure-hud {
   opacity: 1;
   transform: scale(1);
 }
+/* --- Кнопка-ссылка на Википедию --- */
+.action-card-btn.wiki-btn {
+  grid-column: span 2;
+  background: var(--bg-secondary);
+  border-color: #94a3b8;
+  color: var(--text-main);
+  font-weight: 700;
+}
+.action-card-btn.wiki-btn:hover {
+  background: #f1f5f9;
+  border-color: #64748b;
+  color: #0f172a;
+}
+[data-theme="dark"] .action-card-btn.wiki-btn:hover {
+  background: #334155;
+  border-color: #cbd5e1;
+  color: #ffffff;
+}
 
+/* --- Стили переключателя языков --- */
+.sheet-langs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 0 18px 8px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.sheet-langs::-webkit-scrollbar {
+  height: 4px;
+}
+.sheet-langs::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+.lang-chip {
+  flex: none;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  border-radius: 14px;
+  padding: 4px 11px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.lang-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-main);
+}
+.lang-chip.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(2, 132, 199, 0.2);
+}
+
+/* --- Галерея фотографий с информацией об авторе и дате --- */
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+  gap: 8px;
+}
+.photo-card {
+  position: relative;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  aspect-ratio: 1;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.photo-card:hover {
+  transform: scale(1.02);
+  box-shadow: var(--shadow);
+}
+.photo-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.photo-card-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(15, 23, 42, 0.88) 0%, rgba(15, 23, 42, 0.45) 75%, transparent 100%);
+  color: #fff;
+  padding: 16px 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10.5px;
+  line-height: 1.2;
+  pointer-events: none;
+}
+.photo-card-author {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+}
+.photo-card-date {
+  opacity: 0.85;
+  font-size: 9.5px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+}
+
+/* --- Карточки комментариев и отзывов --- */
+.comment-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.comment-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.comment-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid var(--border-strong);
+  flex-shrink: 0;
+}
+.comment-avatar-placeholder {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border-strong);
+  user-select: none;
+}
+.comment-user-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.comment-author-link {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--accent);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comment-author-link:hover {
+  text-decoration: underline;
+}
+.comment-author-name {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comment-sub-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 1px;
+}
+.comment-date {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.comment-moder-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #d97706;
+  background: var(--warning-bg);
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+.comment-votes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.vote-good {
+  color: #16a34a;
+  background: #dcfce7;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+[data-theme="dark"] .vote-good {
+  background: #052e16;
+  color: #86efac;
+}
+.vote-bad {
+  color: #dc2626;
+  background: #fee2e2;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+[data-theme="dark"] .vote-bad {
+  background: #450a0a;
+  color: #fca5a5;
+}
+.comment-message {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-main);
+  white-space: pre-line;
+  word-break: break-word;
+}
 /* Отключение браузерного контекстного меню на элементах управления для комфортного долгого тапа */
 .floating-btn,
 .square-btn-top,
