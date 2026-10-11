@@ -45,7 +45,7 @@ jobs:
       # 2. Инициализация Capacitor и сборка ассетов
       - name: Setup Project and Capacitor
         run: |
-          echo '{"name": "wikimapia-app", "version": "1.0.2"}' > package.json
+          echo '{"name": "wikimapia-app", "version": "1.0.3"}' > package.json
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets
 
           # Подготовка исходников для автоматического генератора иконок
