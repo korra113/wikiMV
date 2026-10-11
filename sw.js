@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v7';
+const SHELL_CACHE = 'wm-shell-v8';
 const TILES_CACHE = 'wm-tiles-v1';
 
 const ASSETS_TO_CACHE = [
