@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v10';
+const SHELL_CACHE = 'wm-shell-v11';
 const TILES_CACHE = 'wm-tiles-v1';
 
 const ASSETS_TO_CACHE = [
@@ -83,6 +83,9 @@ self.addEventListener('fetch', (event) => {
     url.includes('arcgisonline.com') ||
     url.includes('google.com/vt') ||
     url.includes('tile.openstreetmap.fr') ||
+    url.includes('opentopomap.org') ||
+    url.includes('openrailwaymap.org') ||
+    url.includes('tiles.nakarte.me') ||
     url.includes('wikimapia.org/?x=');
 
   if (isTile) {
