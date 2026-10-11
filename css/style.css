@@ -621,7 +621,10 @@ body.sheet-open .hover-pill {
   margin-bottom: 10px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+
 .search-tab-btn {
   background: none;
   border: none;
@@ -1327,25 +1330,34 @@ body.sheet-open .hover-pill {
 .toggles-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 .toggle-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* Выравнивание по верхнему краю (к первой строке текста) */
   justify-content: space-between;
+  gap: 12px;
   font-size: 13px;
   cursor: pointer;
+  user-select: none;
+}
+.toggle-item > div {
+  flex: 1 1 auto;
+  min-width: 0; /* Предотвращает распирание flex-элемента длинным текстом */
 }
 .toggle-item input {
   display: none;
 }
 .toggle-switch {
   width: 38px;
+  min-width: 38px; /* Запрещает сужение переключателя */
   height: 22px;
   background: var(--border-strong);
   border-radius: 12px;
   position: relative;
   transition: background 0.2s;
+  flex-shrink: 0; /* Рычажок никогда не деформируется */
+  margin-top: 1px; /* Аккуратное выравнивание по центру первой строки */
 }
 .toggle-switch::after {
   content: "";
@@ -1357,6 +1369,99 @@ body.sheet-open .hover-pill {
   background: #fff;
   border-radius: 50%;
   transition: transform 0.2s;
+}
+.toggle-item input:checked + .toggle-switch {
+  background: var(--accent);
+}
+.toggle-item input:checked + .toggle-switch::after {
+  transform: translateX(16px);
+}
+
+/* Компактная плашка предупреждения для автозагрузки */
+.hint-text-warn {
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--warning-text, #92400e);
+  background: var(--warning-bg, #fef3c7);
+  padding: 5px 8px;
+  border-radius: 6px;
+  margin-top: 5px;
+  word-break: break-word;
+}
+
+.search-tags-hint {
+  background: var(--accent-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 4px 0 10px;
+  line-height: 1.45;
+}
+
+.search-tags-hint-title {
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.search-tags-hint-desc {
+  color: var(--text-main);
+  font-size: 11.5px;
+  line-height: 1.4;
+  opacity: 0.9;
+}
+
+.search-tags-hint-desc b {
+  color: var(--text-main);
+}
+.search-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Сетка и чипы тегов во вкладке поиска */
+.search-tags-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 2px;
+}
+
+.search-tag-chip {
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.search-tag-chip:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.search-tag-chip.active {
+  background: #7c3aed;
+  color: #ffffff;
+  border-color: #6d28d9;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.4);
+}
+
+.search-tag-chip .tag-count {
+  font-size: 11px;
+  opacity: 0.75;
+  font-weight: 500;
 }
 .toggle-item input:checked + .toggle-switch {
   background: var(--accent);
