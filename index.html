@@ -80,7 +80,7 @@
   <!-- Нижняя кнопка-подсказка объекта -->
   <button id="hover-pill" class="hover-pill" hidden></button>
   
-  <button id="btn-compass" class="compass-btn-top" title="Компас (нажмите для проверки азимута / калибровки)" hidden>
+  <button id="btn-compass" class="compass-btn-top" title="Компас (нажмите для проверки азимута / калибровки)" style="display: none;">
     <div class="compass-dial">
       <span class="compass-letter-n">N</span>
       <div class="compass-needle" id="compass-needle">
@@ -762,6 +762,13 @@
               <span class="toggle-switch"></span>
             </label>
             <label class="toggle-item">
+              <span>Кнопка смены темы</span>
+              <input type="checkbox" id="toggle-ui-theme" checked>
+              <span class="toggle-switch"></span>
+            </label>
+
+            
+            <label class="toggle-item">
               <div>
                 <span style="font-weight:600; display:block;">Конус направления GPS</span>
                 <small class="hint-text" style="margin:2px 0 0;">Луч обзора из точки позиции (куда направлен смартфон)</small>
@@ -778,11 +785,7 @@
               <input type="checkbox" id="toggle-ui-compassneedle">
               <span class="toggle-switch"></span>
             </label>
-            <label class="toggle-item">
-              <span>Кнопка смены темы</span>
-              <input type="checkbox" id="toggle-ui-theme" checked>
-              <span class="toggle-switch"></span>
-            </label>
+
           </div>
         </details>
 
