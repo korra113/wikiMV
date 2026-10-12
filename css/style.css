@@ -666,6 +666,121 @@ body.sheet-open .quick-menu-fab {
   background: #22c55e !important;
 }
 
+.objects-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.objects-download-btn {
+  width: 40px;
+  height: 38px;
+  min-width: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  color: var(--text-main);
+  font-size: 18px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  user-select: none;
+}
+/* Прогресс-бар скачивания в списке объектов */
+.objects-download-progress-wrap {
+  margin-bottom: 10px;
+  animation: progressFadeIn 0.22s ease-out;
+}
+
+.objects-download-progress-track {
+  width: 100%;
+  height: 6px;
+  background: var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.objects-download-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent) 0%, #38bdf8 100%);
+  width: 0%;
+  border-radius: 6px;
+  transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 8px rgba(2, 132, 199, 0.45);
+}
+
+.objects-download-progress-status {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-top: 4px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Плавное вертикальное появление строго на своем месте */
+@keyframes progressFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.objects-download-btn:hover:not(.disabled):not(.loading) {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.objects-download-btn:active:not(.disabled):not(.loading) {
+  transform: scale(0.93);
+}
+
+/* Серая недоступная кнопка при >= 50 объектах */
+.objects-download-btn.disabled {
+  opacity: 0.38;
+  background: var(--bg-secondary) !important;
+  border-color: var(--border) !important;
+  color: var(--text-muted) !important;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.objects-download-btn.loading {
+  animation: pulseTopBtn 1.2s infinite ease-in-out;
+  cursor: wait;
+}
+
+/* Бейджи фото и комментариев справа внутри облачка */
+.object-chip-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+  padding-left: 5px;
+  border-left: 1px solid currentColor;
+  opacity: 0.75;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.object-chip-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 /* Тело плашки — тень перенесена сюда (аппаратный box-shadow вместо drop-shadow) */
 .wm-gc-badge-card {
   display: flex;
