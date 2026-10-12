@@ -676,12 +676,14 @@
     precache: true,
     location: true,
     gpsdist: false,
-    rays: false,         // Выключена по умолчанию
+    compasscone: false,    // По умолчанию выключено
+    compassneedle: false,  // По умолчанию выключено
+    rays: false,
     theme: true,
     infomenu: true
   };
   let uiVis = { ...UI_VIS_DEFAULT };
-  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'gpsdist', 'rays', 'theme', 'infomenu'];
+  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'gpsdist', 'compasscone', 'compassneedle', 'rays', 'theme', 'infomenu'];
 
   const DEFAULT_INFO_ITEMS = {
     time: true,
@@ -690,6 +692,7 @@
     gps: true,
     sun: true,
     moon: true,
+    weather: true,
     rays: false
   };
 
@@ -705,6 +708,121 @@
   let sunRayPoly = null;
   let moonRayPoly = null;
   let infoAstroDayOffset = 0; // от -3 до +7 дней
+
+  const hudSpoilersState = {
+    sun: true,
+    moon: true,
+    weather: false
+  };
+
+  // Коды погоды WMO (World Meteorological Organization)
+  const WMO_WEATHER_MAP = {
+    0: { text: 'Ясно', icon: '☀️' },
+    1: { text: 'Преимущ. ясно', icon: '🌤️' },
+    2: { text: 'Переменная обл.', icon: '⛅' },
+    3: { text: 'Пасмурно', icon: '☁️' },
+    45: { text: 'Туман', icon: '🌫️' },
+    48: { text: 'Туман/иней', icon: '🌫️' },
+    51: { text: 'Слабая морось', icon: '🌦️' },
+    53: { text: 'Морось', icon: '🌦️' },
+    55: { text: 'Сильная морось', icon: '🌧️' },
+    61: { text: 'Небольшой дождь', icon: '🌦️' },
+    63: { text: 'Умеренный дождь', icon: '🌧️' },
+    65: { text: 'Сильный дождь', icon: '🌧️' },
+    71: { text: 'Небольшой снег', icon: '🌨️' },
+    73: { text: 'Снегопад', icon: '🌨️' },
+    75: { text: 'Сильный снегопад', icon: '❄️' },
+    77: { text: 'Снежные зерна', icon: '❄️' },
+    80: { text: 'Кратковрем. дождь', icon: '🌦️' },
+    81: { text: 'Ливень', icon: '🌧️' },
+    82: { text: 'Сильный ливень', icon: '⛈️' },
+    85: { text: 'Снегопад', icon: '🌨️' },
+    86: { text: 'Сильный снегопад', icon: '❄️' },
+    95: { text: 'Гроза', icon: '⛈️' },
+    96: { text: 'Гроза с градом', icon: '⛈️' },
+    99: { text: 'Сильная гроза с градом', icon: '⛈️' }
+  };
+
+  let weatherCacheData = null;
+  let weatherCacheKey = '';
+  let isWeatherLoading = false;
+
+  async function loadWeatherIfNeeded(lat, lng) {
+    if (!infoHudConfig.weather) return;
+    // Округляем координаты до ~5 км для кэширования при небольших сдвигах
+    const key = `${lat.toFixed(2)}_${lng.toFixed(2)}`;
+    if (weatherCacheKey === key && weatherCacheData) return;
+    if (isWeatherLoading) return;
+
+    isWeatherLoading = true;
+    weatherCacheKey = key;
+
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&hourly=temperature_2m,precipitation,weather_code&daily=weather_code,precipitation_sum&past_days=4&forecast_days=8&timezone=auto`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      weatherCacheData = await res.json();
+    } catch (e) {
+      console.warn('[Open-Meteo] Ошибка загрузки погоды:', e);
+      weatherCacheData = null;
+    } finally {
+      isWeatherLoading = false;
+      updateInfoHudUI();
+    }
+  }
+
+  function getWeatherForDate(targetDate) {
+    if (!weatherCacheData || !weatherCacheData.hourly) return null;
+
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${targetDate.getFullYear()}-${pad(targetDate.getMonth() + 1)}-${pad(targetDate.getDate())}`;
+
+    const times = weatherCacheData.hourly.time;
+    const temps = weatherCacheData.hourly.temperature_2m;
+    const codes = weatherCacheData.hourly.weather_code;
+
+    function getHourData(hour) {
+      const targetTime = `${dateStr}T${pad(hour)}:00`;
+      const idx = times.indexOf(targetTime);
+      if (idx === -1) return null;
+      const t = temps[idx];
+      const code = codes[idx];
+      const wInfo = WMO_WEATHER_MAP[code] || { text: 'Ясно', icon: '🌤️' };
+      return {
+        temp: t != null ? (t > 0 ? `+${Math.round(t)}` : `${Math.round(t)}`) + '°' : '--',
+        icon: wInfo.icon,
+        text: wInfo.text
+      };
+    }
+
+    const morning = getHourData(9);
+    const day = getHourData(15);
+    const evening = getHourData(21);
+    const night = getHourData(3);
+
+    // Осадки и общее описание за день из блока daily
+    let precipSum = 0;
+    let dayCode = 0;
+    if (weatherCacheData.daily && weatherCacheData.daily.time) {
+      const dIdx = weatherCacheData.daily.time.indexOf(dateStr);
+      if (dIdx !== -1) {
+        precipSum = weatherCacheData.daily.precipitation_sum[dIdx] || 0;
+        dayCode = weatherCacheData.daily.weather_code[dIdx] || 0;
+      }
+    }
+
+    const mainWeather = WMO_WEATHER_MAP[dayCode] || (day ? WMO_WEATHER_MAP[codes[times.indexOf(`${dateStr}T15:00`)]] : null) || { text: 'Без осадков', icon: '🌤️' };
+
+    return {
+      morning,
+      day,
+      evening,
+      night,
+      precipSum,
+      weatherDesc: mainWeather.text,
+      weatherIcon: mainWeather.icon
+    };
+  }
 
 
   function getDestPoint(startLL, brngDeg, distM) {
@@ -927,16 +1045,18 @@
       `;
     }
 
-    // 5. SunCalc: Солнце и Луна
-    const hasAstroItems = window.SunCalc && (infoHudConfig.sun || infoHudConfig.moon || infoHudConfig.rays);
-    let sunPos = null, moonPos = null;
+    // Запуск фоновой подгрузки погоды, если включена
+    if (infoHudConfig.weather) {
+      loadWeatherIfNeeded(refLat, refLng);
+    }
+
+    // 5. Солнце, Луна и Погода
+    const hasAstroItems = (window.SunCalc && (infoHudConfig.sun || infoHudConfig.moon || infoHudConfig.rays)) || infoHudConfig.weather;
 
     if (hasAstroItems) {
-      // Дата с учётом смещения от -3 до +7 дней
       const astroDate = new Date(now);
       astroDate.setDate(astroDate.getDate() + infoAstroDayOffset);
 
-      // Форматирование плашки выбранного дня
       let dayTitle = 'Сегодня';
       if (infoAstroDayOffset === 1) dayTitle = 'Завтра';
       else if (infoAstroDayOffset === -1) dayTitle = 'Вчера';
@@ -949,7 +1069,6 @@
         month: 'short'
       });
 
-      // Панель листания даты
       html += `
         <div class="ih-section ih-astro-ctrl">
           <div class="ih-astro-bar">
@@ -964,31 +1083,35 @@
         </div>
       `;
 
-      // Обертка для свайпов
       html += `<div class="ih-astro-swipe-area">`;
 
-      if (infoHudConfig.sun) {
+      // --- СПОЙЛЕР: СОЛНЦЕ (по умолчанию открыт) ---
+      if (infoHudConfig.sun && window.SunCalc) {
         const sTimes = SunCalc.getTimes(astroDate, refLat, refLng);
         sunPos = SunCalc.getPosition(astroDate, refLat, refLng);
         const sunAzDeg = ((sunPos.azimuth * 180 / Math.PI + 180) % 360);
         const sunAltDeg = (sunPos.altitude * 180 / Math.PI).toFixed(1);
 
         html += `
-          <div class="ih-section ih-astro-section">
-            <div class="ih-sec-title">☀️ Солнце (${sunAltDeg > 0 ? '+' + sunAltDeg : sunAltDeg}°)</div>
-            <div class="ih-grid-2">
+          <details class="ih-spoiler ih-astro-section" data-spoiler="sun" ${hudSpoilersState.sun ? 'open' : ''}>
+            <summary class="ih-spoiler-summary">
+              <span>☀️ Солнце (${sunAltDeg > 0 ? '+' + sunAltDeg : sunAltDeg}°)</span>
+              <span class="ih-chevron">▼</span>
+            </summary>
+            <div class="ih-spoiler-body ih-grid-2">
               <div>🌅 Восход: <b>${fmtTime(sTimes.sunrise)}</b></div>
               <div>🌇 Закат: <b>${fmtTime(sTimes.sunset)}</b></div>
               <div>☀️ Полдень: <b>${fmtTime(sTimes.solarNoon)}</b></div>
-              <div>✨ Золотой час: <b>${fmtTime(sTimes.goldenHour)}</b></div>
+              <div>✨ Зол час: <b>${fmtTime(sTimes.goldenHour)}</b></div>
               <div>🌆 Сумерки: <b>${fmtTime(sTimes.dusk)}</b></div>
               <div>🧭 Азимут: <b>${Math.round(sunAzDeg)}° (${degToCompass(sunAzDeg)})</b></div>
             </div>
-          </div>
+          </details>
         `;
       }
 
-      if (infoHudConfig.moon) {
+      // --- СПОЙЛЕР: ЛУНА (по умолчанию открыт) ---
+      if (infoHudConfig.moon && window.SunCalc) {
         const moonIllum = SunCalc.getMoonIllumination(astroDate);
         const moonTimes = SunCalc.getMoonTimes(astroDate, refLat, refLng);
         moonPos = SunCalc.getMoonPosition(astroDate, refLat, refLng);
@@ -998,21 +1121,77 @@
         const pct = Math.round(moonIllum.fraction * 100);
 
         html += `
-          <div class="ih-section ih-astro-section">
-            <div class="ih-sec-title">🌙 Луна (${phase.icon} ${pct}%)</div>
-            <div class="ih-row"><span class="ih-lbl">Фаза:</span><span class="ih-val">${phase.name}</span></div>
-            <div class="ih-grid-2">
-              <div>Восход: <b>${moonTimes.rise ? fmtTime(moonTimes.rise) : '--:--'}</b></div>
-              <div>Заход: <b>${moonTimes.set ? fmtTime(moonTimes.set) : '--:--'}</b></div>
-              <div>Высота: <b>${moonAltDeg}°</b></div>
-              <div>Азимут: <b>${Math.round(moonAzDeg)}° (${degToCompass(moonAzDeg)})</b></div>
+          <details class="ih-spoiler ih-astro-section" data-spoiler="moon" ${hudSpoilersState.moon ? 'open' : ''}>
+            <summary class="ih-spoiler-summary">
+              <span>🌙 Луна (${phase.icon} ${pct}%)</span>
+              <span class="ih-chevron">▼</span>
+            </summary>
+            <div class="ih-spoiler-body">
+              <div class="ih-row" style="margin-bottom: 3px;"><span class="ih-lbl">Фаза:</span><span class="ih-val">${phase.name}</span></div>
+              <div class="ih-grid-2">
+                <div>Восход: <b>${moonTimes.rise ? fmtTime(moonTimes.rise) : '--:--'}</b></div>
+                <div>Заход: <b>${moonTimes.set ? fmtTime(moonTimes.set) : '--:--'}</b></div>
+                <div>Высота: <b>${moonAltDeg}°</b></div>
+                <div>Азимут: <b>${Math.round(moonAzDeg)}° (${degToCompass(moonAzDeg)})</b></div>
+              </div>
             </div>
-          </div>
+          </details>
+        `;
+      }
+
+      // --- СПОЙЛЕР: ПОГОДА (по умолчанию скрыт) ---
+      if (infoHudConfig.weather) {
+        const wData = getWeatherForDate(astroDate);
+        const headerSummary = wData
+          ? `${wData.weatherIcon} Погода (${wData.day ? wData.day.temp : '--'})`
+          : '🌦️ Погода (загрузка…)';
+
+        html += `
+          <details class="ih-spoiler ih-astro-section" data-spoiler="weather" ${hudSpoilersState.weather ? 'open' : ''}>
+            <summary class="ih-spoiler-summary">
+              <span>${headerSummary}</span>
+              <span class="ih-chevron">▼</span>
+            </summary>
+            <div class="ih-spoiler-body">
+              ${wData ? `
+                <div class="ih-weather-grid">
+                  <div class="ih-weather-cell">
+                    <span class="ih-weather-time">Утро</span>
+                    <span class="ih-weather-icon">${wData.morning ? wData.morning.icon : '⛅'}</span>
+                    <span class="ih-weather-temp">${wData.morning ? wData.morning.temp : '--'}</span>
+                  </div>
+                  <div class="ih-weather-cell">
+                    <span class="ih-weather-time">День</span>
+                    <span class="ih-weather-icon">${wData.day ? wData.day.icon : '☀️'}</span>
+                    <span class="ih-weather-temp">${wData.day ? wData.day.temp : '--'}</span>
+                  </div>
+                  <div class="ih-weather-cell">
+                    <span class="ih-weather-time">Вечер</span>
+                    <span class="ih-weather-icon">${wData.evening ? wData.evening.icon : '🌤️'}</span>
+                    <span class="ih-weather-temp">${wData.evening ? wData.evening.temp : '--'}</span>
+                  </div>
+                  <div class="ih-weather-cell">
+                    <span class="ih-weather-time">Ночь</span>
+                    <span class="ih-weather-icon">${wData.night ? wData.night.icon : '🌙'}</span>
+                    <span class="ih-weather-temp">${wData.night ? wData.night.temp : '--'}</span>
+                  </div>
+                </div>
+                <div class="ih-weather-desc">
+                  <div>${wData.precipSum > 0 ? `💧 Осадки: <b>${wData.precipSum.toFixed(1)} мм</b>` : '💧 Без осадков'}</div>
+                  <div style="color: var(--text-muted); margin-top: 1px;">${wData.weatherDesc}</div>
+                </div>
+              ` : `
+                <div class="muted-val" style="padding: 4px 0; font-size: 10px; color: var(--text-muted);">
+                  ${isWeatherLoading ? '⏳ Загрузка прогноза Open-Meteo…' : 'Ожидание сети…'}
+                </div>
+              `}
+            </div>
+          </details>
         `;
       }
 
       html += `</div>`; // ih-astro-swipe-area
-    } // <--- ДОБАВЬТЕ ЭТУ СКОБКУ
+    }
 
     if (!isCollapsed) content.innerHTML = html;
   }
@@ -1247,6 +1426,12 @@
     if (hud) hud.hidden = !uiVis.infomenu;
     updateInfoHudUI();
 
+    const btnCompass = $('btn-compass');
+    if (btnCompass) btnCompass.style.display = uiVis.compassneedle ? '' : 'none';
+    if (WM.compass && WM.compass.updateSettings) {
+      WM.compass.updateSettings(uiVis.compasscone, uiVis.compassneedle);
+    }
+
     const zoomControl = document.querySelector('.leaflet-control-zoom');
     if (zoomControl) zoomControl.style.display = uiVis.zoom ? '' : 'none';
 
@@ -1254,6 +1439,7 @@
     if (layersControl) layersControl.style.display = uiVis.layers ? '' : 'none';
 
     if ($('btn-quick-measure')) $('btn-quick-measure').style.display = uiVis.quickmeasure ? '' : 'none';
+
 
     if ($('btn-search')) $('btn-search').style.display = uiVis.search ? '' : 'none';
     if ($('btn-mode-toggle')) $('btn-mode-toggle').style.display = uiVis.mode ? '' : 'none';
@@ -2759,6 +2945,7 @@
       'btn-location': () => '🛰️ Моя геопозиция: определить и показать текущие координаты по GPS',
       'btn-gps-dist': () => (WM.gpsDist && WM.gpsDist.isActive()) ? '🧭 Расстояние до GPS: активно\nНажмите, чтобы отключить линию' : '🧭 Расстояние до GPS\nПоказывает прямую линию и расстояние от центра экрана до вашей геопозиции',
       'btn-theme-toggle': () => '🌙/☀️ Смена темы: переключение между тёмной и светлой темой оформления',
+      'btn-compass': () => '🧭 Компас ориентации: стрелка указывает на географический Север. Нажмите для калибровки и азимута',
       'btn-settings': () => '⚙️ Настройки: режимы расхода API, управление ключами, оформление контуров и экспорт',
       'btn-search': () => '🔍 Поиск: поиск по названию, адресу, координатам или ID Wikimapia',
       'limit-badge': () => '🔑 Лимит API: число обращений к сайту Wikimapia за сутки (сброс в полночь по времени PT)',
@@ -3426,6 +3613,16 @@
       // Свайпы и клики по кнопкам листания дней астрономии
       const hudContent = $('info-hud-content');
       if (hudContent) {
+        // Запоминание открытости спойлеров
+        hudContent.addEventListener('toggle', (e) => {
+          const details = e.target.closest('details[data-spoiler]');
+          if (!details) return;
+          const key = details.dataset.spoiler;
+          if (key && hudSpoilersState[key] !== undefined) {
+            hudSpoilersState[key] = details.open;
+          }
+        }, true);
+
         let astroTouchX = 0;
         let astroTouchY = 0;
 
@@ -3755,6 +3952,7 @@
         if ($('toggle-info-gps')) $('toggle-info-gps').checked = infoHudConfig.gps;
         if ($('toggle-info-sun')) $('toggle-info-sun').checked = infoHudConfig.sun;
         if ($('toggle-info-moon')) $('toggle-info-moon').checked = infoHudConfig.moon;
+        if ($('toggle-info-weather')) $('toggle-info-weather').checked = infoHudConfig.weather;
         if ($('toggle-info-rays')) $('toggle-info-rays').checked = infoHudConfig.rays;
 
 
@@ -4035,6 +4233,7 @@
         infoHudConfig.gps = $('toggle-info-gps') ? $('toggle-info-gps').checked : true;
         infoHudConfig.sun = $('toggle-info-sun') ? $('toggle-info-sun').checked : true;
         infoHudConfig.moon = $('toggle-info-moon') ? $('toggle-info-moon').checked : true;
+        infoHudConfig.weather = $('toggle-info-weather') ? $('toggle-info-weather').checked : true;
         infoHudConfig.rays = $('toggle-info-rays') ? $('toggle-info-rays').checked : false;
 
         WM.api.store.set('wm_info_hud_items', JSON.stringify(infoHudConfig));
