@@ -734,6 +734,271 @@ body.sheet-open .quick-menu-fab {
     transform: translateY(0);
   }
 }
+
+
+/* =========================================================================
+   СПОЙЛЕРЫ В ИНФО-ПАНЕЛИ (СОЛНЦЕ, ЛУНА, ПОГОДА)
+   ========================================================================= */
+.ih-spoiler {
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 4px;
+}
+.ih-spoiler:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.ih-spoiler-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  padding: 3px 0;
+}
+.ih-spoiler-summary::-webkit-details-marker {
+  display: none;
+}
+.ih-spoiler-summary:hover {
+  opacity: 0.85;
+}
+
+.ih-spoiler-summary .ih-chevron {
+  font-size: 9px;
+  color: var(--text-muted);
+  transition: transform 0.18s ease;
+}
+.ih-spoiler[open] .ih-spoiler-summary .ih-chevron {
+  transform: rotate(180deg);
+}
+
+.ih-spoiler-body {
+  padding-top: 3px;
+}
+
+/* Сетка прогноза погоды (Утро / День / Вечер / Ночь) */
+.ih-weather-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  margin-bottom: 5px;
+}
+
+.ih-weather-cell {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 1px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.ih-weather-time {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.ih-weather-icon {
+  font-size: 13px;
+  line-height: 1.15;
+  margin: 1px 0;
+}
+
+.ih-weather-temp {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.ih-weather-desc {
+  font-size: 10px;
+  color: var(--text-main);
+  line-height: 1.25;
+}
+
+/* =========================================================================
+   СТРЕЛКА КОМПАСА (СЕВЕР) — ЛЕВЫЙ ВЕРХНИЙ УГОЛ НАД ЗУМОМ
+   ========================================================================= */
+.compass-btn-top {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  left: calc(10px + env(safe-area-inset-left, 0px));
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 0;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+  user-select: none;
+}
+
+.compass-btn-top:active {
+  transform: scale(0.92);
+}
+
+body.sheet-open .compass-btn-top {
+  display: none;
+}
+
+@media (min-width: 800px) {
+  body.sheet-open .compass-btn-top {
+    display: flex;
+  }
+}
+
+.compass-dial {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.compass-letter-n {
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-weight: 900;
+  color: #ef4444;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.compass-needle {
+  position: absolute;
+  width: 6px;
+  height: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform-origin: 50% 50%;
+  transition: transform 0.14s ease-out;
+  will-change: transform;
+}
+
+/* Красный кончик (Север) */
+.needle-north {
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-bottom: 12px solid #ef4444;
+  filter: drop-shadow(0 1px 2px rgba(239, 68, 68, 0.4));
+}
+
+/* Стальной кончик (Юг) */
+.needle-south {
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 12px solid #94a3b8;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+
+.compass-pivot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  background: #ffffff;
+  border: 1.5px solid #475569;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  z-index: 2;
+}
+
+/* =========================================================================
+   GPS МЕТКА С ДИНАМИЧЕСКИМ КОНУСОМ ОБЗОРА (FIELD OF VIEW)
+   ========================================================================= */
+.wm-gps-marker-container {
+  background: transparent !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+.wm-gps-marker-wrap {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.wm-gps-cone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 120px;
+  height: 120px;
+  transform-origin: 60px 60px;
+  pointer-events: none;
+  transition: transform 0.14s ease-out;
+  will-change: transform;
+}
+
+.wm-gps-cone-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.wm-gps-center-dot {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+
+.wm-gps-core-circle {
+  width: 14px;
+  height: 14px;
+  background: #0284c7;
+  border: 2.5px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.wm-gps-pulse-ring {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(2, 132, 199, 0.35);
+  animation: wmGpsPulse 2.2s infinite ease-out;
+}
+
+@keyframes wmGpsPulse {
+  0%   { transform: scale(0.8); opacity: 0.85; }
+  75%  { transform: scale(2.0); opacity: 0; }
+  100% { transform: scale(2.0); opacity: 0; }
+}
 .objects-download-btn:hover:not(.disabled):not(.loading) {
   background: var(--accent-bg);
   border-color: var(--accent);
