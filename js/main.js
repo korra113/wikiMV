@@ -826,7 +826,8 @@
 
     if ('ondeviceorientationabsolute' in window) {
       window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
-    } else if ('ondeviceorientation' in window) {
+    }
+    if ('ondeviceorientation' in window) {
       window.addEventListener('deviceorientation', onDeviceOrientation, true);
     }
     isOrientationListening = true;
@@ -840,11 +841,12 @@
   }
 
   function createGpsDivIcon() {
+    const initialAngle = currentHeading !== null ? smoothConeAngle : 0;
     return L.divIcon({
       className: 'wm-gps-marker-container',
       html: `
         <div class="wm-gps-marker-wrap">
-          <div class="wm-gps-cone" style="${(isConeEnabled && currentHeading !== null) ? `transform: rotate(${smoothConeAngle}deg);` : 'display:none;'}">
+          <div class="wm-gps-cone" style="${isConeEnabled ? `transform: rotate(${initialAngle}deg);` : 'display:none;'}">
             <svg viewBox="0 0 120 120" width="120" height="120" class="wm-gps-cone-svg">
               <defs>
                 <radialGradient id="wm-gps-cone-beam" cx="50%" cy="50%" r="50%">
@@ -876,15 +878,19 @@
       isConeEnabled = !!coneOn;
       isNeedleEnabled = !!needleOn;
 
+      const btnComp = document.getElementById('btn-compass');
+      if (btnComp) {
+        btnComp.hidden = !isNeedleEnabled;
+        btnComp.style.display = isNeedleEnabled ? '' : 'none';
+      }
+
       if (me) {
         const el = me.getElement();
         if (el) {
           const cone = el.querySelector('.wm-gps-cone');
           if (cone) {
             cone.style.display = isConeEnabled ? '' : 'none';
-            if (isConeEnabled && currentHeading !== null) {
-              cone.style.transform = `rotate(${smoothConeAngle}deg)`;
-            }
+            cone.style.transform = `rotate(${smoothConeAngle}deg)`;
           }
         }
       }
@@ -896,6 +902,12 @@
       }
     }
   };
+
+  // ПРИНУДИТЕЛЬНО ПЕРЕДАЕМ НАСТРОЙКИ СРАЗУ ПОСЛЕ СОЗДАНИЯ ОБЪЕКТА:
+  try {
+    const savedVis = JSON.parse(localStorage.getItem('wm_ui_vis') || '{}');
+    WM.compass.updateSettings(savedVis.compasscone, savedVis.compassneedle);
+  } catch (e) {}
 
   const btnCompass = document.getElementById('btn-compass');
   if (btnCompass) {
@@ -1075,6 +1087,9 @@
   };
 
   document.getElementById('btn-location').onclick = () => {
+    if (WM.compass && WM.compass.start) {
+      WM.compass.start(); // Запрашивает разрешение на гироскоп/компас в iOS в момент клика
+    }
     acquireLocation(
       (ll) => {
         map.setView(ll, Math.max(map.getZoom(), 16));
