@@ -129,10 +129,22 @@
         <h3>📋 Объекты на карте (<span id="objects-list-count">0</span>)</h3>
         <button class="modal-close-x" id="objects-list-x">✕</button>
       </div>
-      <div class="search-input-wrap">
-        <input type="text" id="objects-search-input" class="styled-input" placeholder="Поиск по названию или ID..." autocomplete="off">
-        <button id="objects-search-clear-btn" class="search-clear-btn" hidden>✕</button>
+      <div class="objects-search-row">
+        <div class="search-input-wrap" style="flex: 1; margin-bottom: 0;">
+          <input type="text" id="objects-search-input" class="styled-input" placeholder="Поиск по названию или ID..." autocomplete="off">
+          <button id="objects-search-clear-btn" class="search-clear-btn" hidden>✕</button>
+        </div>
+        <button type="button" id="objects-download-btn" class="objects-download-btn" title="Скачать все объекты целиком">📥</button>
       </div>
+
+      <!-- Индикатор прогресса скачивания объектов -->
+      <div id="objects-download-progress-wrap" class="objects-download-progress-wrap" hidden>
+        <div class="objects-download-progress-track">
+          <div id="objects-download-progress-bar" class="objects-download-progress-fill"></div>
+        </div>
+        <div id="objects-download-progress-status" class="objects-download-progress-status">Скачивание: 0 из 0 (0%)</div>
+      </div>
+
       <div id="objects-list-items" class="search-tags-wrap" style="max-height: 55vh; overflow-y: auto;"></div>
     </div>
   </div>
