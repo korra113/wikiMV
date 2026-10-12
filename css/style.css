@@ -577,12 +577,14 @@ body.sheet-open .quick-menu-fab {
 
 .quick-swap-top-btn {
   position: absolute;
-  top: calc(62px + env(safe-area-inset-top, 0px));   /* Расположена под иконкой слоёв */
+  top: calc(62px + env(safe-area-inset-top, 0px));
   right: calc(10px + env(safe-area-inset-right, 0px));
   width: 44px;
   height: 44px;
   border-radius: var(--radius-sm);
   background: var(--bg-glass-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   font-size: 20px;
   box-shadow: var(--shadow);
@@ -592,7 +594,7 @@ body.sheet-open .quick-menu-fab {
   justify-content: center;
   transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
   color: var(--text-main);
-  z-index: 1000; /* Было 2500 — теперь открывающийся список карт перекрывает кнопку сверху */
+  z-index: 1000;
 }
 
 
@@ -849,8 +851,9 @@ body.sheet-open .quick-menu-fab {
 }
 
 .quick-swap-top-btn.active-target {
+  background: var(--bg-glass-strong);
   border-color: var(--accent);
-  background: var(--accent-bg);
+  box-shadow: 0 0 0 2px var(--accent-bg), var(--shadow);
   color: var(--accent);
 }
 
@@ -2361,10 +2364,15 @@ body.sheet-open .hover-pill {
 }
 
 /* Во время анимации зума временно отключаем ресурсоемкие тени и фильтры */
-.leaflet-zoom-animating .wm-raster-tile {
+.leaflet-zoom-animating .leaflet-wm-raster-pane-pane {
   filter: none !important;
 }
 
+.leaflet-wm-raster-pane-pane .leaflet-tile-retry,
+.leaflet-wm-raster-pane-pane .leaflet-tile-error {
+  animation: none !important;
+  background-image: none !important;
+}
 
 .action-card-btn.history-btn {
   background: var(--bg-secondary);
@@ -2722,13 +2730,15 @@ body.sheet-open .hover-pill {
   color: var(--danger);
 }
 
-/* СТАЛО: применяем фильтр ТОЛЬКО к самим картинкам тайлов */
-.wm-raster-tile .leaflet-tile {
+/* СТАЛО: фильтр 1 раз на всю плоскость слоя */
+.leaflet-wm-raster-pane-pane {
   filter: var(--wm-rast-filter-chain);
-  opacity: var(--wm-rast-opacity, 1) !important;
-  image-rendering: -webkit-optimize-contrast;
-  contain: paint;
+  opacity: var(--wm-rast-opacity, 1);
   will-change: transform;
+}
+.wm-raster-tile .leaflet-tile {
+  /* Тайлы остаются чистыми, GPU не тратит память на десятки FBO */
+  filter: none !important;
 }
 
 .style-group {
