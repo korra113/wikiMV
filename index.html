@@ -80,6 +80,17 @@
   <!-- Нижняя кнопка-подсказка объекта -->
   <button id="hover-pill" class="hover-pill" hidden></button>
   
+  <button id="btn-compass" class="compass-btn-top" title="Компас (нажмите для проверки азимута / калибровки)" hidden>
+    <div class="compass-dial">
+      <span class="compass-letter-n">N</span>
+      <div class="compass-needle" id="compass-needle">
+        <div class="needle-north"></div>
+        <div class="needle-south"></div>
+      </div>
+      <div class="compass-pivot"></div>
+    </div>
+  </button>
+
   <button id="btn-quick-swap-map" class="quick-swap-top-btn" title="Быстрая смена подложки" hidden>🔀</button>
 
   <button id="btn-search" class="square-btn-top" title="Поиск мест и объектов">🔍</button>
@@ -666,6 +677,11 @@
                 <span class="toggle-switch"></span>
               </label>
               <label class="toggle-item">
+                <span>🌦️ Погода (утро, день, вечер, ночь, осадки)</span>
+                <input type="checkbox" id="toggle-info-weather" checked>
+                <span class="toggle-switch"></span>
+              </label>
+              <label class="toggle-item">
                 <span>✨ Линии азимута Солнца и Луны на карте</span>
                 <input type="checkbox" id="toggle-info-rays">
                 <span class="toggle-switch"></span>
@@ -743,6 +759,23 @@
             <label class="toggle-item">
               <span>Кнопка «Азимуты Солнца и Луны»</span>
               <input type="checkbox" id="toggle-ui-rays">
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <div>
+                <span style="font-weight:600; display:block;">Конус направления GPS</span>
+                <small class="hint-text" style="margin:2px 0 0;">Луч обзора из точки позиции (куда направлен смартфон)</small>
+              </div>
+              <input type="checkbox" id="toggle-ui-compasscone">
+              <span class="toggle-switch"></span>
+            </label>
+
+            <label class="toggle-item">
+              <div>
+                <span style="font-weight:600; display:block;">Стрелка компаса (север)</span>
+                <small class="hint-text" style="margin:2px 0 0;">Круглая кнопка-компас в левом верхнем углу над зумом</small>
+              </div>
+              <input type="checkbox" id="toggle-ui-compassneedle">
               <span class="toggle-switch"></span>
             </label>
             <label class="toggle-item">
