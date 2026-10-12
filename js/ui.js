@@ -1427,7 +1427,10 @@
     updateInfoHudUI();
 
     const btnCompass = $('btn-compass');
-    if (btnCompass) btnCompass.style.display = uiVis.compassneedle ? '' : 'none';
+    if (btnCompass) {
+      btnCompass.hidden = !uiVis.compassneedle;
+      btnCompass.style.display = uiVis.compassneedle ? '' : 'none';
+    }
     if (WM.compass && WM.compass.updateSettings) {
       WM.compass.updateSettings(uiVis.compasscone, uiVis.compassneedle);
     }
