@@ -405,6 +405,16 @@
     const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
     const yTms = n - 1 - y;
 
+    // Генерация QuadKey для Bing
+    let q = '';
+    for (let i = z; i > 0; i--) {
+      let digit = 0;
+      const mask = 1 << (i - 1);
+      if ((x & mask) !== 0) digit += 1;
+      if ((y & mask) !== 0) digit += 2;
+      q += digit;
+    }
+
     let s = 'a';
     if (Array.isArray(subdomains) && subdomains.length) {
       s = subdomains[Math.abs(x + y) % subdomains.length];
@@ -415,7 +425,8 @@
       .replace('{x}', x)
       .replace('{y}', y)
       .replace('{-y}', yTms)
-      .replace('{s}', s);
+      .replace('{s}', s)
+      .replace('{q}', q);
   }
 
   // Одиночная проверка загрузки через объект Image (обход CORS)
@@ -746,13 +757,18 @@
   let weatherCacheData = null;
   let weatherCacheKey = '';
   let isWeatherLoading = false;
+  let lastWeatherFailTime = 0; // Защита от спама при ошибке
 
   async function loadWeatherIfNeeded(lat, lng) {
     if (!infoHudConfig.weather) return;
-    // Округляем координаты до ~5 км для кэширования при небольших сдвигах
+
     const key = `${lat.toFixed(2)}_${lng.toFixed(2)}`;
+    // Если погода для этой зоны уже загружена — выходим
     if (weatherCacheKey === key && weatherCacheData) return;
+    
+    // Если сейчас уже идёт загрузка или была ошибка менее 60 секунд назад — выходим!
     if (isWeatherLoading) return;
+    if (Date.now() - lastWeatherFailTime < 60000) return;
 
     isWeatherLoading = true;
     weatherCacheKey = key;
@@ -762,12 +778,18 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       weatherCacheData = await res.json();
+      lastWeatherFailTime = 0; // Сбрасываем ошибку при успехе
     } catch (e) {
       console.warn('[Open-Meteo] Ошибка загрузки погоды:', e);
       weatherCacheData = null;
+      lastWeatherFailTime = Date.now(); // Запоминаем время сбоя, пауза 1 минута!
     } finally {
       isWeatherLoading = false;
-      updateInfoHudUI();
+      // ВАЖНО: вызываем перерисовку ТОЛЬКО при успешной загрузке данных,
+      // иначе при ошибке происходит рекурсивный самовызов и DDOS сервера!
+      if (weatherCacheData) {
+        updateInfoHudUI();
+      }
     }
   }
 
