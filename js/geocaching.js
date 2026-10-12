@@ -99,7 +99,7 @@
     const marker = L.circleMarker([lat, lon], {
       renderer: canvasRenderer,
       pane: 'wm-geocaching',
-      radius: 4.5,
+      radius: 6, // Увеличено с 4.5 до 6px для удобного попадания пальцем
       fillColor: '#16a34a',
       color: '#ffffff',
       weight: 1.5,
@@ -120,6 +120,47 @@
   }
 
   // Детальный DOM-маркер с текстом (только в фокусе внимания)
+  // Функция привязки надежных тач- и клик-обработчиков
+  function attachBadgeTouchHandlers(marker) {
+    const el = marker.getElement();
+    if (!el) return;
+
+    // Запрещаем событиям касания уходить в Leaflet и вызывать сдвиг карты
+    L.DomEvent.disableClickPropagation(el);
+
+    let startPos = null;
+    let touchMoved = false;
+
+    el.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        startPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        touchMoved = false;
+      }
+    }, { passive: true });
+
+    el.addEventListener('touchmove', (e) => {
+      if (startPos && e.touches.length === 1) {
+        const dist = Math.hypot(e.touches[0].clientX - startPos.x, e.touches[0].clientY - startPos.y);
+        if (dist > 8) touchMoved = true;
+      }
+    }, { passive: true });
+
+    el.addEventListener('touchend', (e) => {
+      if (startPos && !touchMoved) {
+        e.stopPropagation();
+        if (e.cancelable) e.preventDefault();
+        marker.openPopup();
+      }
+      startPos = null;
+    });
+
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      marker.openPopup();
+    });
+  }
+
+  // Детальный DOM-маркер с текстом
   function createBadgeMarker(item) {
     const [title, , lat, lon] = item;
     const safeTitle = escapeHtml(title);
@@ -148,8 +189,7 @@
         iconAnchor: [0, 0]
       }),
       interactive: true,
-      pane: 'wm-geocaching',
-      zIndexOffset: 350
+      zIndexOffset: 1200 // Поднимаем над векторными контурами и линиями
     });
 
     marker.bindPopup(() => createPopupContent(item), {
@@ -157,8 +197,9 @@
       className: 'wm-geocache-leaflet-popup'
     });
 
-    marker.on('click', (e) => {
-      if (e.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);
+    // Навешиваем обработчики при добавлении маркера на карту
+    marker.on('add', () => {
+      attachBadgeTouchHandlers(marker);
     });
 
     return marker;
