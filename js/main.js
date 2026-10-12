@@ -721,6 +721,196 @@
   window.addEventListener('online', () => WM.loader.retryNow());
   document.addEventListener('visibilitychange', () => { if (!document.hidden) WM.loader.retryNow(); });
 
+
+  // =========================================================================
+  // МОДУЛЬ КОМПАСА И ОРИЕНТАЦИИ УСТРОЙСТВА (DEVICE ORIENTATION API)
+  // =========================================================================
+  let currentHeading = null;
+  let isOrientationListening = false;
+  let smoothConeAngle = 0;
+  let smoothNeedleAngle = 0;
+  let isConeEnabled = false;
+  let isNeedleEnabled = false;
+
+  function unwrapAngle(target, current) {
+    let diff = (target - current) % 360;
+    if (diff < -180) diff += 360;
+    if (diff > 180) diff -= 360;
+    return current + diff;
+  }
+
+  function getCompassHeadingFromAngles(alpha, beta, gamma) {
+    const degToRad = Math.PI / 180;
+    const _x = beta ? beta * degToRad : 0;
+    const _y = gamma ? gamma * degToRad : 0;
+    const _z = alpha ? alpha * degToRad : 0;
+
+    const cX = Math.cos(_x), sX = Math.sin(_x);
+    const cY = Math.cos(_y), sY = Math.sin(_y);
+    const cZ = Math.cos(_z), sZ = Math.sin(_z);
+
+    const Vx = -cZ * sY - sZ * sX * cY;
+    const Vy = -sZ * sY + cZ * sX * cY;
+
+    let heading = Math.atan2(Vx, Vy) * (180 / Math.PI);
+    if (heading < 0) heading += 360;
+    return heading;
+  }
+
+  function onDeviceOrientation(e) {
+    let heading = null;
+
+    if (typeof e.webkitCompassHeading === 'number') {
+      // iOS Safari (0° = True North)
+      heading = e.webkitCompassHeading;
+    } else if (e.alpha !== null && e.alpha !== undefined) {
+      // Android / Chrome
+      if (e.beta !== null && e.gamma !== null && (Math.abs(e.beta) > 20 || Math.abs(e.gamma) > 20)) {
+        heading = getCompassHeadingFromAngles(e.alpha, e.beta, e.gamma);
+      } else {
+        heading = 360 - e.alpha;
+      }
+      const screenAngle = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+      heading = (heading + screenAngle) % 360;
+      if (heading < 0) heading += 360;
+    }
+
+    if (heading !== null && !isNaN(heading)) {
+      currentHeading = Math.round(heading);
+      updateCompassVisuals();
+    }
+  }
+
+  function updateCompassVisuals() {
+    if (currentHeading === null) return;
+
+    // 1. Конус направления GPS
+    if (isConeEnabled && me) {
+      const el = me.getElement();
+      if (el) {
+        const cone = el.querySelector('.wm-gps-cone');
+        if (cone) {
+          smoothConeAngle = unwrapAngle(currentHeading, smoothConeAngle);
+          cone.style.display = '';
+          cone.style.transform = `rotate(${smoothConeAngle}deg)`;
+        }
+      }
+    }
+
+    // 2. Стрелка компаса в левом верхнем углу (указывает на Север)
+    if (isNeedleEnabled) {
+      const needle = document.getElementById('compass-needle');
+      if (needle) {
+        smoothNeedleAngle = unwrapAngle(-currentHeading, smoothNeedleAngle);
+        needle.style.transform = `rotate(${smoothNeedleAngle}deg)`;
+      }
+    }
+  }
+
+  async function requestOrientationPermission() {
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        const res = await DeviceOrientationEvent.requestPermission();
+        return res === 'granted';
+      } catch (err) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async function startOrientationListener() {
+    if (isOrientationListening) return;
+    const granted = await requestOrientationPermission();
+    if (!granted) return;
+
+    if ('ondeviceorientationabsolute' in window) {
+      window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+    } else if ('ondeviceorientation' in window) {
+      window.addEventListener('deviceorientation', onDeviceOrientation, true);
+    }
+    isOrientationListening = true;
+  }
+
+  function stopOrientationListener() {
+    if (!isOrientationListening) return;
+    window.removeEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+    window.removeEventListener('deviceorientation', onDeviceOrientation, true);
+    isOrientationListening = false;
+  }
+
+  function createGpsDivIcon() {
+    return L.divIcon({
+      className: 'wm-gps-marker-container',
+      html: `
+        <div class="wm-gps-marker-wrap">
+          <div class="wm-gps-cone" style="${(isConeEnabled && currentHeading !== null) ? `transform: rotate(${smoothConeAngle}deg);` : 'display:none;'}">
+            <svg viewBox="0 0 120 120" width="120" height="120" class="wm-gps-cone-svg">
+              <defs>
+                <radialGradient id="wm-gps-cone-beam" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#0284c7" stop-opacity="0.8" />
+                  <stop offset="40%" stop-color="#38bdf8" stop-opacity="0.38" />
+                  <stop offset="80%" stop-color="#38bdf8" stop-opacity="0.1" />
+                  <stop offset="100%" stop-color="#38bdf8" stop-opacity="0" />
+                </radialGradient>
+              </defs>
+              <path d="M 60 60 L 30 8 A 58 58 0 0 1 90 8 Z" fill="url(#wm-gps-cone-beam)" />
+            </svg>
+          </div>
+          <div class="wm-gps-center-dot">
+            <div class="wm-gps-pulse-ring"></div>
+            <div class="wm-gps-core-circle"></div>
+          </div>
+        </div>
+      `,
+      iconSize: [120, 120],
+      iconAnchor: [60, 60]
+    });
+  }
+
+  WM.compass = {
+    getHeading() { return currentHeading; },
+    createGpsIcon: createGpsDivIcon,
+    start: startOrientationListener,
+    updateSettings(coneOn, needleOn) {
+      isConeEnabled = !!coneOn;
+      isNeedleEnabled = !!needleOn;
+
+      if (me) {
+        const el = me.getElement();
+        if (el) {
+          const cone = el.querySelector('.wm-gps-cone');
+          if (cone) {
+            cone.style.display = isConeEnabled ? '' : 'none';
+            if (isConeEnabled && currentHeading !== null) {
+              cone.style.transform = `rotate(${smoothConeAngle}deg)`;
+            }
+          }
+        }
+      }
+
+      if (isConeEnabled || isNeedleEnabled) {
+        startOrientationListener();
+      } else {
+        stopOrientationListener();
+      }
+    }
+  };
+
+  const btnCompass = document.getElementById('btn-compass');
+  if (btnCompass) {
+    btnCompass.onclick = async () => {
+      await startOrientationListener();
+      if (currentHeading !== null) {
+        const arr = ['С', 'ССВ', 'СВ', 'ВСВ', 'В', 'ВЮВ', 'ЮВ', 'ЮЮВ', 'Ю', 'ЮЮЗ', 'ЮЗ', 'ЗЮЗ', 'З', 'ЗСЗ', 'СЗ', 'ССЗ'];
+        const compDir = arr[Math.floor((currentHeading / 22.5) + 0.5) % 16];
+        WM.ui.showToast(`🧭 Курс: ${currentHeading}° (${compDir}) · Красная стрелка — Север`);
+      } else {
+        WM.ui.showToast('🧭 Калибровка компаса… Поверните смартфон «восьмёркой»');
+      }
+    };
+  }
+
   let me = null;
   let userLatLng = null;
 
@@ -803,17 +993,17 @@
     if (me) {
       me.setLatLng(ll);
     } else {
-      me = L.circleMarker(ll, {
-        radius: 7,
-        color: '#fff',
-        weight: 2,
-        fillColor: '#0284c7',
-        fillOpacity: 1,
-        interactive: false
+      me = L.marker(ll, {
+        icon: WM.compass ? WM.compass.createGpsIcon() : L.divIcon(),
+        interactive: false,
+        zIndexOffset: 1200
       }).addTo(map);
     }
     if (isGpsDistEnabled) {
       updateGpsDistVisuals();
+    }
+    if (WM.compass) {
+      updateCompassVisuals();
     }
   }
 
