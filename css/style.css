@@ -619,10 +619,10 @@ body.sheet-open .quick-menu-fab {
   cursor: pointer;
   pointer-events: auto;
   user-select: none;
-  /* Аппаратная изоляция слоя маркера на GPU */
+  touch-action: manipulation; /* Разрешает обычные тапы без задержек */
   will-change: transform;
   transform: translate3d(0, 0, 0);
-  contain: layout style;
+  /* contain: layout style; — УДАЛЕНО: ломало тач-хиттестинг в мобильном Chrome */
 }
 
 /* Точная точка-мишень прямо на координатах тайника */
@@ -679,9 +679,9 @@ body.sheet-open .quick-menu-fab {
   max-width: 220px;
   min-width: 80px;
   box-sizing: border-box;
-  /* Легкий для GPU box-shadow без размытия альфа-канала букв */
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
-  contain: paint;
+  touch-action: manipulation;
+  pointer-events: auto;
 }
 
 .wm-gc-badge-icon {
