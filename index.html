@@ -95,6 +95,7 @@
     <button id="btn-download-area" class="floating-btn" title="Скачать область">📥</button>
     <button id="btn-location" class="floating-btn" title="Моя геопозиция">🛰️</button>
     <button id="btn-gps-dist" class="floating-btn" title="Расстояние от центра до GPS" style="display: none;">🧭</button>
+    <button id="btn-rays-toggle" class="floating-btn" title="Азимуты Солнца и Луны" style="display: none;">✨</button>
     <button id="btn-theme-toggle" class="floating-btn" title="Сменить тему">🌙</button>
     <button id="btn-settings" class="floating-btn" title="Настройки">⚙️</button>
   </nav>
@@ -725,6 +726,11 @@
             <label class="toggle-item">
               <span>Кнопка «Расстояние до GPS»</span>
               <input type="checkbox" id="toggle-ui-gpsdist" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <span>Кнопка «Азимуты Солнца и Луны»</span>
+              <input type="checkbox" id="toggle-ui-rays">
               <span class="toggle-switch"></span>
             </label>
             <label class="toggle-item">
