@@ -346,7 +346,7 @@
           if (longPressTimer) clearTimeout(longPressTimer);
           return;
         }
-        if (e.target.closest('button, a, input, select, textarea, .leaflet-control, .modal-overlay, .sheet, .lightbox, .wm-custom-marker-icon, .wm-ruler-vertex-icon, .wm-ruler-midpoint-icon, .wm-qm-marker, .quick-measure-hud, .measure-hud')) {
+        if (e.target.closest('button, a, input, select, textarea, .leaflet-control, .modal-overlay, .sheet, .lightbox, .wm-custom-marker-icon, .wm-ruler-vertex-icon, .wm-ruler-midpoint-icon, .wm-qm-marker, .quick-measure-hud, .measure-hud, .wm-gc-pin-anchor, .wm-gc-bubble, .wm-gc-div-icon')) {
           return;
         }
         const t = e.touches[0];
