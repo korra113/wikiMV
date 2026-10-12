@@ -56,10 +56,45 @@ html, body {
   color: var(--text-main);
 }
 
-#map {
+#map,
+.leaflet-container {
   width: 100%;
   height: 100%;
   z-index: auto;
+  /* Перебиваем стандартный серый фон Leaflet (#ddd) приятным оттенком водоёмов */
+  background: #cbd5e1;
+}
+
+[data-theme="dark"] #map,
+[data-theme="dark"] .leaflet-container {
+  background: #0f172a;
+}
+
+
+/* =========================================================================
+   ФОНОВАЯ ОБЗОРНАЯ КАРТА (Аварийная оффлайн-подложка)
+   ========================================================================= */
+
+/* Контейнер слоя подложки */
+.wm-fallback-tile {
+  pointer-events: none !important; /* Гарантирует, что подложка не перехватывает клики и жесты */
+}
+
+/* Стилизация самих картинок тайлов */
+.wm-fallback-tile .leaflet-tile {
+  /* Плавное сглаживание пикселей при апскейле низких масштабов */
+  image-rendering: auto;
+  opacity: 0.88;
+  filter: contrast(106%) brightness(98%);
+  will-change: transform;
+}
+
+/* Автоматическая стилизация под тёмную тему приложения */
+[data-theme="dark"] .wm-fallback-tile .leaflet-tile {
+  /* Инвертирует светлую карту CartoDB Voyager в элегантную тёмную схему:
+     белая суша становится тёмно-серой, а море через hue-rotate возвращается в глубокий синий */
+  filter: invert(100%) hue-rotate(180deg) brightness(78%) contrast(115%);
+  opacity: 0.75;
 }
 
 [hidden] {
@@ -105,6 +140,833 @@ html, body {
   background: var(--danger-bg);
   color: var(--danger);
   border-color: var(--danger);
+}
+
+/* =========================================================================
+   ВЫБОР КАРТ И СТАТУС ИХ ДОСТУПНОСТИ
+   ========================================================================= */
+
+.map-select-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.map-check-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+  color: var(--text-main);
+}
+
+.map-check-btn:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.map-check-btn.loading {
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.map-bulk-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.map-check-summary {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  line-height: 1.35;
+}
+
+.map-item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.map-item-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  width: fit-content;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.map-status-idle {
+  display: none;
+}
+
+.map-status-checking {
+  color: var(--accent);
+  background: var(--accent-bg);
+  animation: pulseTopBtn 1.4s infinite ease-in-out;
+}
+
+.map-status-ok {
+  color: #16a34a;
+  background: #dcfce7;
+}
+
+[data-theme="dark"] .map-status-ok {
+  color: #86efac;
+  background: #052e16;
+}
+
+.map-status-err {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+[data-theme="dark"] .map-status-err {
+  color: #fca5a5;
+  background: #450a0a;
+}
+
+.map-status-warn {
+  color: #d97706;
+  background: #fef3c7;
+}
+
+[data-theme="dark"] .map-status-warn {
+  color: #fde68a;
+  background: #451a03;
+}
+
+.sub-spoiler {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-top: 10px;
+}
+
+.sub-spoiler-title {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+}
+
+/* Делаем плашку статуса кликабельной */
+.status-bar {
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+}
+.status-bar:hover {
+  border-color: var(--accent);
+  background: var(--bg-glass-strong);
+}
+.status-bar:active {
+  transform: scale(0.97);
+}
+
+/* Чипы объектов в стиле тегов */
+.object-tag-chip {
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  user-select: none;
+  max-width: 100%;
+}
+
+.object-tag-chip:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.object-tag-chip:active {
+  transform: scale(0.96);
+}
+
+.object-tag-chip.visited {
+  opacity: 0.75;
+}
+
+.object-tag-chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* =========================================================================
+   БЫСТРОЕ ИЗМЕРЕНИЕ (2 ТОЧКИ)
+   ========================================================================= */
+
+.quick-measure-hud {
+  position: absolute;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1500;
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 8px 14px;
+  box-shadow: var(--shadow-float);
+  width: calc(100vw - 32px);
+  max-width: 360px;
+  user-select: none;
+  animation: toastFade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body.sheet-open .quick-measure-hud {
+  display: none;
+}
+
+.qm-hud-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.qm-hud-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.qm-hud-dist-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  color: var(--text-main);
+}
+
+.qm-hud-dist-row b {
+  font-size: 16px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.qm-hud-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.qm-hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.qm-hud-btn {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.qm-hud-btn:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.qm-hud-btn.close {
+  padding: 0 9px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.qm-hud-btn.close:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* Маркеры точек A и B */
+.wm-qm-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.wm-qm-pin {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+}
+
+.wm-qm-dot {
+  width: 22px;
+  height: 22px;
+  background: var(--qm-color, #10b981);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s ease;
+}
+
+.wm-qm-pin:hover .wm-qm-dot {
+  transform: scale(1.2);
+}
+
+/* Бейдж расстояния посередине линии */
+.wm-qm-badge-wrap {
+  background: transparent !important;
+  border: none !important;
+}
+
+.wm-qm-badge {
+  background: var(--bg-glass-strong);
+  border: 1.5px solid var(--accent);
+  color: var(--text-main);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* =========================================================================
+   БЫСТРОЕ МЕНЮ
+   ========================================================================= */
+
+/* Кнопка в левом нижнем углу */
+.quick-menu-fab {
+  position: absolute;
+  left: calc(14px + env(safe-area-inset-left, 0px));
+  bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  z-index: 1000;
+}
+body.sheet-open .quick-menu-fab {
+  display: none !important;
+}
+
+/* Кликабельное перекрестие */
+#crosshair.clickable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+#crosshair.clickable:hover::before,
+#crosshair.clickable:hover::after {
+  background: var(--accent);
+}
+
+/* Оверлей и контейнер меню */
+.quick-menu-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 3500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: qmOverlayFade 0.15s ease-out; /* Было: toastFade */
+}
+
+.quick-menu-overlay.desktop-context {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none; /* На десктопе при контекстном клике фон не нужен */
+}
+
+/* Сама карточка меню — аккуратное появление без смещений экрана */
+.quick-menu-box {
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  width: 100%;
+  max-width: 320px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: qmBoxPop 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top left;
+}
+
+/* Отдельные ключевые кадры для быстрого меню */
+@keyframes qmOverlayFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes qmBoxPop {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+
+
+.quick-swap-top-btn {
+  position: absolute;
+  top: calc(62px + env(safe-area-inset-top, 0px));   /* Расположена под иконкой слоёв */
+  right: calc(10px + env(safe-area-inset-right, 0px));
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border);
+  font-size: 20px;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+  color: var(--text-main);
+  z-index: 1000; /* Было 2500 — теперь открывающийся список карт перекрывает кнопку сверху */
+}
+
+
+
+/* =========================================================================
+   ТАЙНИКИ GEOCACHING.SU (ОПТИМИЗИРОВАННЫЕ ДЛЯ 60 FPS)
+   ========================================================================= */
+
+.wm-gc-div-icon {
+  background: transparent !important;
+  border: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: visible !important;
+}
+
+/* 1. ДЕТАЛЬНЫЙ МАРКЕР */
+.wm-gc-pin-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  user-select: none;
+  /* Аппаратная изоляция слоя маркера на GPU */
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  contain: layout style;
+}
+
+/* Точная точка-мишень прямо на координатах тайника */
+.wm-gc-target-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  transform: translate(-50%, -50%);
+  background: #16a34a !important;
+  border: 2px solid #ffffff !important;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  z-index: 2;
+  transition: transform 0.12s ease;
+}
+
+/* Карточка с названием */
+.wm-gc-bubble {
+  position: absolute;
+  bottom: 3px;
+  left: 0;
+  transform: translate3d(-50%, 0, 0);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* УБРАН тяжелый filter: drop-shadow, добавлен GPU-кэш */
+  will-change: transform;
+  backface-visibility: hidden;
+  transition: transform 0.12s ease;
+}
+
+.wm-gc-pin-anchor:hover .wm-gc-bubble {
+  transform: translate3d(-50%, -2px, 0) scale(1.03);
+  z-index: 1000 !important;
+}
+
+.wm-gc-pin-anchor:hover .wm-gc-target-dot {
+  transform: translate(-50%, -50%) scale(1.3);
+  background: #22c55e !important;
+}
+
+/* Тело плашки — тень перенесена сюда (аппаратный box-shadow вместо drop-shadow) */
+.wm-gc-badge-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff !important;
+  border: 1.5px solid #16a34a !important;
+  border-radius: 14px;
+  padding: 4px 9px 4px 5px;
+  width: max-content;
+  max-width: 220px;
+  min-width: 80px;
+  box-sizing: border-box;
+  /* Легкий для GPU box-shadow без размытия альфа-канала букв */
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
+  contain: paint;
+}
+
+.wm-gc-badge-icon {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  border-radius: 50%;
+  background: #dcfce7 !important;
+  border: 1px solid #86efac !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.wm-gc-badge-text {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #0f172a !important;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
+  overflow-wrap: break-word;
+  white-space: normal;
+  text-align: left;
+}
+
+/* Хвостик плашки */
+.wm-gc-badge-tail {
+  margin-top: -1.5px;
+  display: block;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.15));
+}
+
+/* Во время анимации зума карты отключаем трансформации ховера */
+.leaflet-zoom-animating .wm-gc-bubble,
+.leaflet-zoom-animating .wm-gc-target-dot {
+  transition: none !important;
+}
+
+/* 2. КОМПАКТНЫЙ МАРКЕР (Зум < 10): Классическая капля-пин */
+.wm-gc-compact-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-10px, -25px); /* Острие капли лежит точно на координате */
+  cursor: pointer;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+  transition: transform 0.15s ease;
+}
+
+.wm-gc-compact-anchor:hover {
+  transform: translate(-10px, -27px) scale(1.15);
+}
+
+.wm-gc-compact-drop {
+  display: block;
+}
+
+/* 3. Окно детальной карточки при клике */
+.wm-geocache-leaflet-popup .leaflet-popup-content-wrapper {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border-radius: var(--radius-md);
+  padding: 6px;
+  box-shadow: var(--shadow-float);
+  border: 2px solid #16a34a;
+}
+
+.wm-geocache-leaflet-popup .leaflet-popup-content {
+  margin: 8px 10px !important;
+  line-height: 1.35 !important;
+  width: 260px !important;
+}
+
+.wm-geocache-leaflet-popup .leaflet-popup-tip {
+  background: #ffffff !important;
+}
+
+.wm-geocache-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wm-gc-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.wm-gc-icon {
+  font-size: 22px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.wm-gc-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.wm-gc-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a !important;
+  word-break: break-word;
+}
+
+.wm-gc-meta {
+  font-size: 11px;
+  color: #64748b !important;
+}
+
+.wm-gc-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wm-gc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  background: #f8fafc;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.wm-gc-btn:hover, .wm-gc-btn:active {
+  background: #e0f2fe;
+  border-color: #0284c7;
+  color: #0284c7;
+}
+
+.wm-gc-btn.primary {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff !important;
+}
+
+.wm-gc-btn.primary:hover, .wm-gc-btn.primary:active {
+  background: #15803d;
+  color: #ffffff !important;
+}
+
+.quick-swap-top-btn:active {
+  transform: scale(0.92);
+}
+
+.quick-swap-top-btn.active-target {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+body.sheet-open .quick-swap-top-btn {
+  display: none;
+}
+
+@media (min-width: 800px) {
+  body.sheet-open .quick-swap-top-btn {
+    display: flex;
+  }
+}
+/* Блок настроек быстрой смены */
+.quick-swap-settings-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+/* =========================================================================
+   СДВИГ КНОПОК МАСШТАБА НИЖЕ
+   ========================================================================= */
+.leaflet-top.leaflet-left .leaflet-control-zoom {
+  /* По умолчанию отступ равен 10px. Увеличиваем его, например, до 60px (или 70px) */
+  margin-top: calc(60px + env(safe-area-inset-top, 0px)) !important;
+}
+
+
+.quick-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.quick-menu-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.quick-menu-close-btn {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  line-height: 1;
+  border-radius: 6px;
+}
+.quick-menu-close-btn:hover {
+  color: var(--text-main);
+}
+
+.quick-menu-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.quick-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  font-family: inherit;
+}
+.quick-menu-item:last-child {
+  border-bottom: none;
+}
+.quick-menu-item:hover,
+.quick-menu-item:active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.quick-menu-item-icon {
+  font-size: 20px;
+  line-height: 1;
+  width: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.quick-menu-item-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.quick-menu-item-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.quick-menu-item-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.2;
+  margin-top: 1px;
 }
 
 .limit-reset-btn {
@@ -247,19 +1109,22 @@ body.sheet-open .floating-controls {
   bottom: calc(30px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: 1000;
-  max-width: calc(100% - 130px);
+  width: auto;
+  max-width: calc(100vw - 130px);
   background: var(--bg-glass-strong);
   color: var(--text-main);
   border: 1px solid var(--border-strong);
-  border-radius: 30px;
-  padding: 10px 18px;
-  font-size: 14px;
-  font-weight: 600;
+  border-radius: 16px;
+  padding: 8px 14px;
   box-shadow: var(--shadow-float);
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 body.sheet-open .hover-pill {
   display: none;
@@ -1016,20 +1881,29 @@ body.sheet-open .hover-pill {
   justify-content: center;
   padding: 8px 18px;
 }
+
 .pill-title {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
+  line-height: 1.3;
   max-width: 100%;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
+
 .pill-meta {
   font-size: 11px;
   font-weight: 500;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 3px;
   white-space: nowrap;
+  text-align: center;
 }
 
 /* Кнопки тегов в карточке */
@@ -1463,6 +2337,126 @@ body.sheet-open .hover-pill {
   opacity: 0.75;
   font-weight: 500;
 }
+
+.action-card-btn.edit-btn {
+  background: var(--bg-secondary);
+  border-color: #f59e0b;
+  color: #d97706;
+  font-weight: 700;
+}
+.action-card-btn.edit-btn:hover {
+  background: #fef3c7;
+  color: #b45309;
+}
+[data-theme="dark"] .action-card-btn.edit-btn {
+  color: #fbbf24;
+  border-color: #b45309;
+}
+[data-theme="dark"] .action-card-btn.edit-btn:hover {
+  background: #451a03;
+}
+.wm-raster-tile {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* Во время анимации зума временно отключаем ресурсоемкие тени и фильтры */
+.leaflet-zoom-animating .wm-raster-tile {
+  filter: none !important;
+}
+
+
+.action-card-btn.history-btn {
+  background: var(--bg-secondary);
+  border-color: #8b5cf6;
+  color: #7c3aed;
+  font-weight: 700;
+}
+.action-card-btn.history-btn:hover {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+[data-theme="dark"] .action-card-btn.history-btn {
+  color: #c084fc;
+  border-color: #6d28d9;
+}
+[data-theme="dark"] .action-card-btn.history-btn:hover {
+  background: #2e1065;
+}
+
+/* Верхняя полоса действий во вкладках Фото и Отзывы */
+.sheet-tab-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 4px 2px;
+}
+.sheet-tab-action-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.sheet-tab-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.sheet-tab-action-btn:hover {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+/* Красивое пустое состояние (Empty State) */
+.sheet-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 36px 16px;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  margin-top: 6px;
+}
+.sheet-empty-icon {
+  font-size: 38px;
+  margin-bottom: 10px;
+  line-height: 1;
+}
+.sheet-empty-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 6px;
+}
+.sheet-empty-desc {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  max-width: 280px;
+  margin-bottom: 18px;
+}
+.sheet-empty-action {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: 24px;
+}
+
+
 .toggle-item input:checked + .toggle-switch {
   background: var(--accent);
 }
@@ -1733,6 +2727,8 @@ body.sheet-open .hover-pill {
   filter: var(--wm-rast-filter-chain);
   opacity: var(--wm-rast-opacity, 1) !important;
   image-rendering: -webkit-optimize-contrast;
+  contain: paint;
+  will-change: transform;
 }
 
 .style-group {
@@ -2661,6 +3657,711 @@ body.sheet-open .measure-hud {
   word-break: break-word;
 }
 
+/* =========================================================================
+   КОМПАКТНАЯ АТРИБУЦИЯ КАРТЫ (ATTRIBUTION)
+   ========================================================================= */
+.leaflet-control-attribution {
+  font-size: 9px !important;
+  line-height: 1.2 !important;
+  background: var(--bg-glass) !important;
+  color: var(--text-muted) !important;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  border-radius: var(--radius-sm) 0 0 0;
+  padding: 2px 6px !important;
+  max-width: 55vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  margin: 0 !important;
+  transition: max-width 0.2s ease;
+}
+
+[data-theme="dark"] .leaflet-control-attribution {
+  background: var(--bg-glass) !important;
+  color: var(--text-muted) !important;
+}
+
+.leaflet-control-attribution a {
+  color: inherit !important;
+  text-decoration: none;
+}
+
+.leaflet-control-attribution a:hover {
+  text-decoration: underline;
+}
+
+/* При наведении или тапе плавно раскрывается полный текст */
+.leaflet-control-attribution:hover,
+.leaflet-control-attribution:active {
+  max-width: 85vw;
+  white-space: normal;
+}
+
+
+
+/* =========================================================================
+   БЕЙДЖ И ЛИНИЯ РАССТОЯНИЯ ДО GPS
+   ========================================================================= */
+.wm-gps-badge-wrap {
+  background: transparent !important;
+  border: none !important;
+}
+
+.wm-gps-dist-badge {
+  background: var(--bg-glass-strong);
+  border: 1.5px solid #8b5cf6;
+  color: var(--text-main);
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-float);
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+[data-theme="dark"] .wm-gps-dist-badge {
+  border-color: #a78bfa;
+}
+
+
+/* =========================================================================
+   ИНФОРМАЦИОННАЯ ПАНЕЛЬ НА КАРТЕ (Горизонтальное сворачивание в левый бок)
+   ========================================================================= */
+.info-hud {
+  position: absolute;
+  top: calc(140px + env(safe-area-inset-top, 0px)); /* Строго под кнопками зума Leaflet */
+  left: calc(10px + env(safe-area-inset-left, 0px));
+  z-index: 1000;
+  width: 220px;
+  max-width: calc(100vw - 80px);
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+  /* Плавная анимация сворачивания ширины влево */
+  transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.2s ease,
+              border-color 0.2s ease,
+              border-radius 0.2s ease;
+}
+
+/* Если кнопки зума отключены — виджет поднимается на их место */
+.info-hud.no-zoom-buttons {
+  top: calc(60px + env(safe-area-inset-top, 0px));
+}
+
+body.sheet-open .info-hud {
+  display: none;
+}
+
+/* --- СВЁРНУТОЕ В ЛЕВЫЙ БОК СОСТОЯНИЕ --- */
+.info-hud.collapsed {
+  width: 36px;       /* Точно соответствует ширине кнопок зума Leaflet (34-36px) */
+  min-width: 36px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+
+.info-hud.collapsed:hover {
+  background: var(--bg-primary);
+  border-color: var(--accent);
+}
+
+.info-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 6px 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  min-height: 34px;
+  cursor: pointer;
+  transition: padding 0.2s ease, background 0.2s ease;
+}
+
+/* В свёрнутом состоянии заголовок превращается в квадратную кнопку-язычок */
+.info-hud.collapsed .info-hud-header {
+  padding: 0;
+  border-bottom: none;
+  justify-content: center;
+  height: 36px;
+  min-height: 36px;
+}
+
+.info-hud-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: opacity 0.2s ease;
+}
+
+.info-hud.collapsed .info-hud-title {
+  display: none;
+}
+
+.info-hud-min-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 6px;
+  line-height: 1;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  transition: transform 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.info-hud-min-btn:hover {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.info-hud.collapsed .info-hud-min-btn {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.info-hud-content {
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 50vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+  transition: opacity 0.15s ease;
+}
+
+/* Контент плавно исчезает при сжатии */
+.info-hud.collapsed .info-hud-content {
+  display: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ih-section {
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 5px;
+}
+.ih-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.ih-sec-title {
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 3px;
+  font-size: 11px;
+}
+
+.ih-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.ih-row.main-time {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
+.ih-val-large {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.ih-sub {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.ih-lbl {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.ih-val {
+  color: var(--text-main);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ih-val.muted-val {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 10px;
+}
+
+.ih-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 6px;
+  font-size: 10px;
+  color: var(--text-main);
+}
+.ih-grid-2 b {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Стили поднастроек панели в модальном окне */
+.sub-infomenu-settings {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  margin-top: 4px;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sub-infomenu-header {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+/* Подсветка всей шапки инфо-панели при наведении */
+.info-hud-header:hover {
+  background: var(--accent-bg);
+}
+
+/* Панель переключения дней астрономии */
+.ih-astro-ctrl {
+  padding: 2px 0 6px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.ih-astro-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px 4px;
+}
+
+.ih-astro-arrow {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.ih-astro-arrow:hover:not(:disabled) {
+  background: var(--accent-bg);
+}
+
+.ih-astro-arrow:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.ih-astro-date-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+
+.ih-astro-day-tag {
+  font-weight: 700;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.ih-astro-day-tag.offset {
+  color: var(--accent);
+}
+
+.ih-astro-date {
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+/* Кнопка сброса к сегодняшней дате */
+.ih-astro-reset {
+  background: var(--accent-bg);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 9.5px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 2px 4px;
+  cursor: pointer;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.ih-astro-reset:hover {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+/* Область свайпов */
+.ih-astro-swipe-area {
+  touch-action: pan-y;
+  user-select: none;
+}
+
+/* =========================================================================
+   ИНДИКАЦИЯ СОСТОЯНИЙ ЗАГРУЗКИ ТАЙЛОВ КАРТЫ (SKELETON / SHIMMER / RETRY)
+   ========================================================================= */
+
+/* 1. Состояние первичной загрузки тайла */
+.leaflet-tile:not(.leaflet-tile-loaded) {
+  /* ПЕРЕБИВАЕМ СКРЫТИЕ LEAFLET: делаем тайл видимым поверх подложки */
+  visibility: visible !important;
+  opacity: 1 !important;
+
+  /* Базовый скелетон тайла и рамка сетки 256x256 */
+  background-color: rgba(203, 213, 225, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.4);
+
+  /* Бегущая волна (shimmer) + контурная иконка загрузки тайла по центру */
+  background-image: 
+    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round' opacity='0.45'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' stroke-dasharray='3 3'/%3E%3Cpath d='M12 8v4l3 2'/%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat;
+  background-position: -200% 0, center center;
+  background-size: 200% 100%, 32px 32px;
+  animation: wmTileShimmer 1.9s infinite linear;
+}
+
+/* Тёмная тема для загружаемых тайлов */
+[data-theme="dark"] .leaflet-tile:not(.leaflet-tile-loaded) {
+  background-color: rgba(30, 41, 59, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(71, 85, 105, 0.45);
+  background-image: 
+    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.08) 50%, transparent 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round' opacity='0.35'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' stroke-dasharray='3 3'/%3E%3Cpath d='M12 8v4l3 2'/%3E%3C/svg%3E");
+}
+
+/* 2. Состояние повтора при сбое сети (Retry) */
+.leaflet-tile.leaflet-tile-retry {
+  visibility: visible !important;
+  opacity: 1 !important;
+  background-color: rgba(254, 243, 199, 0.65) !important;
+  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.75) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: center center !important;
+  background-size: 26px 26px !important;
+  animation: wmTilePulse 1.2s infinite ease-in-out !important;
+}
+
+[data-theme="dark"] .leaflet-tile.leaflet-tile-retry {
+  background-color: rgba(69, 26, 3, 0.6) !important;
+  box-shadow: inset 0 0 0 1.5px rgba(251, 191, 36, 0.75) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23fbbf24' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19'/%3E%3C/svg%3E") !important;
+}
+
+/* 3. Состояние ошибки / сервер недоступен (Error) */
+.leaflet-tile.leaflet-tile-error {
+  visibility: visible !important;
+  opacity: 1 !important;
+  background-color: rgba(254, 226, 226, 0.6) !important;
+  box-shadow: inset 0 0 0 1.5px rgba(239, 68, 68, 0.65) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' y1='8' x2='12' y2='12'/%3E%3Cline x1='12' y1='16' x2='12.01' y2='16'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: center center !important;
+  background-size: 26px 26px !important;
+  animation: none !important;
+}
+
+[data-theme="dark"] .leaflet-tile.leaflet-tile-error {
+  background-color: rgba(69, 10, 10, 0.6) !important;
+  box-shadow: inset 0 0 0 1.5px rgba(248, 113, 113, 0.65) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23f87171' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' y1='8' x2='12' y2='12'/%3E%3Cline x1='12' y1='16' x2='12.01' y2='16'/%3E%3C/svg%3E") !important;
+}
+
+/* 4. Отключение фонового скелетона для оверлея контуров и самой аварийной подложки */
+.wm-raster-tile .leaflet-tile:not(.leaflet-tile-loaded),
+.wm-fallback-tile .leaflet-tile:not(.leaflet-tile-loaded) {
+  background: transparent !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+
+/* 5. Отключение анимации при зуме для плавности */
+.leaflet-zoom-animating .leaflet-tile:not(.leaflet-tile-loaded) {
+  animation: none !important;
+}
+
+@keyframes wmTileShimmer {
+  0%   { background-position: -200% 0, center center; }
+  100% { background-position:  200% 0, center center; }
+}
+
+@keyframes wmTilePulse {
+  0%, 100% { opacity: 0.9; }
+  50%      { opacity: 0.5; }
+}
+
+
+/* =========================================================================
+   ИЗМЕРЕНИЕ ВЫСОТЫ ПО ТЕНИ (SHADOW HEIGHT)
+   ========================================================================= */
+
+.shadow-height-hud {
+  position: absolute;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1500;
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  box-shadow: var(--shadow-float);
+  width: calc(100vw - 32px);
+  max-width: 440px;
+  user-select: none;
+  animation: toastFade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.sheet-open .shadow-height-hud {
+  display: none;
+}
+
+.sh-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sh-hud-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sh-hud-icon {
+  font-size: 18px;
+}
+
+.sh-hud-title {
+  font-size: 13.5px;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.sh-hud-val {
+  font-size: 16px;
+  font-weight: 800;
+  color: #f59e0b;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sh-hud-floors {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.sh-time-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.sh-time-step, .sh-time-now, .sh-hud-btn {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.sh-time-step:hover, .sh-time-now:hover, .sh-hud-btn:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.sh-datetime-input {
+  flex: 1;
+  min-width: 140px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-primary);
+  color: var(--text-main);
+  font-size: 11.5px;
+  font-family: inherit;
+  outline: none;
+}
+
+.sh-hud-btn.close {
+  padding: 0 8px;
+  color: var(--text-muted);
+}
+.sh-hud-btn.close:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.sh-hud-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+/* Маркеры основания и кончика тени */
+.wm-sh-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.wm-sh-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+}
+
+.wm-sh-dot {
+  width: 22px;
+  height: 22px;
+  background: var(--sh-color, #0284c7);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.wm-sh-pin-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #ffffff;
+  background: rgba(15, 23, 42, 0.85);
+  padding: 1px 4px;
+  border-radius: 4px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+/* Бейдж высоты */
+.wm-sh-badge-wrap {
+  background: transparent !important;
+  border: none !important;
+}
+
+.wm-sh-badge {
+  background: var(--bg-glass-strong);
+  border: 1.5px solid #f59e0b;
+  color: var(--text-main);
+  padding: 3px 8px;
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.sh-date-subhint {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  line-height: 1.25;
+}
+
+.wm-sh-badge-h {
+  font-size: 12px;
+  font-weight: 800;
+  color: #d97706;
+}
+
+.wm-sh-badge-s {
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+
+
 
 /* Отключение браузерного контекстного меню на элементах управления для комфортного долгого тапа */
 .floating-btn,
@@ -2680,11 +4381,11 @@ body.sheet-open .measure-hud {
 /* --- 2. КВАДРАТНАЯ КНОПКА ПОИСКА ПОД СПИСКОМ КАРТ --- */
 .square-btn-top {
   position: absolute;
-  top: calc(62px + env(safe-area-inset-top, 0px));
+  top: calc(114px + env(safe-area-inset-top, 0px));  /* Было 62px, стало 114px */
   right: calc(10px + env(safe-area-inset-right, 0px));
   width: 44px;
   height: 44px;
-  border-radius: var(--radius-sm); /* квадратная форма с аккуратными углами */
+  border-radius: var(--radius-sm);
   background: var(--bg-glass-strong);
   border: 1px solid var(--border);
   font-size: 19px;
