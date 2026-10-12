@@ -101,6 +101,54 @@
   map.createPane('wm-raster-pane');
   map.getPane('wm-raster-pane').style.zIndex = 350; // Под векторами (420), над базой
 
+  // -------------------------------------------------------------------------
+  // АДАПТЕР BING MAPS (QuadKey адресация)
+  // -------------------------------------------------------------------------
+  const BingTileLayer = L.TileLayer.extend({
+    getTileUrl(coords) {
+      let quad = '';
+      for (let i = coords.z; i > 0; i--) {
+        let digit = 0;
+        const mask = 1 << (i - 1);
+        if ((coords.x & mask) !== 0) digit += 1;
+        if ((coords.y & mask) !== 0) digit += 2;
+        quad += digit;
+      }
+      return L.Util.template(this._url, L.extend({
+        s: this._getSubdomain(coords),
+        q: quad
+      }, this.options));
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // АДАПТЕР YANDEX MAPS (коррекция проекции EPSG:3395 в EPSG:3857 без сдвига)
+  // -------------------------------------------------------------------------
+  const yandexCrs = L.CRS.EPSG3395;
+  const YandexTileLayer = L.TileLayer.extend({
+    _getTilePos(coords) {
+      const tilePosLatLng = yandexCrs.pointToLatLng(coords.scaleBy(this.getTileSize()), coords.z);
+      return this._map.project(tilePosLatLng, coords.z).subtract(this._level.origin);
+    },
+
+    _pxBoundsToTileRange(bounds) {
+      const zoom = this._tileZoom;
+      const bounds2 = L.bounds(
+        yandexCrs.latLngToPoint(this._map.unproject(bounds.min, zoom), zoom),
+        yandexCrs.latLngToPoint(this._map.unproject(bounds.max, zoom), zoom)
+      );
+      return L.TileLayer.prototype._pxBoundsToTileRange.call(this, bounds2);
+    },
+
+    createTile(coords, done) {
+      const tile = L.TileLayer.prototype.createTile.call(this, coords, done);
+      const coordsBelow = L.point(coords).add([0, 1]);
+      coordsBelow.z = coords.z;
+      tile.style.height = (this._getTilePos(coordsBelow).y - this._getTilePos(coords).y) + 'px';
+      return tile;
+    }
+  });
+
   // Полностью бесплатный источник без ключей, с русскими названиями городов
   const fallbackUnderlay = L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
     pane: 'wm-underlay',
@@ -135,6 +183,21 @@
     maxNativeZoom: 20,
     maxZoom: 20,
     attribution: '© Google'
+  });
+
+  const satBing = new BingTileLayer('https://ecn.t{s}.tiles.virtualearth.net/tiles/a{q}.jpeg?g=1', {
+    ...COMMON_TILE_OPTIONS,
+    subdomains: ['0', '1', '2', '3'],
+    maxNativeZoom: 19,
+    maxZoom: 20,
+    attribution: '© Microsoft Bing'
+  });
+
+  const satYandex = new YandexTileLayer('https://core-sat.maps.yandex.net/tiles?l=sat&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
+    ...COMMON_TILE_OPTIONS,
+    maxNativeZoom: 19,
+    maxZoom: 20,
+    attribution: '© Яндекс'
   });
 
   // --- 2. Топографические карты ---
@@ -228,6 +291,40 @@
     attribution: '© Google'
   });
 
+  const schemeYandex = new YandexTileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
+    ...COMMON_TILE_OPTIONS,
+    maxNativeZoom: 19,
+    maxZoom: 20,
+    attribution: '© Яндекс'
+  });
+
+  const YANDEX_SL = [
+    'ad_map_area', 'ad_border_all_map', 'ad_cnt', 'addr_regular', 'zipcode_z12',
+    'poi_entrance', 'hydro_fc', 'hydro_line_map', 'hydro_area', 'hydro_point',
+    'rd_oneway', 'rd_junctions', 'rd_all_map', 'urban_roadnet', 'fence_map',
+    'bld_regular', 'poi_auto', 'poi_service', 'poi_government', 'poi_urban',
+    'poi_food', 'poi_other', 'poi_culture', 'poi_medicine', 'poi_edu',
+    'poi_leisure', 'poi_industry', 'poi_backa_null', 'poi_religion', 'poi_sport',
+    'poi_construction', 'poi_shopping', 'poi_finance', 'parking_lot_linear',
+    'parking_lot_regular', 'vegetation_plant_color', 'vegetation_area',
+    'vegetation_cnt', 'relief_line_map', 'relief_area', 'relief_point',
+    'indoor_plan', 'urban_areal', 'transport_terminal', 'transport_airport',
+    'transport_helicopter', 'transport_metro_exit', 'transport_waterway_line',
+    'transport_railway', 'transport_metro_line', 'transport_stop',
+    'transport_railway_platform', 'transport_waterway_stop',
+    'transport_railway_station', 'transport_metro_station',
+    'transport_airport_terminal', 'transport_tram_line', 'road_surface'
+  ].join(',');
+
+  const narodYandex = new YandexTileLayer(
+    `https://{s}.core-nmaps-renderer-nmaps.maps.yandex.net/tile2?x={x}&y={y}&z={z}&l=mpmap&sl=${YANDEX_SL}&token=`, {
+      ...COMMON_TILE_OPTIONS,
+      subdomains: ['01', '02', '03', '04'],
+      maxNativeZoom: 19,
+      maxZoom: 20,
+      attribution: '© Народная карта Яндекс'
+    }
+  );
   const schemeEsri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
     ...COMMON_TILE_OPTIONS,
     maxNativeZoom: 18,
@@ -344,6 +441,8 @@
     { id: 'satEsri', name: 'Спутник (Esri)', category: 'modern', layer: satEsri, testUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'satClarity', name: 'Спутник высокой четкости (Esri Clarity)', category: 'modern', layer: satClarity, testUrl: 'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'satGoogle', name: 'Спутник + Дороги (Google)', category: 'modern', layer: satGoogle, testUrl: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'satBing', name: 'Спутник (Bing)', category: 'modern', layer: satBing, testUrl: 'https://ecn.t{s}.tiles.virtualearth.net/tiles/a{q}.jpeg?g=1', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'satYandex', name: 'Спутник (Яндекс)', category: 'modern', layer: satYandex, testUrl: 'https://core-sat.maps.yandex.net/tiles?l=sat&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'arbaletMO', name: 'Топокарта Арбалет (Москва и МО)', category: 'modern', layer: arbaletMO, testUrl: 'https://tiles.nakarte.me/ArbaletMO/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'ggc', name: 'Топокарты ГГЦ (ГосГисЦентр)', category: 'modern', layer: ggc, testUrl: 'https://tiles.nakarte.me/ggc1000/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'ggc2000', name: 'Топокарта ГГЦ 2 км (ГосГисЦентр)', category: 'modern', layer: ggc2000, testUrl: 'https://tiles.nakarte.me/ggc2000/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
@@ -352,6 +451,16 @@
     { id: 'cyclOSM', name: 'Тропы и грунтовки (CyclOSM)', category: 'modern', layer: cyclOSM, testUrl: 'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'esriHillshade', name: 'Рельеф (Esri Hillshade)', category: 'modern', layer: esriHillshade, testUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'schemeGoogle', name: 'Схема (Google)', category: 'modern', layer: schemeGoogle, testUrl: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'schemeYandex', name: 'Схема (Яндекс)', category: 'modern', layer: schemeYandex, testUrl: 'https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { 
+      id: 'narodYandex', 
+      name: 'Народная карта (Яндекс)', 
+      category: 'modern', 
+      layer: narodYandex, 
+      testUrl: `https://{s}.core-nmaps-renderer-nmaps.maps.yandex.net/tile2?x={x}&y={y}&z={z}&l=mpmap&sl=${YANDEX_SL}&token=`,
+      subdomains: ['01', '02', '03', '04'],
+      testPoint: { lat: 55.75, lng: 37.62, z: 10 } 
+    },
     { id: 'schemeEsri', name: 'Схема (Esri Streets)', category: 'modern', layer: schemeEsri, testUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'osmClassic', name: 'Схема OSM (Классика)', category: 'modern', layer: osmClassic, testUrl: 'https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'schemeDark', name: 'Тёмная карта (Esri)', category: 'modern', layer: schemeDark, testUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
@@ -498,6 +607,8 @@
   map.on('baselayerchange', (e) => {
     localStorage.setItem('wm_base_layer', e.name);
   });
+
+  
 
   // =========================================================================
   // НАКЛАДЫВАЕМЫЕ СЛОИ (OVERLAYS)
