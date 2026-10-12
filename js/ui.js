@@ -2892,13 +2892,49 @@
   let returnToObjectsList = false;
   let lastObjectsSearchQuery = '';
   let cachedObjectsSnapshot = null; // Фиксированный снимок объектов исходной области
+  let isDownloadingObjects = false;
+
+  function updateObjectsDownloadBtn() {
+    const btn = $('objects-download-btn');
+    if (!btn) return;
+    const allObjs = cachedObjectsSnapshot || ((WM.view && WM.view.shownObjects) ? WM.view.shownObjects() : []);
+    const count = allObjs.length;
+    const isTooMany = count >= 50;
+
+    if (isDownloadingObjects) {
+      btn.classList.add('loading');
+      btn.classList.remove('disabled');
+      btn.textContent = '⏳';
+      btn.title = 'Идёт скачивание объектов…';
+      return;
+    }
+
+    btn.classList.remove('loading');
+    btn.textContent = '📥';
+
+    if (isTooMany || count === 0) {
+      btn.classList.add('disabled');
+      btn.title = isTooMany 
+        ? `Слишком много объектов (${count}). Скачивание доступно, если менее 50` 
+        : 'Нет объектов для скачивания';
+    } else {
+      btn.classList.remove('disabled');
+      btn.title = `Скачать все данные объектов (${count} шт.)`;
+    }
+  }
 
   function closeObjectsListModal() {
     const modal = $('modal-objects-list');
     if (modal) modal.classList.remove('open');
     returnToObjectsList = false;
-    cachedObjectsSnapshot = null; // Сбрасываем сохраненный список при закрытии меню
+    cachedObjectsSnapshot = null;
     clearHistoryState('modal');
+
+    // Если загрузка не идет, скрываем прогресс-бар
+    if (!isDownloadingObjects) {
+      const pWrap = $('objects-download-progress-wrap');
+      if (pWrap) pWrap.hidden = true;
+    }
   }
 
   function renderObjectsList(filterText = '') {
@@ -2952,15 +2988,36 @@
     list.forEach(o => {
       const title = o.title || `Объект #${o.id}`;
       const isVisited = !!o.isVisited;
+
+      // Получаем актуальные данные из кэша (или самого объекта)
+      const liveObj = (WM.cache && WM.cache.objects) ? WM.cache.objects.get(o.id) : null;
+      const ph = Number(liveObj ? liveObj.photosCount : o.photosCount) || 0;
+      const cm = Number(liveObj ? liveObj.commentsCount : o.commentsCount) || 0;
+
+      const chipKids = [
+        el('span', { text: o.customColor ? '🎨' : (isVisited ? '✓' : '🏷️') }),
+        el('span', { class: 'object-tag-chip-title', text: title })
+      ];
+
+      // Добавляем эмодзи фото и комментариев только если они есть
+      const statsKids = [];
+      if (ph > 0) {
+        statsKids.push(el('span', { class: 'object-chip-stat', text: `📷 ${ph}` }));
+      }
+      if (cm > 0) {
+        statsKids.push(el('span', { class: 'object-chip-stat', text: `💬 ${cm}` }));
+      }
+
+      if (statsKids.length > 0) {
+        chipKids.push(el('span', { class: 'object-chip-stats' }, statsKids));
+      }
+
       const chip = el('button', {
         class: 'object-tag-chip' + (isVisited ? ' visited' : ''),
         style: o.customColor ? `border-color: ${o.customColor};` : '',
         title: `Открыть «${title}»`,
         onclick: () => {
-          // Оставляем флаг возврата активным для последующих открытий
           returnToObjectsList = true;
-
-          // Гарантируем, что снимок зафиксирован именно для этой сессии
           if (!cachedObjectsSnapshot) {
             cachedObjectsSnapshot = [...allObjs];
           }
@@ -2968,25 +3025,22 @@
           const modal = $('modal-objects-list');
           if (modal) modal.classList.remove('open');
 
-          // Центрируем камеру карты на выбранном объекте (камера перемещается и остается там)
           if (o.bbox && WM.map) {
             const centerLat = (o.bbox.s + o.bbox.n) / 2;
             const centerLng = (o.bbox.w + o.bbox.e) / 2;
             WM.map.flyTo([centerLat, centerLng], Math.max(WM.map.getZoom(), 16), { animate: true });
           }
 
-          // Выделяем и открываем карточку
           setTimeout(() => {
             WM.picker.select(o, [o]);
           }, 250);
         }
-      },
-        el('span', { text: o.customColor ? '🎨' : (isVisited ? '✓' : '🏷️') }),
-        el('span', { class: 'object-tag-chip-title', text: title })
-      );
+      }, chipKids);
 
       listEl.append(chip);
     });
+
+    updateObjectsDownloadBtn();
   }
 
   function openObjectsListModal(preserveState = false) {
@@ -2996,11 +3050,16 @@
     if (!modal) return;
 
     if (!preserveState) {
-      // Первичное открытие по клику на плашку: сбрасываем фильтр и делаем свежий снимок текущего экрана
       lastObjectsSearchQuery = '';
       cachedObjectsSnapshot = (WM.view && WM.view.shownObjects) ? [...WM.view.shownObjects()] : [];
       if (input) input.value = '';
       if (clearBtn) clearBtn.hidden = true;
+
+      // Скрываем полоску при новом открытии, если загрузка не идёт прямо сейчас
+      if (!isDownloadingObjects) {
+        const pWrap = $('objects-download-progress-wrap');
+        if (pWrap) pWrap.hidden = true;
+      }
     } else {
       // Возврат после закрытия карточки: восстанавливаем поисковый запрос и держим старый снимок
       if (input) {
@@ -3023,9 +3082,9 @@
     const closeBtn = $('objects-list-x');
     const input = $('objects-search-input');
     const clearBtn = $('objects-search-clear-btn');
+    const downloadBtn = $('objects-download-btn');
 
     if (modal) {
-      // Клик по пустому месту вокруг окна закрывает его и сбрасывает снимок
       modal.addEventListener('click', (e) => {
         if (e.target === modal) closeObjectsListModal();
       });
@@ -3048,6 +3107,134 @@
         clearBtn.hidden = true;
         renderObjectsList('');
         input.focus();
+      };
+    }
+
+    if (downloadBtn) {
+      downloadBtn.onclick = async () => {
+        const allObjs = cachedObjectsSnapshot || ((WM.view && WM.view.shownObjects) ? WM.view.shownObjects() : []);
+
+        if (isDownloadingObjects) {
+          showToast('⏳ Загрузка объектов уже выполняется…');
+          return;
+        }
+
+        if (!allObjs || allObjs.length === 0) {
+          showToast('На карте нет объектов для скачивания');
+          return;
+        }
+
+        if (allObjs.length >= 50) {
+          showToast(`⚠️ Слишком много объектов (${allObjs.length}). Скачивание доступно, если менее 50`);
+          return;
+        }
+
+        const pWrap = $('objects-download-progress-wrap');
+        const pBar = $('objects-download-progress-bar');
+        const pStatus = $('objects-download-progress-status');
+
+        isDownloadingObjects = true;
+        updateObjectsDownloadBtn();
+
+        if (pWrap) {
+          pWrap.hidden = false;
+          if (pBar) {
+            pBar.style.transition = 'none';
+            pBar.style.width = '0%';
+            void pBar.offsetWidth; // сброс предыдущей анимации
+            pBar.style.transition = '';
+          }
+          if (pStatus) pStatus.textContent = `Обработка: 0 из ${allObjs.length} (0%)`;
+        }
+
+        showToast(`📥 Проверка и загрузка данных (${allObjs.length} шт.)…`, 1800);
+
+        let loadedCount = 0;
+        let fromCacheCount = 0;
+        let fromNetCount = 0;
+        let failedCount = 0;
+
+        for (let i = 0; i < allObjs.length; i++) {
+          const o = allObjs[i];
+          downloadBtn.title = `Обработка: ${i + 1}/${allObjs.length}`;
+
+          let isFromNet = false;
+
+          try {
+            // 1. Проверяем наличие карточки в локальной базе данных IndexedDB
+            let detail = null;
+            if (WM.cache && WM.cache.getDetail) {
+              detail = await WM.cache.getDetail(o.id, 'ru');
+            }
+
+            // 2. Если в базе нет — отправляем сетевой запрос к API Wikimapia
+            if (!detail) {
+              isFromNet = true;
+              detail = await WM.api.place(o.id, 'ru');
+            }
+
+            if (detail) {
+              WM.cache.applyDetail(o.id, detail);
+              if (WM.view && WM.view.updateObjectStyle) {
+                WM.view.updateObjectStyle(o.id);
+              }
+              loadedCount++;
+              if (isFromNet) fromNetCount++;
+              else fromCacheCount++;
+            }
+          } catch (err) {
+            failedCount++;
+            if (err && err.rateLimit) {
+              showToast('⏳ Превышен лимит API. Скачивание приостановлено.');
+              if (pStatus) {
+                pStatus.textContent = `Лимит API! Обработано: ${loadedCount} из ${allObjs.length}`;
+              }
+              break;
+            }
+          }
+
+          // Обновляем прогресс
+          const currentDone = i + 1;
+          const pct = Math.round((currentDone / allObjs.length) * 100);
+          if (pBar) pBar.style.width = `${pct}%`;
+          if (pStatus) {
+            pStatus.textContent = `Обработка: ${currentDone} из ${allObjs.length} (${pct}%)${failedCount ? ` · ошибок: ${failedCount}` : ''}`;
+          }
+
+          // Обновляем бейджи 📷 и 💬 в карточках
+          renderObjectsList(lastObjectsSearchQuery);
+
+          // Задержка 120 мс нужна ТОЛЬКО для запросов по сети, чтобы не превысить лимиты API.
+          // Если объект взят из локальной базы — обрабатываем следующий мгновенно.
+          if (isFromNet && i < allObjs.length - 1) {
+            await new Promise(r => setTimeout(r, 120));
+          }
+        }
+
+        isDownloadingObjects = false;
+        updateObjectsDownloadBtn();
+        renderObjectsList(lastObjectsSearchQuery);
+
+        // Формируем понятный отчёт
+        let finishReport = `✅ Готово! Всего: ${loadedCount}`;
+        if (fromCacheCount > 0 && fromNetCount > 0) {
+          finishReport = `✅ Готово: ${fromNetCount} скачано, ${fromCacheCount} из базы`;
+        } else if (fromNetCount === 0 && fromCacheCount > 0) {
+          finishReport = `✅ Все объекты (${fromCacheCount} шт.) уже были в базе!`;
+        }
+        if (failedCount > 0) finishReport += ` (ошибок: ${failedCount})`;
+
+        if (pStatus) pStatus.textContent = finishReport;
+        showToast(finishReport, 2400);
+
+        setTimeout(() => {
+          if (!isDownloadingObjects && pWrap) {
+            pWrap.hidden = true;
+          }
+        }, 2600);
+
+        if (WM.view && WM.view.render) WM.view.render();
+        if (window.refreshAppStatus) window.refreshAppStatus();
       };
     }
   }
