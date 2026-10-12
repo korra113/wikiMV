@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v18'; // <-- подняли версию для гарантированного обновления
+const SHELL_CACHE = 'wm-shell-v19'; // <-- подняли версию для гарантированного обновления
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000; // Увеличено с 1800 до 15 000 тайлов (~200-300 МБ)
