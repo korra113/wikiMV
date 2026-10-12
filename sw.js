@@ -1,7 +1,17 @@
-const SHELL_CACHE = 'wm-shell-v13';
+const SHELL_CACHE = 'wm-shell-v16'; // <-- подняли версию для гарантированного обновления
+const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
-const MAX_CACHED_TILES = 1800; // Ограничение на количество тайлов в кэше
-const TILE_TIMEOUT_MS = 3200;  // Сниженный таймаут (3.2 сек): мгновенно освобождает сокеты браузера
+const MAX_CACHED_TILES = 15000; // Увеличено с 1800 до 15 000 тайлов (~200-300 МБ)
+const TILE_TIMEOUT_MS = 7500;   // Сниженный таймаут (3.2 сек): мгновенно освобождает сокеты браузера
+
+let noTrimTiles = false;
+
+// Слушаем сообщения из настроек приложения для включения/выключения автоочистки
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SET_NO_TRIM_TILES') {
+    noTrimTiles = !!event.data.value;
+  }
+});
 
 // Прозрачный 1x1 GIF для мгновенного завершения загрузки упавших тайлов
 const EMPTY_TILE_BYTES = Uint8Array.from(
@@ -35,10 +45,13 @@ const ASSETS_TO_CACHE = [
   'js/picker.js',
   'js/ui.js',
   'js/markers.js',
+  'js/geocaching.js', // <-- ДОБАВЛЕНО
+  'js/suncalc.js',    // <-- ДОБАВЛЕНО
+  'js/quickMeasure.js',
   'js/measure.js',
+  'js/shadowHeight.js',
   'js/main.js'
 ];
-
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(SHELL_CACHE).then(async (cache) => {
@@ -61,7 +74,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
-          if (key !== SHELL_CACHE && key !== TILES_CACHE) {
+          if (key !== SHELL_CACHE && key !== TILES_CACHE && key !== FALLBACK_CACHE) {
             return caches.delete(key);
           }
         })
@@ -75,7 +88,6 @@ async function fetchTileWithTimeout(req, timeoutMs) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
 
-  // Если браузер или Leaflet уже отменили запрос при скролле — прерываем сразу
   if (req.signal) {
     if (req.signal.aborted) {
       clearTimeout(timer);
@@ -101,24 +113,24 @@ async function fetchTileWithTimeout(req, timeoutMs) {
   }
 }
 
-// Фоновая оптимизированная очистка кэша (не блокирует поток и сеть)
+// Фоновая оптимизированная очистка кэша
 let isTrimming = false;
 let lastTrimTime = 0;
 
 async function trimTileCache(cache) {
+  if (noTrimTiles) return;
   const now = Date.now();
-  // Запускаем очистку не чаще 1 раза в 45 секунд
-  if (isTrimming || (now - lastTrimTime < 45000)) return;
+  if (isTrimming || (now - lastTrimTime < 90000)) return;
   isTrimming = true;
   lastTrimTime = now;
 
   try {
     const keys = await cache.keys();
     if (keys.length > MAX_CACHED_TILES) {
-      const deleteCount = keys.length - MAX_CACHED_TILES + 150;
-      const toDelete = keys.slice(0, deleteCount);
-      // Удаляем пачкой через Promise.all, а не в медленном цикле
-      await Promise.all(toDelete.map(k => cache.delete(k)));
+      const deleteCount = keys.length - MAX_CACHED_TILES + 400;
+      for (let i = 0; i < deleteCount; i++) {
+        await cache.delete(keys[i]);
+      }
     }
   } catch (e) {
   } finally {
@@ -130,7 +142,29 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = req.url;
 
-  // 1. Навигация (возврат HTML оффлайн)
+  const isFallbackTile = url.includes('tile.openstreetmap.fr/osmfr');
+
+  if (isFallbackTile) {
+    event.respondWith(
+      caches.open(FALLBACK_CACHE).then(async (cache) => {
+        const cached = await cache.match(req);
+        if (cached) return cached;
+        try {
+          const res = await fetch(req);
+          if (res && res.status === 200) {
+            cache.put(req, res.clone());
+          }
+          return res;
+        } catch (e) {
+          return emptyTileResponse();
+        }
+      })
+    );
+    return;
+  }
+
+  // УДАЛЕНЫ повторные строки "const req = event.request;" и "const url = req.url;"
+
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).catch(async () => {
@@ -138,8 +172,6 @@ self.addEventListener('fetch', (event) => {
         return (
           (await cache.match('index.html')) ||
           (await cache.match('./index.html')) ||
-          (await cache.match('./')) ||
-          (await cache.match('/')) ||
           new Response('Оффлайн-режим активен', { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
         );
       })
@@ -147,14 +179,15 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. Тайлы подложек карт и растровых контуров
   const isTile =
     url.includes('arcgisonline.com') ||
     url.includes('google.com/vt') ||
     url.includes('tile.openstreetmap.fr') ||
     url.includes('opentopomap.org') ||
-    url.includes('openrailwaymap.org') ||
     url.includes('tiles.nakarte.me') ||
+    url.includes('tile.thunderforest.com') ||
+    url.includes('proxy.nakarte.me') ||
+    url.includes('russia3d.ru/maps') ||
     url.includes('wikimapia.org/?x=') ||
     url.includes('wikimapia.org/x=');
 
@@ -169,26 +202,23 @@ self.addEventListener('fetch', (event) => {
           const res = await fetchTileWithTimeout(req, TILE_TIMEOUT_MS);
           if (res && res.status === 200) {
             cache.put(req, res.clone());
-            // Запуск чистки в фоне без ожидания завершения
+            // Не ждем очистку кэша через await, пускаем в фоне
             trimTileCache(cache);
           }
           return res;
         } catch (e) {
-          // Если сеть отвалилась или сработал таймаут 3.2 сек —
-          // мгновенно отдаем прозрачный пиксель, освобождая TCP-сокет браузера
-          return emptyTileResponse();
+          // Возвращаем статус ошибки, который Leaflet сможет перехватить и повторить
+          return new Response(null, { status: 504, statusText: 'Tile Fetch Failed' });
         }
       })()
     );
     return;
   }
 
-  // 3. API Wikimapia и геокодеры (кэшируются отдельно в IndexedDB)
   if (url.includes('api.wikimapia.org') || url.includes('nominatim') || url.includes('photon')) {
     return;
   }
 
-  // 4. Оболочка приложения (Cache First)
   event.respondWith(
     caches.match(req).then((cachedRes) => {
       const fetchPromise = fetch(req)
