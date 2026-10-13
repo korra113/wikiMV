@@ -19,13 +19,15 @@
       try {
         var theme = localStorage.getItem('wm_theme') || 
           (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-        if (theme === 'dark') {
+        var m = document.getElementById('theme-color-meta');
+        if (theme === 'night-vision') {
+          document.documentElement.setAttribute('data-theme', 'night-vision');
+          if (m) m.setAttribute('content', '#050101');
+        } else if (theme === 'dark') {
           document.documentElement.setAttribute('data-theme', 'dark');
-          var m = document.getElementById('theme-color-meta');
           if (m) m.setAttribute('content', '#111827');
         }
 
-        // ОПРЕДЕЛЯЕМ APK: если запущено в Capacitor или Android WebView — помечаем <html> классом
         var isCapacitor = window.Capacitor !== undefined || /wv|Android.*Version\/[0-9.]+/i.test(navigator.userAgent);
         if (isCapacitor) {
           document.documentElement.classList.add('capacitor-app');
@@ -57,6 +59,17 @@
                 0.185 0.621 0.062 0 0
                 0     0     0     1 0" />
     </filter>
+    <filter id="wm-night-vision-filter" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix"
+        values="0.299 0.587 0.114 0 0
+                0     0     0     0 0
+                0     0     0     0 0
+                0     0     0     1 0" />
+      <feComponentTransfer>
+        <feFuncR type="linear" slope="0.75" />
+      </feComponentTransfer>
+    </filter>
+
   </svg>
 
   <div id="map"></div>
@@ -701,6 +714,53 @@
             <hr class="style-divider" style="margin: 6px 0;">
 
             <label class="toggle-item">
+              <div>
+                <span style="font-weight:600; display:block;">Круг дальности (оценка расстояний)</span>
+                <small class="hint-text">Круговой визир от центра экрана с мерными шкалами в метрах/километрах</small>
+              </div>
+              <input type="checkbox" id="toggle-ui-rangering">
+              <span class="toggle-switch"></span>
+            </label>
+
+            <!-- Поднастройки круга дальности -->
+            <div id="sub-rangering-settings" class="sub-rangering-settings" hidden>
+              <div class="style-row" style="margin-bottom: 8px;">
+                <label for="rr-radius-slider">
+                  <span>Радиус круга на экране:</span>
+                  <b id="rr-radius-val">35%</b>
+                </label>
+                <input type="range" id="rr-radius-slider" min="15" max="65" step="5" value="35" class="styled-range">
+              </div>
+
+              <label class="toggle-item" style="margin-bottom: 8px;">
+                <div>
+                  <span style="font-weight:600; font-size:12px;">Мерные шкалы (вверх и в стороны)</span>
+                  <small class="hint-text" style="margin:0;">Оси с делениями и отметками расстояния</small>
+                </div>
+                <input type="checkbox" id="toggle-rr-axes" checked>
+                <span class="toggle-switch"></span>
+              </label>
+
+              <div id="rr-axes-sub-options" class="style-row" style="margin-bottom: 8px;">
+                <label for="rr-axis-len-slider">
+                  <span>Длина осей относительно круга:</span>
+                  <b id="rr-axis-len-val">1.15x</b>
+                </label>
+                <input type="range" id="rr-axis-len-slider" min="70" max="160" step="5" value="115" class="styled-range">
+              </div>
+
+              <div class="style-row" style="margin-bottom: 0;">
+                <label for="rr-color-select">Цвет разметки:</label>
+                <div class="color-input-wrap">
+                  <input type="color" id="rr-color-select" value="#38bdf8">
+                  <span class="color-val" id="rr-color-val">#38bdf8</span>
+                </div>
+              </div>
+            </div>
+
+            <hr class="style-divider" style="margin: 6px 0;">
+
+            <label class="toggle-item">
               <span>Верхняя плашка статуса</span>
               <input type="checkbox" id="toggle-ui-status" checked>
               <span class="toggle-switch"></span>
@@ -801,7 +861,7 @@
 
         <details class="spoiler">
           <summary class="spoiler-title">
-            <span>🎨 Внешний вид контуров</span>
+            <span>🖌️ Внешний вид контуров</span>
             <span class="chevron">▼</span>
           </summary>
           <div class="spoiler-body">
@@ -989,6 +1049,42 @@
           </div>
         </details>
 
+        <details class="spoiler">
+          <summary class="spoiler-title">
+            <span>🎨 Тема оформления</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body">
+            <div class="work-modes-group">
+              <label class="mode-card">
+                <input type="radio" name="app-theme-mode" value="light">
+                <div class="mode-card-content">
+                  <div class="mode-card-header">
+                    <span class="mode-name">☀️ Светлая</span>
+                  </div>
+                </div>
+              </label>
+              <label class="mode-card">
+                <input type="radio" name="app-theme-mode" value="dark">
+                <div class="mode-card-content">
+                  <div class="mode-card-header">
+                    <span class="mode-name">🌙 Тёмная</span>
+                  </div>
+                </div>
+              </label>
+              <label class="mode-card">
+                <input type="radio" name="app-theme-mode" value="night-vision">
+                <div class="mode-card-content">
+                  <div class="mode-card-header">
+                    <span class="mode-name" style="color:#ef4444;">🔴 Ночное зрение (красный монохром)</span>
+                  </div>
+                  <p class="mode-desc">Отключает синий/зеленый свет, инвертирует карты в глубокие оттенки красного для сохранения адаптации глаз в полной темноте. Включается также долгим нажатием на кнопку темы.</p>
+                </div>
+              </label>
+            </div>
+          </div>
+        </details>
+
         <!-- НОВЫЙ СПОЙЛЕР: Кэш, резервные копии и все виды очистки/сброса -->
         <details class="spoiler" id="spoiler-cache-management">
           <summary class="spoiler-title">
@@ -1050,14 +1146,14 @@
                 📲 Установить на телефон (без APK)
               </button>
 
-              <a href="https://github.com/korra113/wikiMV/raw/refs/heads/main/download/wikiMV.apk" 
+              <a href="https://github.com/ВАШ_ЛОГИН/ВАШ_РЕПОЗИТОРИЙ/releases/latest/download/wikiMV.apk" 
                  class="btn btn-secondary btn-external-dl" 
                  target="_blank" 
                  rel="noopener noreferrer" 
                  style="text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px;">
                 📱 Скачать APK (~5 МБ)
               </a>
-              <a href="https://github.com/korra113/wikiMV/raw/refs/heads/main/download/source.rar" 
+              <a href="https://github.com/ВАШ_ЛОГИН/ВАШ_РЕПОЗИТОРИЙ/archive/refs/heads/main.zip" 
                  class="btn btn-secondary btn-external-dl" 
                  target="_blank" 
                  rel="noopener noreferrer" 
@@ -1099,6 +1195,7 @@
   <script src="js/suncalc.js"></script>
   <script src="js/measure.js"></script>
   <script src="js/quickMeasure.js"></script>
+  <script src="js/rangeRing.js"></script>
   <script src="js/shadowHeight.js"></script>
   <script src="js/main.js"></script>
 
@@ -1470,6 +1567,18 @@
     <div class="modal-actions" style="margin-top: 10px;">
       <button id="clear-tiles-cancel" class="btn btn-secondary">Отмена</button>
       <button id="clear-tiles-submit" class="btn btn-danger-outline">🗑️ Удалить выбранные</button>
+    </div>
+  </div>
+</div>
+<div id="modal-quick-swap-select" class="modal-overlay">
+  <div class="modal-box modal-box-large">
+    <div class="modal-header">
+      <h3>🔀 Вторая карта для переключения</h3>
+      <button class="modal-close-x" id="quick-swap-select-x">✕</button>
+    </div>
+    <p class="modal-desc">Выберите карту, на которую будет переключать кнопка 🔀 при обычном нажатии.</p>
+    <div class="modal-content-scroll" style="max-height: 52vh;">
+      <div id="quick-swap-maps-list" class="quick-menu-list"></div>
     </div>
   </div>
 </div>
