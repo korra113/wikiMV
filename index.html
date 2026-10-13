@@ -910,6 +910,52 @@
           </div>
         </details>
 
+        <details class="spoiler" id="spoiler-shared-markers">
+          <summary class="spoiler-title">
+            <span>📡 Обмен метками (Live)</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body toggles-list">
+            <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 8px;">
+              <div class="guide-tip-title">ℹ️ Обмен в реальном времени</div>
+              <p style="margin: 0; font-size: 11.5px; line-height: 1.4;">
+                Работает через открытую сеть MQTT без серверов и учетных записей. Метки транслируются по географическим квадратам только пока приложение запущено.
+              </p>
+            </div>
+
+            <label class="toggle-item">
+              <div>
+                <span style="font-weight:600; display:block;">Делиться метками когда открыто</span>
+                <small class="hint-text">Передавать свои метки пользователям рядом с вами</small>
+              </div>
+              <input type="checkbox" id="toggle-share-markers">
+              <span class="toggle-switch"></span>
+            </label>
+
+            <label class="toggle-item">
+              <div>
+                <span style="font-weight:600; display:block;">Скачивать чужие метки</span>
+                <small class="hint-text">Слушать эфир в видимой области экрана</small>
+              </div>
+              <input type="checkbox" id="toggle-download-foreign">
+              <span class="toggle-switch"></span>
+            </label>
+
+            <label class="toggle-item">
+              <div>
+                <span style="font-weight:600; display:block;">Отображать чужие метки</span>
+                <small class="hint-text">Показывать метки других людей на карте</small>
+              </div>
+              <input type="checkbox" id="toggle-show-foreign">
+              <span class="toggle-switch"></span>
+            </label>
+
+            <div id="shared-markers-status" class="hint-text" style="padding-top: 4px; font-weight: 600;">
+              Статус: выключено
+            </div>
+          </div>
+        </details>
+
 
         <details class="spoiler">
           <summary class="spoiler-title">
@@ -1029,6 +1075,7 @@
   <script src="js/picker.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/markers.js"></script> 
+  <script src="js/sharedMarkers.js"></script>
   <script src="js/geocaching.js"></script>
   <script src="js/suncalc.js"></script>
   <script src="js/measure.js"></script>
@@ -1226,6 +1273,32 @@
 
 <div id="ui-tooltip" class="ui-tooltip" hidden></div>
 
+<!-- Модальное окно выборочной очистки кэша карт -->
+<div id="modal-clear-tiles" class="modal-overlay">
+  <div class="modal-box modal-box-large">
+    <div class="modal-header">
+      <h3>🗺️ Очистка кэша карт</h3>
+      <button class="modal-close-x" id="clear-tiles-x">✕</button>
+    </div>
+    
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <span style="font-size: 12.5px; font-weight: 600;" id="clear-tiles-total-summary">Подсчёт сохранённых тайлов…</span>
+      <div class="map-bulk-actions">
+        <button type="button" id="btn-tiles-select-all" class="btn-link">Все</button>
+        <span style="color:var(--text-muted);">·</span>
+        <button type="button" id="btn-tiles-deselect-all" class="btn-link">Снять все</button>
+      </div>
+    </div>
 
+    <div class="modal-content-scroll" style="max-height: 48vh;">
+      <div id="clear-tiles-list" class="toggles-list"></div>
+    </div>
+
+    <div class="modal-actions" style="margin-top: 10px;">
+      <button id="clear-tiles-cancel" class="btn btn-secondary">Отмена</button>
+      <button id="clear-tiles-submit" class="btn btn-danger-outline">🗑️ Удалить выбранные</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
