@@ -41,7 +41,7 @@ jobs:
       # 2. Инициализация Capacitor и сборка
       - name: Setup Project and Capacitor
         run: |
-          echo '{"name": "wikimapia-app", "version": "1.0.4"}' > package.json
+          echo '{"name": "wikimapia-app", "version": "1.0.5"}' > package.json
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets @capacitor/app
 
           mkdir -p assets
@@ -65,14 +65,14 @@ jobs:
           npx cap add android
           npx capacitor-assets generate --android --iconBackgroundColor "#111827"
 
-          # Прописываем версию 1.0.4 и код версии 4 в build.gradle
+          # Прописываем версию 1.0.5 и versionCode 5 в build.gradle
           python3 - << 'EOF'
           path = "android/app/build.gradle"
           with open(path, "r", encoding="utf-8") as f:
               content = f.read()
 
-          content = content.replace('versionCode 1', 'versionCode 4')
-          content = content.replace('versionName "1.0"', 'versionName "1.0.4"')
+          content = content.replace('versionCode 1', 'versionCode 5')
+          content = content.replace('versionName "1.0"', 'versionName "1.0.5"')
 
           with open(path, "w", encoding="utf-8") as f:
               f.write(content)
@@ -163,41 +163,24 @@ jobs:
 
           npx cap sync android
 
-      # 3. Генерация Release Keystore и сборка релизного APK
-      - name: Generate Keystore & Build Release APK
+      # 3. Компиляция стабильного Debug APK
+      - name: Build Debug APK
         run: |
           cd android
-
-          # Генерируем ключ прямо внутри android/app/
-          keytool -genkey -v -keystore app/release.jks -alias wikimv -keyalg RSA -keysize 2048 -validity 10000 -storepass wikimvpass -keypass wikimvpass -dname "CN=WikiMV, OU=Viewer, O=Wikimapia, L=City, ST=State, C=RU"
-
-          # Добавляем блок подписи в конец app/build.gradle без перезаписи существующих блоков
-          cat << 'EOF' >> app/build.gradle
-
-          android {
-              signingConfigs {
-                  release {
-                      storeFile file('release.jks')
-                      storePassword 'wikimvpass'
-                      keyAlias 'wikimv'
-                      keyPassword 'wikimvpass'
-                  }
-              }
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.release
-                  }
-              }
-          }
-          EOF
-
           chmod +x gradlew
-          ./gradlew assembleRelease
-          cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/wikiMV_1.0.4.apk
+          ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/wikiMV_1.0.5.apk
 
-      # 4. Выгрузка подписанного APK в артефакты
-      - name: Upload Release APK
+      # 4. Проверка манифеста прямо в логах GitHub
+      - name: Check Manifest Info
+        run: |
+          cd android
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
+          $BUILD_TOOLS/aapt dump badging app/build/outputs/apk/debug/wikiMV_1.0.5.apk | grep -E "package: name|sdkVersion"
+
+      # 5. Выгрузка готового APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: WikiMV_Release
-          path: android/app/build/outputs/apk/release/wikiMV_1.0.4.apk
+          name: WikiMV_1.0.5
+          path: android/app/build/outputs/apk/debug/wikiMV_1.0.5.apk
