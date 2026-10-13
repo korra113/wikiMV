@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v27'; // Поднята версия для применения обновлений
+const SHELL_CACHE = 'wm-shell-v27'; // обновляем версию
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -29,10 +29,14 @@ function emptyTileResponse() {
   });
 }
 
+
+
 const ASSETS_TO_CACHE = [
   './',
   'index.html',
   'manifest.json',
+  'icon-192.png',
+  'icon-512.png',
   'css/leaflet.css',
   'css/style.css',
   'js/leaflet.js',
@@ -45,6 +49,7 @@ const ASSETS_TO_CACHE = [
   'js/picker.js',
   'js/ui.js',
   'js/markers.js',
+  'js/sharedMarkers.js', // добавлен!
   'js/geocaching.js',
   'js/suncalc.js',
   'js/quickMeasure.js',
@@ -52,7 +57,6 @@ const ASSETS_TO_CACHE = [
   'js/shadowHeight.js',
   'js/main.js'
 ];
-
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(SHELL_CACHE).then(async (cache) => {
