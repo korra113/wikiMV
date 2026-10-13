@@ -42,7 +42,6 @@ jobs:
       - name: Setup Project and Capacitor
         run: |
           echo '{"name": "wikimapia-app", "version": "1.0.4"}' > package.json
-          # ВАЖНО: Добавлен пакет @capacitor/app для нативного перехвата кнопки "Назад"
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets @capacitor/app
 
           mkdir -p assets
@@ -66,7 +65,7 @@ jobs:
           npx cap add android
           npx capacitor-assets generate --android --iconBackgroundColor "#111827"
 
-          # Прописываем версию 1.0.4 и код версии в build.gradle
+          # Прописываем версию 1.0.4 и код версии 4 в build.gradle
           python3 - << 'EOF'
           path = "android/app/build.gradle"
           with open(path, "r", encoding="utf-8") as f:
@@ -97,7 +96,7 @@ jobs:
               f.write(content)
           EOF
 
-          # Настройка MainActivity.java: аппаратная кнопка "Назад" и загрузка файлов
+          # Настройка MainActivity.java (кнопка "Назад" и перехват скачивания)
           python3 - << 'EOF'
           path = "android/app/src/main/java/com/wikimapia/viewer/MainActivity.java"
           code = """package com.wikimapia.viewer;
@@ -113,7 +112,6 @@ jobs:
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
 
-                  // Перехват системной кнопки / жеста "Назад" для закрытия модальных окон
                   getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
                       @Override
                       public void handleOnBackPressed() {
@@ -150,7 +148,7 @@ jobs:
               f.write(code)
           EOF
 
-          # Настройка цветов статусбара
+          # Цвета статусбара
           sed -i '/<style name="AppTheme"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:fitsSystemWindows">true</item>\n        <item name="android:statusBarColor">#111827</item>\n        <item name="android:windowLightStatusBar">false</item>\n        <item name="android:navigationBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
           sed -i '/<style name="AppTheme.NoActionBarLaunch"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:statusBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
 
@@ -165,19 +163,18 @@ jobs:
 
           npx cap sync android
 
-      # 3. Генерация Release Keystore для нормальной подписи приложения
+      # 3. Генерация Release Keystore и сборка релизного APK
       - name: Generate Keystore & Build Release APK
         run: |
           cd android
-          keytool -genkey -v -keystore release.jks -alias wikimv -keyalg RSA -keysize 2048 -validity 10000 -storepass wikimvpass -keypass wikimvpass -dname "CN=WikiMV, OU=Viewer, O=Wikimapia, L=City, S=State, C=RU"
 
-          # Внедряем подпись release.jks в build.gradle
-          python3 - << 'EOF'
-          path = "app/build.gradle"
-          with open(path, "r", encoding="utf-8") as f:
-              c = f.read()
+          # Генерируем ключ прямо внутри android/app/
+          keytool -genkey -v -keystore app/release.jks -alias wikimv -keyalg RSA -keysize 2048 -validity 10000 -storepass wikimvpass -keypass wikimvpass -dname "CN=WikiMV, OU=Viewer, O=Wikimapia, L=City, ST=State, C=RU"
 
-          signing_block = """
+          # Добавляем блок подписи в конец app/build.gradle без перезаписи существующих блоков
+          cat << 'EOF' >> app/build.gradle
+
+          android {
               signingConfigs {
                   release {
                       storeFile file('release.jks')
@@ -189,21 +186,16 @@ jobs:
               buildTypes {
                   release {
                       signingConfig signingConfigs.release
-                      minifyEnabled false
-                      proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
                   }
               }
-          """
-          c = c.replace('buildTypes {', signing_block + '\n/* replaced */\n    buildTypesOld {')
-          with open(path, "w", encoding="utf-8") as f:
-              f.write(c)
+          }
           EOF
 
           chmod +x gradlew
           ./gradlew assembleRelease
           cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/wikiMV_1.0.4.apk
 
-      # 4. Выгрузка подписанного APK
+      # 4. Выгрузка подписанного APK в артефакты
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
