@@ -80,7 +80,7 @@
   <!-- Нижняя кнопка-подсказка объекта -->
   <button id="hover-pill" class="hover-pill" hidden></button>
   
-  <button id="btn-compass" class="compass-btn-top" title="Компас (нажмите для проверки азимута / калибровки)" style="display: none;">
+  <button id="btn-compass" class="compass-btn-top" title="Компас (нажмите для проверки азимута / калибровки)">
     <div class="compass-dial">
       <span class="compass-letter-n">N</span>
       <div class="compass-needle" id="compass-needle">
@@ -767,24 +767,23 @@
               <span class="toggle-switch"></span>
             </label>
 
-            
             <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Конус направления GPS</span>
-                <small class="hint-text" style="margin:2px 0 0;">Луч обзора из точки позиции (куда направлен смартфон)</small>
-              </div>
-              <input type="checkbox" id="toggle-ui-compasscone">
-              <span class="toggle-switch"></span>
-            </label>
+            <div>
+              <span style="font-weight:600; display:block;">Конус направления GPS</span>
+              <small class="hint-text" style="margin:2px 0 0;">Луч обзора из точки позиции (куда направлен смартфон)</small>
+            </div>
+            <input type="checkbox" id="toggle-ui-compasscone" checked>
+            <span class="toggle-switch"></span>
+          </label>
 
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Стрелка компаса (север)</span>
-                <small class="hint-text" style="margin:2px 0 0;">Круглая кнопка-компас в левом верхнем углу над зумом</small>
-              </div>
-              <input type="checkbox" id="toggle-ui-compassneedle">
-              <span class="toggle-switch"></span>
-            </label>
+          <label class="toggle-item">
+            <div>
+              <span style="font-weight:600; display:block;">Стрелка компаса (север)</span>
+              <small class="hint-text" style="margin:2px 0 0;">Круглая кнопка-компас в левом верхнем углу над зумом</small>
+            </div>
+            <input type="checkbox" id="toggle-ui-compassneedle" checked>
+            <span class="toggle-switch"></span>
+          </label>
 
           </div>
         </details>
