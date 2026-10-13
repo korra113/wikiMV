@@ -941,6 +941,21 @@
               <span class="toggle-switch"></span>
             </label>
 
+            <!-- БЛОК ПАРОЛЯ ДОСТУПА / ЗАКРЫТОЙ ГРУППЫ -->
+            <div class="shared-pass-settings-box">
+              <div class="shared-pass-header">
+                <label for="shared-markers-password-input" class="shared-pass-label">
+                  🔑 Пароль доступа (комната / группа):
+                </label>
+                <button type="button" id="btn-shared-pass-clear" class="btn-link shared-pass-clear-btn" hidden>Очистить</button>
+              </div>
+              <div class="input-with-action">
+                <input type="password" id="shared-markers-password-input" class="styled-input" placeholder="Введите пароль или оставьте пустым…" autocomplete="off">
+                <button type="button" id="btn-shared-pass-toggle-eye" class="input-action-btn" title="Показать / скрыть пароль">👁️</button>
+              </div>
+              <div id="shared-markers-pass-info" class="hint-text shared-pass-mode-hint"></div>
+            </div>
+
             <div id="shared-markers-status" class="hint-text" style="padding-top: 4px; font-weight: 600;">
               Статус: выключено
             </div>
@@ -1185,6 +1200,21 @@
           <input type="checkbox" id="marker-is-public-input">
           <span class="toggle-switch"></span>
         </label>
+
+        <!-- ПОЛЕ ПАРОЛЯ ДЛЯ ПУБЛИЧНОЙ МЕТКИ -->
+        <div id="marker-password-group" class="marker-pass-box" hidden>
+          <div class="marker-pass-header">
+            <span class="marker-pass-title">🔒 Только по паролю:</span>
+            <button type="button" id="marker-use-saved-pass-btn" class="btn-link marker-pass-saved-btn" hidden>🔑 Вставить из настроек</button>
+          </div>
+          <div class="input-with-action">
+            <input type="text" id="marker-password-input" class="styled-input" placeholder="Пароль (пусто — видно всем)" autocomplete="off">
+            <button type="button" id="marker-password-clear-btn" class="input-action-btn" title="Очистить пароль" hidden>✕</button>
+          </div>
+          <small class="hint-text" id="marker-password-hint" style="margin-top: 4px;">
+            Оставьте пустым для общего доступа или укажите пароль, чтобы метку увидели только те, кто знает его.
+          </small>
+        </div>
 
       <div class="modal-actions" style="justify-content: space-between;">
         <button id="marker-delete-btn" class="btn btn-danger-outline" hidden>🗑️ Удалить</button>
