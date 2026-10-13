@@ -1084,8 +1084,12 @@
 
   try {
     const savedVis = JSON.parse(localStorage.getItem('wm_ui_vis') || '{}');
-    WM.compass.updateSettings(savedVis.compasscone, savedVis.compassneedle);
-  } catch (e) {}
+    const cone = savedVis.compasscone !== undefined ? savedVis.compasscone : true;
+    const needle = savedVis.compassneedle !== undefined ? savedVis.compassneedle : true;
+    WM.compass.updateSettings(cone, needle);
+  } catch (e) {
+    WM.compass.updateSettings(true, true);
+  }
 
   const btnCompass = document.getElementById('btn-compass');
   if (btnCompass) {
