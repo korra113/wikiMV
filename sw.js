@@ -1,8 +1,8 @@
-const SHELL_CACHE = 'wm-shell-v21'; // <-- подняли версию для гарантированного обновления
+const SHELL_CACHE = 'wm-shell-v23'; // Поднята версия для применения обновлений
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
-const MAX_CACHED_TILES = 15000; // Увеличено с 1800 до 15 000 тайлов (~200-300 МБ)
-const TILE_TIMEOUT_MS = 7500;   // Сниженный таймаут (3.2 сек): мгновенно освобождает сокеты браузера
+const MAX_CACHED_TILES = 15000;
+const TILE_TIMEOUT_MS = 7500;
 
 let noTrimTiles = false;
 
@@ -45,13 +45,14 @@ const ASSETS_TO_CACHE = [
   'js/picker.js',
   'js/ui.js',
   'js/markers.js',
-  'js/geocaching.js', // <-- ДОБАВЛЕНО
-  'js/suncalc.js',    // <-- ДОБАВЛЕНО
+  'js/geocaching.js',
+  'js/suncalc.js',
   'js/quickMeasure.js',
   'js/measure.js',
   'js/shadowHeight.js',
   'js/main.js'
 ];
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(SHELL_CACHE).then(async (cache) => {
@@ -151,7 +152,7 @@ self.addEventListener('fetch', (event) => {
         if (cached) return cached;
         try {
           const res = await fetch(req);
-          if (res && res.status === 200) {
+          if (res && (res.status === 200 || res.type === 'opaque')) {
             cache.put(req, res.clone());
           }
           return res;
@@ -162,8 +163,6 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
-
-  // УДАЛЕНЫ повторные строки "const req = event.request;" и "const url = req.url;"
 
   if (req.mode === 'navigate') {
     event.respondWith(
@@ -179,15 +178,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Очищены url от удалённых карт: openrailwaymap, opensnowmap, strava
   const isTile =
     url.includes('arcgisonline.com') ||
+    url.includes('arcgis.com') ||                 // Esri Clarity
     url.includes('google.com/vt') ||
-    url.includes('tile.openstreetmap.fr') ||
+    url.includes('openstreetmap.fr') ||          // Покроет и osmfr, и tile-cyclosm
     url.includes('opentopomap.org') ||
     url.includes('tiles.nakarte.me') ||
     url.includes('tile.thunderforest.com') ||
-    url.includes('proxy.nakarte.me') ||
     url.includes('russia3d.ru/maps') ||
+    url.includes('maps-for-free.com') ||
+    url.includes('virtualearth.net') ||           // Bing Maps
+    url.includes('yandex.net') ||                 // Яндекс Спутник, Схема и Народная
     url.includes('wikimapia.org/?x=') ||
     url.includes('wikimapia.org/x=');
 
@@ -200,14 +203,12 @@ self.addEventListener('fetch', (event) => {
 
         try {
           const res = await fetchTileWithTimeout(req, TILE_TIMEOUT_MS);
-          if (res && res.status === 200) {
+          if (res && (res.status === 200 || res.type === 'opaque')) {
             cache.put(req, res.clone());
-            // Не ждем очистку кэша через await, пускаем в фоне
             trimTileCache(cache);
           }
           return res;
         } catch (e) {
-          // Возвращаем статус ошибки, который Leaflet сможет перехватить и повторить
           return new Response(null, { status: 504, statusText: 'Tile Fetch Failed' });
         }
       })()
@@ -216,8 +217,8 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (url.includes('api.wikimapia.org') || url.includes('nominatim') || url.includes('photon') || url.includes('open-meteo.com')) {
-  return;
-}
+    return;
+  }
 
   event.respondWith(
     caches.match(req).then((cachedRes) => {
