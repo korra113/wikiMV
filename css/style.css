@@ -1915,23 +1915,18 @@ body.sheet-open .hover-pill {
   display: flex;
   flex-direction: column;
   
-  /* ИСПРАВЛЕНИЕ: гарантированно убираем под экран, отключаем клики, тень и видимость */
-  transform: translateY(120%);
-  visibility: hidden;
+  /* Уводим глубже за экран (-115%) и выключаем перехват тачей, пока закрыто */
+  transform: translateY(115%);
   pointer-events: none;
   box-shadow: none;
-  
-  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), 
-              visibility 0.28s ease, 
-              height 0.2s ease, 
-              box-shadow 0.28s ease;
+
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), height 0.2s ease;
   touch-action: pan-y;
 }
 
 .sheet.open {
   transform: none;
-  visibility: visible;
-  pointer-events: auto;
+  pointer-events: auto; /* Включаем тачи обратно, как только открылась */
   box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25);
 }
 .sheet.full {
@@ -5283,13 +5278,11 @@ body.sheet-open .square-btn-top {
     border-radius: 0;
     border-top: 0;
     border-right: 1px solid var(--border);
-    transform: translateX(-105%);
-    visibility: hidden;
+    transform: translateX(-115%);
     pointer-events: none;
   }
   .sheet.open {
     transform: none;
-    visibility: visible;
     pointer-events: auto;
   }
 }
