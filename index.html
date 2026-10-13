@@ -1227,23 +1227,67 @@
   </div>
 
   <div id="measure-hud" class="measure-hud" hidden>
-    <div class="measure-hud-header">
-      <div class="measure-hud-selector-wrap">
+    <!-- Верхний ряд: выбор и создание линий, облачный шеринг, закрытие -->
+    <div class="measure-hud-top">
+      <div class="measure-hud-track-bar">
+        <span id="measure-track-color-dot" class="measure-track-color-dot" title="Цвет текущей линии"></span>
         <select id="measure-track-select" class="measure-hud-select" title="Выбрать активное измерение"></select>
-        <button id="btn-measure-rename" class="measure-hud-btn" title="Переименовать это измерение">✏️</button>
-        <button id="btn-measure-new" class="measure-hud-btn" title="Создать новое измерение">＋ Новый</button>
+        <button id="btn-measure-rename" class="measure-hud-icon-btn" title="Переименовать это измерение">✏️</button>
+        <button id="btn-measure-new" class="measure-hud-icon-btn" title="Создать новое измерение">＋</button>
       </div>
-      <button id="btn-measure-close" class="measure-hud-btn-close" title="Закрыть панель линейки">✕</button>
+      <div class="measure-hud-top-right">
+        <button id="btn-measure-share" class="measure-hud-icon-btn share" title="Поделиться линиями по паролю (Firebase)">📤</button>
+        <button id="btn-measure-download" class="measure-hud-icon-btn download" title="Скачать линии по паролю из облака">📥</button>
+        <button id="btn-measure-close" class="measure-hud-close-btn" title="Закрыть панель линейки">✕</button>
+      </div>
     </div>
-    <div class="measure-hud-body">
-      <div class="measure-hud-info">
-        <div class="measure-hud-title">Длина: <b id="measure-total-dist">0 м</b></div>
-        <div id="measure-points-count" class="measure-hud-count">Узлов: 0</div>
+
+    <!-- Нижний ряд: ключевой метраж и быстрые действия -->
+    <div class="measure-hud-bottom">
+      <div class="measure-hud-stats">
+        <div class="measure-hud-dist"><span id="measure-total-dist">0 м</span></div>
+        <div class="measure-hud-sub">
+          <span id="measure-points-count">0 узлов</span>
+        </div>
       </div>
-      <div class="measure-hud-actions">
-        <button id="btn-measure-undo" class="measure-hud-btn" title="Отменить последний узел">↩</button>
-        <button id="btn-measure-finish" class="measure-hud-btn primary" title="Зафиксировать измерение">✓ Готово</button>
+      <div class="measure-hud-ctrls">
+        <button id="btn-measure-undo" class="measure-hud-btn undo" title="Отменить последний узел">↩</button>
         <button id="btn-measure-clear" class="measure-hud-btn danger" title="Удалить выбранное измерение">🗑️</button>
+        <button id="btn-measure-finish" class="measure-hud-btn primary" title="Зафиксировать измерение">✓ Готово</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно обмена измерениями линейки (Firebase) -->
+  <div id="modal-measure-cloud" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="measure-cloud-title">☁️ Обмен измерениями</h3>
+        <button class="modal-close-x" id="measure-cloud-x">✕</button>
+      </div>
+      <p class="modal-desc" id="measure-cloud-desc">
+        Синхронизация измерений через защищённую комнату в облаке.
+      </p>
+
+      <div class="search-tabs" style="margin-bottom: 14px;">
+        <button type="button" class="search-tab-btn active" id="tab-measure-share">📤 Поделиться</button>
+        <button type="button" class="search-tab-btn" id="tab-measure-download">📥 Скачать</button>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 6px;">
+        <label for="measure-cloud-password" id="measure-cloud-pass-label">Придумайте пароль (минимум 5 символов):</label>
+        <div class="input-with-action">
+          <input type="text" id="measure-cloud-password" class="styled-input" placeholder="Пароль комнаты (от 5 символов)..." autocomplete="off">
+          <button type="button" id="measure-cloud-pass-clear" class="input-action-btn" title="Очистить" hidden>✕</button>
+        </div>
+        <small class="hint-text" id="measure-cloud-hint">
+          Все ваши линии на карте будут зашифрованы и сохранены в облаке под этим паролем.
+        </small>
+      </div>
+
+      <div class="modal-actions" style="margin-top: 18px;">
+        <button id="measure-cloud-cancel" class="btn btn-secondary">Отмена</button>
+        <button id="measure-cloud-submit" class="btn btn-primary">📤 Отправить</button>
       </div>
     </div>
   </div>
