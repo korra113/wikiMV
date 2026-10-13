@@ -151,18 +151,34 @@
     }
   });
 
-  // Фоновая обзорная подложка
+  // Фоновая обзорная подложка (только для малых масштабов 0-11)
   const fallbackUnderlay = L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
     pane: 'wm-underlay',
     subdomains: ['a', 'b', 'c'],
     minZoom: 0,
-    maxNativeZoom: 5,        // Скачивает только зумы 0-5
-    maxZoom: 20,             // Выше Leaflet плавно растягивает их
-    updateWhenIdle: false,
-    keepBuffer: 6,
+    maxNativeZoom: 5,
+    maxZoom: 11,
+    keepBuffer: 0,
+    updateWhenIdle: true,
     className: 'wm-fallback-tile',
     attribution: 'OSM'
-  }).addTo(map);
+  });
+
+  function syncFallbackUnderlay() {
+    const z = map.getZoom();
+    if (z <= 11) {
+      if (!map.hasLayer(fallbackUnderlay)) map.addLayer(fallbackUnderlay);
+    } else {
+      if (map.hasLayer(fallbackUnderlay)) map.removeLayer(fallbackUnderlay);
+    }
+  }
+
+  // Добавляем только если начальный зум <= 11
+  if (map.getZoom() <= 11) {
+    fallbackUnderlay.addTo(map);
+  }
+
+  map.on('zoomend', syncFallbackUnderlay);
 
   // --- 1. Спутники ---
   const satEsri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
@@ -447,7 +463,7 @@
   WM.baseMapsCatalog = [
     // --- 1. Спутниковые снимки ---
     { id: 'satEsri', name: 'Спутник (Esri)', category: 'modern', layer: satEsri, testUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'satClarity', name: 'Спутник высокой четкости (Esri Clarity)', category: 'modern', layer: satClarity, testUrl: 'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'satClarity', name: 'Спутник (Esri Clarity)', category: 'modern', layer: satClarity, testUrl: 'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'satGoogle', name: 'Спутник + Дороги (Google)', category: 'modern', layer: satGoogle, testUrl: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'satBing', name: 'Спутник (Bing)', category: 'modern', layer: satBing, testUrl: 'https://ecn.t{s}.tiles.virtualearth.net/tiles/a{q}.jpeg?g=1', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'satYandex', name: 'Спутник (Яндекс)', category: 'modern', layer: satYandex, testUrl: 'https://core-sat.maps.yandex.net/tiles?l=sat&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
@@ -455,15 +471,15 @@
     // --- 2. Топографические и туристические карты ---
     { id: 'cyclOSM', name: 'Тропы и грунтовки (CyclOSM)', category: 'modern', layer: cyclOSM, testUrl: 'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'openTopo', name: 'Топокарта OpenTopoMap', category: 'modern', layer: openTopo, testUrl: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'ggc', name: 'Топокарты ГГЦ (ГосГисЦентр)', category: 'modern', layer: ggc, testUrl: 'https://tiles.nakarte.me/ggc1000/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'ggc2000', name: 'Топокарта ГГЦ 2 км (ГосГисЦентр)', category: 'modern', layer: ggc2000, testUrl: 'https://tiles.nakarte.me/ggc2000/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'ggc', name: 'Топокарты ГГЦ 250-1000м', category: 'modern', layer: ggc, testUrl: 'https://tiles.nakarte.me/ggc1000/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'ggc2000', name: 'Топокарта ГГЦ 2 км ', category: 'modern', layer: ggc2000, testUrl: 'https://tiles.nakarte.me/ggc2000/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'arbaletMO', name: 'Топокарта Арбалет (Москва и МО)', category: 'modern', layer: arbaletMO, testUrl: 'https://tiles.nakarte.me/ArbaletMO/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'genshtab1980', name: 'Топокарта Генштаб 1-2 км (1980-е)', category: 'modern', layer: genshtab1980, testUrl: 'https://russia3d.ru/maps/tiles/topomaper1-2km1980/webmercator/{z}/{x}/{y}.png', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'tfOutdoors', name: 'Thunderforest Outdoors', category: 'modern', layer: tfOutdoors, testUrl: 'https://{s}.tile.thunderforest.com/outdoors/{z}/{x}/{y}@2x.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
 
     // --- 3. Схемы и городские дорожные карты ---
     { id: 'osmClassic', name: 'Схема OSM (Классика)', category: 'modern', layer: osmClassic, testUrl: 'https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'osmHot', name: 'Гуманитарная карта OSM (HOT)', category: 'modern', layer: osmHot, testUrl: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'osmHot', name: 'Гуманитарная карта OSM ', category: 'modern', layer: osmHot, testUrl: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'schemeYandex', name: 'Схема (Яндекс)', category: 'modern', layer: schemeYandex, testUrl: 'https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&scale=1&lang=ru_RU', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'narodYandex', name: 'Народная карта (Яндекс)', category: 'modern', layer: narodYandex, testUrl: `https://{s}.core-nmaps-renderer-nmaps.maps.yandex.net/tile2?x={x}&y={y}&z={z}&l=mpmap&sl=${YANDEX_SL}&token=`, subdomains: ['01', '02', '03', '04'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
     { id: 'schemeGoogle', name: 'Схема (Google)', category: 'modern', layer: schemeGoogle, testUrl: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
@@ -691,6 +707,19 @@
       return;
     }
 
+    const currentZoom = map.getZoom();
+
+    // На зумах 19 и 20 растровых тайлов у Wikimapia нет (только 4-кратное размытое растягивание с тяжелым SVG-фильтром)
+    // Векторные полигоны полностью перекрывают эти масштабы, поэтому растр отключаем для 60 FPS
+    if (currentZoom > 18) {
+      if (map.hasLayer(wmContours)) {
+        isProgrammaticLayerChange = true;
+        map.removeLayer(wmContours);
+        isProgrammaticLayerChange = false;
+      }
+      return;
+    }
+
     const mode = WM.ui ? WM.ui.getWorkMode() : 'hybrid';
     
     if (mode === 'manual' || mode === 'nakarte') {
@@ -713,7 +742,7 @@
         isProgrammaticLayerChange = false;
       }
 
-      if (map.getZoom() >= C.VECTOR_ZOOM) {
+      if (currentZoom >= C.VECTOR_ZOOM) {
         wmContours.setOpacity(0.6);
       } else {
         wmContours.setOpacity(1.0);
@@ -759,9 +788,9 @@
   const overlayLayers = {
     'Контуры Wikimapia': wmContours,
     'Полигоны Wikimapia (вектор)': vectorPolygonsLayer,
-    'Рельеф: Тени (Esri Hillshade)': esriHillshade,
-    'Рельеф: Гипсометрия (Esri Shaded Relief)': esriShadedRelief,
-    'Рельеф: Художественный SRTM (Maps-For-Free)': mffRelief,
+    'Рельеф: Тени (Esri)': esriHillshade,
+    'Рельеф: Гипсометрия (Esri)': esriShadedRelief,
+    'Рельеф: Художественный SRTM': mffRelief,
     'Тайники (Geocaching.su)': geocachingLayer
   };
 
