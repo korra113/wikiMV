@@ -1045,6 +1045,9 @@ body.sheet-open .compass-btn-top {
 .wm-foreign-div-icon {
   background: transparent !important;
   border: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: visible !important;
 }
 
 .wm-foreign-pin-anchor {
@@ -1053,7 +1056,9 @@ body.sheet-open .compass-btn-top {
   left: 0;
   cursor: pointer;
   user-select: none;
+  touch-action: manipulation;
 }
+
 
 .wm-foreign-pin-dot {
   position: absolute;
@@ -1078,15 +1083,23 @@ body.sheet-open .compass-btn-top {
   padding: 3px 8px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+  gap: 5px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
   white-space: nowrap;
-  max-width: 180px;
+  max-width: 220px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.12s ease;
+}
+
+.wm-foreign-pin-anchor:hover .wm-foreign-badge {
+  transform: translateX(-50%) scale(1.05);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
 .wm-foreign-badge-radar {
   font-size: 11px;
-  animation: pulseRadar 1.8s infinite ease-out;
+  animation: pulseRadar 2s infinite ease-out;
 }
 
 .wm-foreign-badge-emoji {
@@ -1095,53 +1108,257 @@ body.sheet-open .compass-btn-top {
 }
 
 .wm-foreign-badge-text {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--text-main);
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 110px;
+  max-width: 150px;
 }
 
 @keyframes pulseRadar {
-  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  0%, 100% { opacity: 0.45; transform: scale(0.9); }
   50% { opacity: 1; transform: scale(1.15); }
 }
 
 /* Попап чужой метки */
+.wm-foreign-leaflet-popup .leaflet-popup-content-wrapper {
+  background: var(--bg-glass-strong) !important;
+  color: var(--text-main) !important;
+  border-radius: var(--radius-md) !important;
+  border: 1.5px solid var(--border-strong) !important;
+  box-shadow: var(--shadow-float) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  padding: 4px;
+}
+
+.wm-foreign-leaflet-popup .leaflet-popup-content {
+  margin: 10px 12px !important;
+  line-height: 1.4 !important;
+  width: 280px !important;
+}
+
+.wm-foreign-leaflet-popup .leaflet-popup-tip {
+  background: var(--bg-glass-strong) !important;
+}
+
 .wm-foreign-popup {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 190px;
+  gap: 10px;
 }
 
 .wm-foreign-pop-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
-.wm-foreign-pop-emoji {
-  font-size: 24px;
+.wm-foreign-pop-avatar {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  border: 2px solid var(--marker-c, #8b5cf6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.wm-foreign-pop-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.wm-foreign-pop-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 
 .wm-foreign-pop-badge {
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
   color: #8b5cf6;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
-.wm-foreign-pop-coords {
-  font-size: 10px;
+.wm-foreign-pop-date {
+  font-size: 10.5px;
   color: var(--text-muted);
 }
 
+.wm-foreign-pop-coords {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: fit-content;
+}
+
+.wm-foreign-pop-coords:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.wm-foreign-pop-text-wrap {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
 .wm-foreign-pop-text {
-  font-size: 12.5px;
+  font-size: 13px;
+  line-height: 1.45;
   color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.muted-note {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+
+/* =========================================================================
+   ПАРОЛЬНАЯ ЗАЩИТА И ЗАКРЫТЫЕ ГРУППЫ МЕТОК
+   ========================================================================= */
+
+.input-with-action {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.input-with-action .styled-input {
+  padding-right: 36px;
+}
+
+.input-action-btn {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.input-action-btn:hover {
+  color: var(--text-main);
+  background: var(--bg-primary);
+}
+
+.shared-pass-settings-box {
+  margin-top: 6px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shared-pass-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.shared-pass-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.shared-pass-clear-btn {
+  font-size: 11.5px;
+  padding: 0;
+}
+
+.shared-pass-mode-hint {
+  margin-top: 4px;
   line-height: 1.35;
-  white-space: pre-line;
+}
+
+.marker-pass-box {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: progressFadeIn 0.2s ease-out;
+}
+
+.marker-pass-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.marker-pass-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.marker-pass-saved-btn {
+  font-size: 11px;
+  padding: 0;
+}
+
+/* Бейджи защищённых меток */
+.wm-foreign-badge.protected-badge {
+  border-color: #f59e0b;
+}
+
+.wm-foreign-pop-badge.protected-pop-badge {
+  color: #d97706;
+}
+
+
+.wm-foreign-pop-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wm-foreign-pop-actions .btn {
+  font-size: 11.5px;
+  padding: 6px 10px;
+}
+
+.wm-foreign-pop-actions .btn-save-foreign {
+  flex: 1.2;
 }
 
 @keyframes wmGpsPulse {
