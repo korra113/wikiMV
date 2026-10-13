@@ -103,12 +103,12 @@ body.capacitor-app .leaflet-control-layers-expanded {
 
 /* Стилизация самих картинок тайлов */
 .wm-fallback-tile .leaflet-tile {
-  /* Плавное сглаживание пикселей при апскейле низких масштабов */
   image-rendering: auto;
   opacity: 0.88;
   filter: contrast(106%) brightness(98%);
-  will-change: transform;
+  /* will-change: transform; — УДАЛЕНО, вызывало переполнение VRAM */
 }
+
 
 /* Автоматическая стилизация под тёмную тему приложения */
 [data-theme="dark"] .wm-fallback-tile .leaflet-tile {
@@ -1024,10 +1024,10 @@ body.sheet-open .compass-btn-top {
   pointer-events: none !important;
 }
 
-/* Базовое аппаратное сглаживание для апскейла тайлов рельефа на зумах 12-20 */
+/* 2. Убираем will-change у слоёв рельефа */
 .wm-relief-tile .leaflet-tile {
   image-rendering: auto;
-  will-change: transform;
+  /* will-change: transform; — УДАЛЕНО */
 }
 
 /* 1. Монохромный Esri Hillshade — чёткие, выразительные тени хребтов */
