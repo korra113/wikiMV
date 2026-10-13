@@ -8,6 +8,10 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" id="theme-color-meta" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Wikimapia">
+  <link rel="apple-touch-icon" href="icon-192.png">
 
   <!-- ВСТАВИТЬ СЮДА: мгновенное применение темы до отрисовки экрана -->
   <script>
@@ -1036,13 +1040,18 @@
         </details>
         <details class="spoiler">
           <summary class="spoiler-title">
-            <span>📥 Скачать</span>
+            <span>📥 Скачать и установить</span>
             <span class="chevron">▼</span>
           </summary>
           <div class="spoiler-body">
             <div style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Кнопка быстрой установки PWA без APK -->
+              <button type="button" id="btn-install-pwa" class="btn btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700;">
+                📲 Установить на телефон (без APK)
+              </button>
+
               <a href="https://github.com/ВАШ_ЛОГИН/ВАШ_РЕПОЗИТОРИЙ/releases/latest/download/wikiMV.apk" 
-                 class="btn btn-primary btn-external-dl" 
+                 class="btn btn-secondary btn-external-dl" 
                  target="_blank" 
                  rel="noopener noreferrer" 
                  style="text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px;">
@@ -1056,10 +1065,8 @@
                 📦 Скачать исходники (ZIP)
               </a>
             </div>
-            <small class="hint-text">Прямые ссылки для установки на Android и автономного использования.</small>
             <small class="hint-text" style="margin-top: 6px; display: block;">
-              Если кнопки не работают, скачайте в веб-версии: 
-              <a href="https://korra113.github.io/wikiMV/" target="_blank" rel="noopener noreferrer" class="link-colored">korra113.github.io/wikiMV/</a>
+              Кнопка <b>«Установить на телефон»</b> добавляет приложение на домашний экран прямо из браузера — оно будет работать в полноэкранном режиме и без интернета.
             </small>
           </div>
         </details>
@@ -1161,16 +1168,73 @@
 
 
 
-  <script>
-    // В APK отключаем SW, в обычном браузере — оставляем
-    var isApp = document.documentElement.classList.contains('capacitor-app');
-    if ('serviceWorker' in navigator && !isApp) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js')
-          .then(reg => console.log('SW зарегистрирован:', reg.scope))
-          .catch(err => console.warn('Ошибка SW:', err));
+ <script>
+    // Обработка PWA и установки на рабочий стол
+    (function () {
+      var deferredPrompt = null;
+      var btnInstall = document.getElementById('btn-install-pwa');
+      var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      var isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+      // Перехват события готовности к установке (Android / Chrome / Edge)
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        deferredPrompt = e;
+        if (btnInstall) {
+          btnInstall.style.display = 'flex';
+          btnInstall.textContent = '📲 Установить на телефон (PWA)';
+        }
       });
-    }
+
+      if (btnInstall) {
+        if (isStandalone) {
+          btnInstall.textContent = '✅ Приложение уже установлено';
+          btnInstall.disabled = true;
+          btnInstall.classList.replace('btn-primary', 'btn-secondary');
+        }
+
+        btnInstall.onclick = async function () {
+          if (isStandalone) {
+            if (window.WM && WM.ui) WM.ui.showToast('Приложение уже установлено и запущено!');
+            return;
+          }
+
+          if (deferredPrompt) {
+            deferredPrompt.prompt();
+            var choice = await deferredPrompt.userChoice;
+            if (choice.outcome === 'accepted') {
+              if (window.WM && WM.ui) WM.ui.showToast('🎉 Приложение успешно установлено!');
+              deferredPrompt = null;
+              btnInstall.textContent = '✅ Установлено';
+              btnInstall.disabled = true;
+            }
+          } else if (isIOS) {
+            // Подсказка для пользователей iPhone / iPad
+            alert('Чтобы установить на iPhone/iPad:\n1. Нажмите кнопку «Поделиться» (иконка квадрата со стрелкой вверх внизу экрана Safari).\n2. Прокрутите меню и выберите «На экран „Домой“».');
+          } else {
+            alert('Чтобы установить приложение:\nОткройте меню браузера (три точки в правом верхнем углу) и выберите «Установить приложение» или «Добавить на главный экран».');
+          }
+        };
+      }
+
+      window.addEventListener('appinstalled', function () {
+        deferredPrompt = null;
+        if (btnInstall) {
+          btnInstall.textContent = '✅ Установлено';
+          btnInstall.disabled = true;
+        }
+      });
+
+      // Регистрация Service Worker (только для обычного браузера, не для Capacitor APK)
+      var isApp = document.documentElement.classList.contains('capacitor-app');
+      if ('serviceWorker' in navigator && !isApp) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('./sw.js')
+            .then(function (reg) { console.log('[PWA] SW готов:', reg.scope); })
+            .catch(function (err) { console.warn('[PWA] Ошибка SW:', err); });
+        });
+      }
+    })();
   </script>
 
   <div id="modal-marker" class="modal-overlay">
