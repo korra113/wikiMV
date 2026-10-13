@@ -1284,4 +1284,40 @@
   WM.view.render();
   WM.loader.update();
   refreshStatus();
+
+  // =========================================================================
+  // ОБРАБОТКА ВОЗВРАТА ИЗ ФОНА (Leaflet invalidateSize & перерисовка)
+  // =========================================================================
+  function onAppResume() {
+    setTimeout(function() {
+      if (WM.map) {
+        // Заставляем Leaflet пересчитать реальные размеры экрана в пикселях
+        WM.map.invalidateSize({ pan: false, debounceMoveEvents: true });
+      }
+      if (WM.view) {
+        WM.view.render();
+      }
+      if (window.refreshAppStatus) {
+        window.refreshAppStatus();
+      }
+    }, 150);
+  }
+
+  // Срабатывает при возврате вкладки/приложения на передний план
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+      onAppResume();
+      WM.loader.retryNow();
+    }
+  });
+
+  // Событие нативного плагина Capacitor при выходе из спящего режима
+  if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+    window.Capacitor.Plugins.App.addListener('appStateChange', function(state) {
+      if (state.isActive) {
+        onAppResume();
+      }
+    });
+  }
+
 })();
