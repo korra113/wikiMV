@@ -134,11 +134,14 @@
 
   // Пуш состояния в историю браузера при открытии окон
   function pushHistoryState(stateName) {
+    // Внутри Capacitor APK не используем history.pushState,
+    // так как аппаратную кнопку "Назад" полностью контролирует MainActivity/Capacitor App Plugin
+    if (window.Capacitor) return;
     history.pushState({ wmView: stateName }, '');
   }
 
   function clearHistoryState(stateName) {
-    // Не требует ручного сброса, так как handleGlobalBackAction централизован
+    // Ничего не делаем в APK
   }
 
   // Подключение слушателя плагина Capacitor @capacitor/app
@@ -155,7 +158,6 @@
   }
 
   document.addEventListener('DOMContentLoaded', initCapacitorBackButton);
-  window.addEventListener('load', initCapacitorBackButton);
 
   const LANG_FLAGS = {
     ru: '🇷🇺', en: '🇬🇧', uk: '🇺🇦', be: '🇧🇾', de: '🇩🇪', fr: '🇫🇷',
