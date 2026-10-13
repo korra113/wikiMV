@@ -91,7 +91,18 @@ body.capacitor-app .leaflet-control-layers-expanded {
   background: #0f172a;
 }
 
+/* Выносим тайловые панели на GPU без лишнего перерисовывания */
+.leaflet-tile-pane,
+.leaflet-wm-raster-pane-pane,
+.leaflet-wm-hillshade-pane-pane {
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+}
 
+/* Во время жестов временно отключаем ресурсоёмкие фильтры смешивания */
+.leaflet-zoom-animating .leaflet-wm-raster-pane-pane {
+  filter: none !important;
+}
 /* =========================================================================
    ФОНОВАЯ ОБЗОРНАЯ КАРТА (Аварийная оффлайн-подложка)
    ========================================================================= */
@@ -4913,72 +4924,71 @@ body.sheet-open .info-hud {
 
 /* 1. Состояние первичной загрузки тайла */
 .leaflet-tile:not(.leaflet-tile-loaded) {
-  /* ПЕРЕБИВАЕМ СКРЫТИЕ LEAFLET: делаем тайл видимым поверх подложки */
   visibility: visible !important;
   opacity: 1 !important;
 
-  /* Базовый скелетон тайла и рамка сетки 256x256 */
-  background-color: rgba(203, 213, 225, 0.45);
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.4);
+  /* Полная прозрачность фона — исключает темные вспышки и мерцание */
+  background-color: transparent !important;
 
-  /* Бегущая волна (shimmer) + контурная иконка загрузки тайла по центру */
-  background-image: 
-    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round' opacity='0.45'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' stroke-dasharray='3 3'/%3E%3Cpath d='M12 8v4l3 2'/%3E%3C/svg%3E");
-  background-repeat: no-repeat, no-repeat;
-  background-position: -200% 0, center center;
-  background-size: 200% 100%, 32px 32px;
-  animation: wmTileShimmer 1.9s infinite linear;
+  /* Тончайшая нейтральная контурная сетка тайлов 256x256 */
+  box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.14) !important;
+
+  /* Элегантное полупрозрачное кольцо-спиннер по центру */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'%3E%3Ccircle cx='12' cy='12' r='8' stroke='%2364748b' stroke-width='2' stroke-dasharray='26 14' stroke-linecap='round' opacity='0.35'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: center center !important;
+  background-size: 18px 18px !important;
+
+  /* Мягкое ненавязчивое дыхание индикатора */
+  animation: wmTileNeutralPulse 1.8s infinite ease-in-out !important;
 }
 
-/* Тёмная тема для загружаемых тайлов */
+/* Тёмная тема: ультратонкая светлая сетка и кольцо */
 [data-theme="dark"] .leaflet-tile:not(.leaflet-tile-loaded) {
-  background-color: rgba(30, 41, 59, 0.6);
-  box-shadow: inset 0 0 0 1px rgba(71, 85, 105, 0.45);
-  background-image: 
-    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.08) 50%, transparent 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round' opacity='0.35'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' stroke-dasharray='3 3'/%3E%3Cpath d='M12 8v4l3 2'/%3E%3C/svg%3E");
+  background-color: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'%3E%3Ccircle cx='12' cy='12' r='8' stroke='%2394a3b8' stroke-width='2' stroke-dasharray='26 14' stroke-linecap='round' opacity='0.3'/%3E%3C/svg%3E") !important;
 }
 
-/* 2. Состояние повтора при сбое сети (Retry) */
+/* 2. Состояние повтора при сбое сети (Retry / Ожидание тайм-аута) */
 .leaflet-tile.leaflet-tile-retry {
   visibility: visible !important;
   opacity: 1 !important;
-  background-color: rgba(254, 243, 199, 0.65) !important;
-  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.75) !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19'/%3E%3C/svg%3E") !important;
+  background-color: rgba(245, 158, 11, 0.03) !important; /* едва уловимый оттенок */
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.45) !important; /* янтарный контур */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' opacity='0.65'%3E%3Cpath d='M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19'/%3E%3C/svg%3E") !important;
   background-repeat: no-repeat !important;
   background-position: center center !important;
-  background-size: 26px 26px !important;
-  animation: wmTilePulse 1.2s infinite ease-in-out !important;
+  background-size: 18px 18px !important;
+  animation: wmTileNeutralPulse 1.4s infinite ease-in-out !important;
 }
 
 [data-theme="dark"] .leaflet-tile.leaflet-tile-retry {
-  background-color: rgba(69, 26, 3, 0.6) !important;
-  box-shadow: inset 0 0 0 1.5px rgba(251, 191, 36, 0.75) !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23fbbf24' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19'/%3E%3C/svg%3E") !important;
+  background-color: rgba(251, 191, 36, 0.04) !important;
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.45) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23fbbf24' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' opacity='0.7'%3E%3Cpath d='M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19'/%3E%3C/svg%3E") !important;
 }
 
-/* 3. Состояние ошибки / сервер недоступен (Error) */
+/* 3. Состояние ошибки (Error / Сервер не отвечает или 404) */
 .leaflet-tile.leaflet-tile-error {
   visibility: visible !important;
   opacity: 1 !important;
-  background-color: rgba(254, 226, 226, 0.6) !important;
-  box-shadow: inset 0 0 0 1.5px rgba(239, 68, 68, 0.65) !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' y1='8' x2='12' y2='12'/%3E%3Cline x1='12' y1='16' x2='12.01' y2='16'/%3E%3C/svg%3E") !important;
+  background-color: rgba(239, 68, 68, 0.02) !important;
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.35) !important; /* деликатный красный контур */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' opacity='0.55'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cline x1='12' y1='8' x2='12' y2='12'/%3E%3Cline x1='12' y1='16' x2='12.01' y2='16'/%3E%3C/svg%3E") !important;
   background-repeat: no-repeat !important;
   background-position: center center !important;
-  background-size: 26px 26px !important;
+  background-size: 18px 18px !important;
   animation: none !important;
 }
 
 [data-theme="dark"] .leaflet-tile.leaflet-tile-error {
-  background-color: rgba(69, 10, 10, 0.6) !important;
-  box-shadow: inset 0 0 0 1.5px rgba(248, 113, 113, 0.65) !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23f87171' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' y1='8' x2='12' y2='12'/%3E%3Cline x1='12' y1='16' x2='12.01' y2='16'/%3E%3C/svg%3E") !important;
+  background-color: rgba(248, 113, 113, 0.03) !important;
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.35) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23f87171' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' opacity='0.6'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cline x1='12' y1='8' x2='12' y2='12'/%3E%3Cline x1='12' y1='16' x2='12.01' y2='16'/%3E%3C/svg%3E") !important;
 }
 
-/* 4. Отключение фонового скелетона для оверлея контуров и самой аварийной подложки */
+/* 4. Отключение фонового скелетона для оверлея контуров и аварийной подложки */
 .wm-raster-tile .leaflet-tile:not(.leaflet-tile-loaded),
 .wm-fallback-tile .leaflet-tile:not(.leaflet-tile-loaded) {
   background: transparent !important;
@@ -4986,16 +4996,20 @@ body.sheet-open .info-hud {
   animation: none !important;
 }
 
-/* 5. Отключение анимации при зуме для плавности */
+/* 5. Отключение анимации при масштабировании для 60 FPS */
 .leaflet-zoom-animating .leaflet-tile:not(.leaflet-tile-loaded) {
   animation: none !important;
 }
 
-@keyframes wmTileShimmer {
-  0%   { background-position: -200% 0, center center; }
-  100% { background-position:  200% 0, center center; }
+/* Спокойная плавная пульсация только для центральной иконки */
+@keyframes wmTileNeutralPulse {
+  0%, 100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.18;
+  }
 }
-
 @keyframes wmTilePulse {
   0%, 100% { opacity: 0.9; }
   50%      { opacity: 0.5; }
