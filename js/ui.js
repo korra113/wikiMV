@@ -2574,7 +2574,6 @@
     let isHorizontalSwipe = false;
     let gestureDecided = false;
 
-    // Вкладки по кругу
     const TAB_ORDER = ['info', 'photos', 'comments'];
 
     function switchTabBySwipe(direction) {
@@ -2592,7 +2591,9 @@
     }
 
     function isEligibleDragTarget(target) {
-      // Игнорируем интерактивные элементы и горизонтальные списки (языки, дубликаты)
+      // ИСПРАВЛЕНИЕ: если шторка закрыта — запрещаем любые жесты
+      if (!sheet.classList.contains('open')) return false;
+
       if (target.closest('.icon-btn, button, a, input, select, textarea, .coords-card, .sheet-alts, .sheet-langs, .color-palette-row')) {
         return false;
       }
@@ -2603,6 +2604,8 @@
     }
 
     sheet.addEventListener('touchstart', e => {
+      // ИСПРАВЛЕНИЕ: не реагировать, если шторка не открыта
+      if (!sheet.classList.contains('open')) return;
       if (e.touches.length !== 1) return;
       if (!isEligibleDragTarget(e.target)) return;
 
@@ -2617,7 +2620,10 @@
     }, { passive: true });
 
     window.addEventListener('touchmove', e => {
+      // ИСПРАВЛЕНИЕ: если шторка не открыта или не находится в режиме перетаскивания — выходим
+      if (!isDraggingSheet || !sheet.classList.contains('open')) return;
       if (e.touches.length !== 1) return;
+
       const dx = e.touches[0].clientX - startX;
       const dy = e.touches[0].clientY - startY;
       curDeltaX = dx;
@@ -2625,7 +2631,6 @@
 
       if (!gestureDecided && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
         gestureDecided = true;
-        // Если жест преимущественно горизонтальный — переключаем вкладки
         if (Math.abs(dx) > Math.abs(dy) * 1.2) {
           isHorizontalSwipe = true;
           isDraggingSheet = false;
@@ -2640,7 +2645,9 @@
         if (isFull) {
           sheet.style.transform = dy < 0 ? `translateY(${dy * 0.18}px)` : `translateY(${dy}px)`;
         } else {
-          sheet.style.transform = `translateY(${dy}px)`;
+          // ИСПРАВЛЕНИЕ: не давать утянуть карточку выше 0 в обычном режиме
+          const safeY = Math.max(0, dy);
+          sheet.style.transform = `translateY(${safeY}px)`;
         }
       }
     }, { passive: true });
