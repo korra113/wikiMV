@@ -20,6 +20,12 @@
           var m = document.getElementById('theme-color-meta');
           if (m) m.setAttribute('content', '#111827');
         }
+
+        // ОПРЕДЕЛЯЕМ APK: если запущено в Capacitor или Android WebView — помечаем <html> классом
+        var isCapacitor = window.Capacitor !== undefined || /wv|Android.*Version\/[0-9.]+/i.test(navigator.userAgent);
+        if (isCapacitor) {
+          document.documentElement.classList.add('capacitor-app');
+        }
       } catch (e) {}
     })();
   </script>
@@ -1156,7 +1162,9 @@
 
 
   <script>
-    if ('serviceWorker' in navigator) {
+    // В APK отключаем SW, в обычном браузере — оставляем
+    var isApp = document.documentElement.classList.contains('capacitor-app');
+    if ('serviceWorker' in navigator && !isApp) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js')
           .then(reg => console.log('SW зарегистрирован:', reg.scope))
