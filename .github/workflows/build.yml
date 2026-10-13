@@ -42,7 +42,8 @@ jobs:
       - name: Setup Project and Capacitor
         run: |
           echo '{"name": "wikimapia-app", "version": "1.0.4"}' > package.json
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets
+          # ВАЖНО: Добавлен пакет @capacitor/app для нативного перехвата кнопки "Назад"
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets @capacitor/app
 
           mkdir -p assets
           cp icon-512.png assets/icon-only.png
@@ -65,7 +66,7 @@ jobs:
           npx cap add android
           npx capacitor-assets generate --android --iconBackgroundColor "#111827"
 
-          # Прописываем правильную версию 1.0.4 и код версии в build.gradle
+          # Прописываем версию 1.0.4 и код версии в build.gradle
           python3 - << 'EOF'
           path = "android/app/build.gradle"
           with open(path, "r", encoding="utf-8") as f:
@@ -96,7 +97,7 @@ jobs:
               f.write(content)
           EOF
 
-          # Перехват скачивания файлов в MainActivity.java
+          # Настройка MainActivity.java: аппаратная кнопка "Назад" и загрузка файлов
           python3 - << 'EOF'
           path = "android/app/src/main/java/com/wikimapia/viewer/MainActivity.java"
           code = """package com.wikimapia.viewer;
@@ -104,12 +105,37 @@ jobs:
           import android.os.Bundle;
           import android.content.Intent;
           import android.net.Uri;
+          import androidx.activity.OnBackPressedCallback;
           import com.getcapacitor.BridgeActivity;
 
           public class MainActivity extends BridgeActivity {
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+
+                  // Перехват системной кнопки / жеста "Назад" для закрытия модальных окон
+                  getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+                      @Override
+                      public void handleOnBackPressed() {
+                          if (bridge != null && bridge.getWebView() != null) {
+                              bridge.getWebView().evaluateJavascript(
+                                  "window.handleGlobalBackAction ? window.handleGlobalBackAction() : false;",
+                                  value -> {
+                                      if (!"true".equals(value)) {
+                                          setEnabled(false);
+                                          getOnBackPressedDispatcher().onBackPressed();
+                                          setEnabled(true);
+                                      }
+                                  }
+                              );
+                          } else {
+                              setEnabled(false);
+                              getOnBackPressedDispatcher().onBackPressed();
+                              setEnabled(true);
+                          }
+                      }
+                  });
+
                   this.bridge.getWebView().setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
                       try {
                           Intent intent = new Intent(Intent.ACTION_VIEW);
