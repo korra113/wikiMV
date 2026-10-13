@@ -281,6 +281,13 @@
         const hpx = (ob.n - ob.s) / cosLat / degPerPx;
         const maxPx = wpx > hpx ? wpx : hpx;
 
+        // ДОБАВИТЬ ЭТУ ПРОВЕРКУ:
+        // Если масштаб детальный (zoom >= 16) и полигон гигантский (шире 2.5 экранов),
+        // не тратим ресурсы Canvas на его перерисовку
+        if (zoom >= 16 && (wpx > mapSize.x * 2.5 || hpx > mapSize.y * 2.5)) {
+          continue;
+        }
+
         if (maxPx >= (C.MIN_PX || 6)) {
           vis.push({ o, maxPx });
         }
