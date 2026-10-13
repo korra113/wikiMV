@@ -1,7 +1,7 @@
 {
-  "id": "wikimapia-viewer-pwa",
-  "name": "Wikimapia Viewer",
-  "short_name": "Wikimapia",
+  "id": "wikimv-pwa",
+  "name": "WikiMV",
+  "short_name": "WikiMV",
   "description": "Автономный просмотрщик объектов и карты Wikimapia",
   "start_url": "./index.html",
   "scope": "./",
