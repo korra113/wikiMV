@@ -3739,57 +3739,68 @@ body.sheet-open .hover-pill {
 /* Панель управления измерениями (HUD) */
 .measure-hud {
   position: absolute;
-  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: 1500;
   background: var(--bg-glass-strong);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   padding: 8px 12px;
   box-shadow: var(--shadow-float);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   width: calc(100vw - 28px);
-  max-width: 440px;
+  max-width: 410px;
   user-select: none;
   animation: toastFade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
 }
 
 body.sheet-open .measure-hud {
   display: none;
 }
 
-.measure-hud-header {
+/* Верхний ряд: выбор трека, управление и облако */
+.measure-hud-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding-bottom: 6px;
+  gap: 6px;
+  padding-bottom: 5px;
   border-bottom: 1px solid var(--border);
 }
 
-.measure-hud-selector-wrap {
+.measure-hud-track-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex: 1;
   min-width: 0;
+}
+
+.measure-track-color-dot {
+  width: 10px;
+  height: 10px;
+  min-width: 10px;
+  border-radius: 50%;
+  background: #0284c7;
+  box-shadow: 0 0 0 1.5px var(--bg-primary), 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .measure-hud-select {
   flex: 1;
   min-width: 0;
-  height: 32px;
-  padding: 0 8px;
-  border-radius: var(--radius-sm);
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
   background: var(--bg-secondary);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   color: var(--text-main);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   outline: none;
   cursor: pointer;
@@ -3797,67 +3808,110 @@ body.sheet-open .measure-hud {
   white-space: nowrap;
 }
 
-.measure-hud-btn-close {
-  background: transparent;
-  border: 0;
-  font-size: 16px;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px 6px;
-  line-height: 1;
+.measure-hud-top-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.measure-hud-icon-btn {
+  width: 28px;
+  height: 28px;
   border-radius: 6px;
-}
-.measure-hud-btn-close:hover {
-  color: var(--text-main);
-}
-
-.measure-hud-body {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.measure-hud-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 85px;
-}
-
-.measure-hud-title {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--text-main);
-  white-space: nowrap;
-}
-
-.measure-hud-title b {
-  font-size: 15px;
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-}
-
-.measure-hud-count {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-.measure-hud-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.measure-hud-btn {
-  height: 34px;
-  min-width: 34px;
-  padding: 0 9px;
-  border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   color: var(--text-main);
   font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.measure-hud-icon-btn:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.measure-hud-icon-btn.share:hover {
+  background: #ede9fe;
+  border-color: #8b5cf6;
+  color: #7c3aed;
+}
+
+.measure-hud-icon-btn.download:hover {
+  background: #dbeafe;
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.measure-hud-close-btn {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  font-size: 15px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+}
+.measure-hud-close-btn:hover {
+  color: var(--danger);
+}
+
+/* Нижний ряд: статистика и основные кнопки действий */
+.measure-hud-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.measure-hud-stats {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.measure-hud-dist {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.measure-hud-sub {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-top: 1px;
+}
+
+.measure-hud-ctrls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.measure-hud-btn {
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
@@ -3873,28 +3927,35 @@ body.sheet-open .measure-hud {
   color: var(--accent);
 }
 
-.measure-hud-btn:active {
-  transform: scale(0.92);
+.measure-hud-btn.undo {
+  width: 32px;
+  padding: 0;
+  font-size: 14px;
+}
+
+.measure-hud-btn.danger {
+  width: 32px;
+  padding: 0;
+  color: var(--danger);
+}
+.measure-hud-btn.danger:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger);
 }
 
 .measure-hud-btn.primary {
   background: var(--accent);
-  color: #fff;
+  color: #ffffff;
   border-color: var(--accent);
 }
-
 .measure-hud-btn.primary:hover {
   background: var(--accent-hover);
 }
 
-.measure-hud-btn.danger {
-  color: var(--danger);
-  border-color: var(--border);
-}
-
-.measure-hud-btn.danger:hover {
-  background: var(--danger-bg);
-  border-color: var(--danger);
+.measure-hud-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* Бейджи сохранённых линий на карте */
