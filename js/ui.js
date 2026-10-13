@@ -780,8 +780,8 @@
     precache: true,
     location: true,
     gpsdist: false,
-    compasscone: false,    // По умолчанию выключено
-    compassneedle: false,  // По умолчанию выключено
+    compasscone: true,    // <-- было false, ставим true (конус GPS)
+    compassneedle: true,  // <-- было false, ставим true (кнопка-компас)
     rays: false,
     theme: true,
     infomenu: true
