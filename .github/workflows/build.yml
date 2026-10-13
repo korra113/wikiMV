@@ -31,30 +31,24 @@ jobs:
           cp index.html manifest.json sw.js icon-*.png www/ 2>/dev/null || true
           cp -r images www/ 2>/dev/null || true
 
-          # Если есть папки css и js в репозитории — копируем их
           [ -d css ] && cp -r css/* www/css/ 2>/dev/null || true
           [ -d js ] && cp -r js/* www/js/ 2>/dev/null || true
 
-          # Если файлы лежат прямо в корне — переносим по местам
           cp *.css www/css/ 2>/dev/null || true
           cp *.js www/js/ 2>/dev/null || true
-
-          # sw.js должен лежать строго в корне www
           cp sw.js www/sw.js 2>/dev/null || true
 
-      # 2. Инициализация Capacitor и сборка ассетов
+      # 2. Инициализация Capacitor и сборка
       - name: Setup Project and Capacitor
         run: |
           echo '{"name": "wikimapia-app", "version": "1.0.4"}' > package.json
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets
 
-          # Подготовка исходников для автоматического генератора иконок
           mkdir -p assets
           cp icon-512.png assets/icon-only.png
           cp icon-512.png assets/icon-foreground.png
           cp icon-512.png assets/icon.png
 
-          # Конфигурация Capacitor
           cat << 'EOF' > capacitor.config.json
           {
             "appId": "com.wikimapia.viewer",
@@ -68,13 +62,23 @@ jobs:
           }
           EOF
 
-          # Создаем проект Android
           npx cap add android
-
-          # 1. ГЕНЕРАЦИЯ ИКОНОК (нарезает и раскладывает по папкам mipmap)
           npx capacitor-assets generate --android --iconBackgroundColor "#111827"
 
-          # 2. РАЗРЕШЕНИЯ GPS (чтобы работала кнопка геолокации на карте)
+          # Прописываем правильную версию 1.0.4 и код версии в build.gradle
+          python3 - << 'EOF'
+          path = "android/app/build.gradle"
+          with open(path, "r", encoding="utf-8") as f:
+              content = f.read()
+
+          content = content.replace('versionCode 1', 'versionCode 4')
+          content = content.replace('versionName "1.0"', 'versionName "1.0.4"')
+
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          EOF
+
+          # Разрешения GPS в AndroidManifest.xml
           python3 - << 'EOF'
           path = "android/app/src/main/AndroidManifest.xml"
           with open(path, "r", encoding="utf-8") as f:
@@ -92,7 +96,7 @@ jobs:
               f.write(content)
           EOF
 
-          # 3. ПЕРЕХВАТ СКАЧИВАНИЯ (чтобы работали кнопки скачивания APK и исходников)
+          # Перехват скачивания файлов в MainActivity.java
           python3 - << 'EOF'
           path = "android/app/src/main/java/com/wikimapia/viewer/MainActivity.java"
           code = """package com.wikimapia.viewer;
@@ -120,13 +124,11 @@ jobs:
               f.write(code)
           EOF
 
-          # Настройка цветов статусбара в styles.xml (темная тема #111827)
+          # Настройка цветов статусбара
           sed -i '/<style name="AppTheme"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:fitsSystemWindows">true</item>\n        <item name="android:statusBarColor">#111827</item>\n        <item name="android:windowLightStatusBar">false</item>\n        <item name="android:navigationBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
           sed -i '/<style name="AppTheme.NoActionBarLaunch"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:statusBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
 
-          # Исключение конфликтующих зависимостей Kotlin
           cat << 'EOF' >> android/build.gradle
-
           allprojects {
               configurations.all {
                   exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
@@ -135,19 +137,49 @@ jobs:
           }
           EOF
 
-          # Финальная синхронизация проекта
           npx cap sync android
 
-      # 3. Компиляция APK
-      - name: Build Debug APK
+      # 3. Генерация Release Keystore для нормальной подписи приложения
+      - name: Generate Keystore & Build Release APK
         run: |
           cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug
+          keytool -genkey -v -keystore release.jks -alias wikimv -keyalg RSA -keysize 2048 -validity 10000 -storepass wikimvpass -keypass wikimvpass -dname "CN=WikiMV, OU=Viewer, O=Wikimapia, L=City, S=State, C=RU"
 
-      # 4. Выгрузка готового APK в артефакты
-      - name: Upload APK
+          # Внедряем подпись release.jks в build.gradle
+          python3 - << 'EOF'
+          path = "app/build.gradle"
+          with open(path, "r", encoding="utf-8") as f:
+              c = f.read()
+
+          signing_block = """
+              signingConfigs {
+                  release {
+                      storeFile file('release.jks')
+                      storePassword 'wikimvpass'
+                      keyAlias 'wikimv'
+                      keyPassword 'wikimvpass'
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                      minifyEnabled false
+                      proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+                  }
+              }
+          """
+          c = c.replace('buildTypes {', signing_block + '\n/* replaced */\n    buildTypesOld {')
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(c)
+          EOF
+
+          chmod +x gradlew
+          ./gradlew assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/wikiMV_1.0.4.apk
+
+      # 4. Выгрузка подписанного APK
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: WikiMV
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: WikiMV_Release
+          path: android/app/build/outputs/apk/release/wikiMV_1.0.4.apk
