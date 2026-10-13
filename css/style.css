@@ -994,6 +994,156 @@ body.sheet-open .compass-btn-top {
   animation: wmGpsPulse 2.2s infinite ease-out;
 }
 
+
+/* =========================================================================
+   СЛОИ РЕЛЬЕФА И ОТМЫВКИ (HILLSHADE, SHADED RELIEF, MAPS-FOR-FREE)
+   ========================================================================= */
+.leaflet-wm-hillshade-pane-pane {
+  mix-blend-mode: multiply;
+  pointer-events: none !important;
+}
+
+/* Базовое аппаратное сглаживание для апскейла тайлов рельефа на зумах 12-20 */
+.wm-relief-tile .leaflet-tile {
+  image-rendering: auto;
+  will-change: transform;
+}
+
+/* 1. Монохромный Esri Hillshade — чёткие, выразительные тени хребтов */
+.wm-relief-hillshade .leaflet-tile {
+  filter: contrast(116%) brightness(98%);
+}
+
+/* 2. Esri Shaded Relief — сочная высотная поясность (зелень низин, охра гор) */
+.wm-relief-shaded .leaflet-tile {
+  filter: contrast(114%) saturate(120%) brightness(99%);
+}
+
+/* 3. Maps-For-Free — художественный SRTM с мягкими акварельными полутонами */
+.wm-relief-mff .leaflet-tile {
+  filter: contrast(118%) saturate(110%) brightness(97%);
+}
+
+/* Во время анимации зума временно убираем фильтры для 60 FPS */
+.leaflet-zoom-animating .leaflet-wm-hillshade-pane-pane {
+  filter: none !important;
+}
+
+/* Отключаем серые заглушки/скелетоны для слоёв рельефа, чтобы не перекрывать базовую карту */
+.wm-raster-tile .leaflet-tile:not(.leaflet-tile-loaded),
+.wm-fallback-tile .leaflet-tile:not(.leaflet-tile-loaded),
+.wm-relief-tile .leaflet-tile:not(.leaflet-tile-loaded) {
+  background: transparent !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+
+
+/* =========================================================================
+   ЧУЖИЕ МЕТКИ (LIVE MQTT)
+   ========================================================================= */
+.wm-foreign-div-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.wm-foreign-pin-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.wm-foreign-pin-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.wm-foreign-badge {
+  position: absolute;
+  bottom: 6px;
+  left: 0;
+  transform: translateX(-50%);
+  background: var(--bg-glass-strong);
+  border: 1.5px solid var(--f-color, #8b5cf6);
+  border-radius: 12px;
+  padding: 3px 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.wm-foreign-badge-radar {
+  font-size: 11px;
+  animation: pulseRadar 1.8s infinite ease-out;
+}
+
+.wm-foreign-badge-emoji {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.wm-foreign-badge-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+}
+
+@keyframes pulseRadar {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+/* Попап чужой метки */
+.wm-foreign-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 190px;
+}
+
+.wm-foreign-pop-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wm-foreign-pop-emoji {
+  font-size: 24px;
+}
+
+.wm-foreign-pop-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #8b5cf6;
+}
+
+.wm-foreign-pop-coords {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.wm-foreign-pop-text {
+  font-size: 12.5px;
+  color: var(--text-main);
+  line-height: 1.35;
+  white-space: pre-line;
+}
+
 @keyframes wmGpsPulse {
   0%   { transform: scale(0.8); opacity: 0.85; }
   75%  { transform: scale(2.0); opacity: 0; }
