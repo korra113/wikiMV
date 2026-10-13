@@ -1712,6 +1712,10 @@ body.sheet-open .quick-swap-top-btn {
   transition: background 0.15s ease, color 0.15s ease;
   font-family: inherit;
 }
+.quick-menu-item.active {
+  background: var(--accent-bg);
+  border-left: 3px solid var(--accent);
+}
 .quick-menu-item:last-child {
   border-bottom: none;
 }
@@ -1749,6 +1753,93 @@ body.sheet-open .quick-swap-top-btn {
   color: var(--text-muted);
   line-height: 1.2;
   margin-top: 1px;
+}
+
+
+
+/* Поднастройки круга дальности */
+.sub-rangering-settings {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Элементы SVG круга дальности */
+.wm-range-ring-container {
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+.rr-circle {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.65));
+}
+
+.rr-axes {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+}
+
+.rr-badge rect {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+
+
+[data-theme="night-vision"] {
+  --bg-primary: #050101;
+  --bg-secondary: #120303;
+  --bg-glass: rgba(18, 3, 3, 0.92);
+  --bg-glass-strong: rgba(12, 2, 2, 0.98);
+  --text-main: #f87171;
+  --text-muted: #991b1b;
+  --accent: #ef4444;
+  --accent-hover: #dc2626;
+  --accent-bg: rgba(239, 68, 68, 0.15);
+  --danger: #ff0000;
+  --danger-bg: #2d0000;
+  --warning-bg: #2d0000;
+  --warning-text: #f87171;
+  --border: #3b0707;
+  --border-strong: #5c0f0f;
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.85);
+  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.95);
+}
+
+[data-theme="night-vision"] #map,
+[data-theme="night-vision"] .leaflet-container {
+  background: #050101 !important;
+}
+
+/* 1. Автоматическая инверсия светлых схем и топокарт (OSM, OpenTopo, CyclOSM, ГГЦ),
+      при этом тёмные спутники (World_Imagery, clarity, lyrs=y, virtualearth) не инвертируются */
+[data-theme="night-vision"] .leaflet-tile:not([src*="World_Imagery"]):not([src*="clarity"]):not([src*="lyrs=y"]):not([src*="virtualearth"]):not([src*="core-sat"]):not([src*="Canvas/World_Dark"]) {
+  filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(110%);
+}
+
+/* 2. Наложение монохромного красного фильтра на весь холст тайлов и полигонов */
+[data-theme="night-vision"] .leaflet-tile-pane,
+[data-theme="night-vision"] .leaflet-wm-raster-pane-pane,
+[data-theme="night-vision"] .leaflet-wm-hillshade-pane-pane,
+[data-theme="night-vision"] .leaflet-overlay-pane {
+  filter: url(#wm-night-vision-filter) !important;
+}
+
+/* 3. Кнопка смены темы в режиме ночного зрения */
+[data-theme="night-vision"] #btn-theme-toggle {
+  background: #2b0505;
+  border-color: #ef4444;
+  color: #ef4444;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+}
+
+/* 4. Приглушение прицела перекрестия */
+[data-theme="night-vision"] #crosshair::before,
+[data-theme="night-vision"] #crosshair::after {
+  background: #ef4444;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.9);
 }
 
 .limit-reset-btn {
@@ -5226,6 +5317,7 @@ body.sheet-open .shadow-height-hud {
 /* Отключение браузерного контекстного меню на элементах управления для комфортного долгого тапа */
 .floating-btn,
 .square-btn-top,
+.quick-swap-top-btn,
 .limit-badge,
 .limit-reset-btn,
 .topbar-action-btn,
