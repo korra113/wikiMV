@@ -1910,17 +1910,29 @@ body.sheet-open .hover-pill {
   height: 55vh;
   background: var(--bg-glass-strong);
   border-radius: 24px 24px 0 0;
-  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25);
   border-top: 1px solid var(--border);
   z-index: 2000;
   display: flex;
   flex-direction: column;
-  transform: translateY(105%);
-  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), height 0.2s ease;
+  
+  /* ИСПРАВЛЕНИЕ: гарантированно убираем под экран, отключаем клики, тень и видимость */
+  transform: translateY(120%);
+  visibility: hidden;
+  pointer-events: none;
+  box-shadow: none;
+  
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), 
+              visibility 0.28s ease, 
+              height 0.2s ease, 
+              box-shadow 0.28s ease;
   touch-action: pan-y;
 }
+
 .sheet.open {
   transform: none;
+  visibility: visible;
+  pointer-events: auto;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25);
 }
 .sheet.full {
   height: 94vh;
@@ -5272,17 +5284,12 @@ body.sheet-open .square-btn-top {
     border-top: 0;
     border-right: 1px solid var(--border);
     transform: translateX(-105%);
-  }
-  .sheet.full {
-    width: 560px;
+    visibility: hidden;
+    pointer-events: none;
   }
   .sheet.open {
     transform: none;
-  }
-  body.sheet-open .floating-controls {
-    display: flex;
-  }
-  .sheet-handle {
-    display: none;
+    visibility: visible;
+    pointer-events: auto;
   }
 }
