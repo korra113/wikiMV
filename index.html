@@ -912,41 +912,32 @@
 
         <details class="spoiler" id="spoiler-shared-markers">
           <summary class="spoiler-title">
-            <span>📡 Обмен метками (Live)</span>
+            <span>📡 Публичные метки (Firebase)</span>
             <span class="chevron">▼</span>
           </summary>
           <div class="spoiler-body toggles-list">
             <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 8px;">
-              <div class="guide-tip-title">ℹ️ Обмен в реальном времени</div>
+              <div class="guide-tip-title">ℹ️ Общая база меток</div>
               <p style="margin: 0; font-size: 11.5px; line-height: 1.4;">
-                Работает через открытую сеть MQTT без серверов и учетных записей. Метки транслируются по географическим квадратам только пока приложение запущено.
+                Метки, помеченные как публичные, сохраняются в облаке Firebase. При включении загрузки они загружаются с сервера и отображаются на карте.
               </p>
             </div>
 
             <label class="toggle-item">
               <div>
-                <span style="font-weight:600; display:block;">Делиться метками когда открыто</span>
-                <small class="hint-text">Передавать свои метки пользователям рядом с вами</small>
-              </div>
-              <input type="checkbox" id="toggle-share-markers">
-              <span class="toggle-switch"></span>
-            </label>
-
-            <label class="toggle-item">
-              <div>
                 <span style="font-weight:600; display:block;">Скачивать чужие метки</span>
-                <small class="hint-text">Слушать эфир в видимой области экрана</small>
+                <small class="hint-text">Загружать актуальные публичные метки из базы</small>
               </div>
-              <input type="checkbox" id="toggle-download-foreign">
+              <input type="checkbox" id="toggle-download-foreign" checked>
               <span class="toggle-switch"></span>
             </label>
 
             <label class="toggle-item">
               <div>
                 <span style="font-weight:600; display:block;">Отображать чужие метки</span>
-                <small class="hint-text">Показывать метки других людей на карте</small>
+                <small class="hint-text">Показывать метки других пользователей на карте</small>
               </div>
-              <input type="checkbox" id="toggle-show-foreign">
+              <input type="checkbox" id="toggle-show-foreign" checked>
               <span class="toggle-switch"></span>
             </label>
 
@@ -1075,6 +1066,7 @@
   <script src="js/picker.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/markers.js"></script> 
+
   <script src="js/sharedMarkers.js"></script>
   <script src="js/geocaching.js"></script>
   <script src="js/suncalc.js"></script>
@@ -1184,6 +1176,15 @@
           <textarea id="marker-text-input" class="styled-input" rows="3" maxlength="200" placeholder="Краткая заметка к метке (необязательно)..."></textarea>
         </div>
       </div>
+
+       <label class="toggle-item" style="margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border);">
+          <div>
+            <span style="font-weight:600; display:block;">🌐 Метка видна всем</span>
+            <small class="hint-text" style="margin-top: 2px;">Опубликовать метку в общую базу Firebase для других пользователей</small>
+          </div>
+          <input type="checkbox" id="marker-is-public-input">
+          <span class="toggle-switch"></span>
+        </label>
 
       <div class="modal-actions" style="justify-content: space-between;">
         <button id="marker-delete-btn" class="btn btn-danger-outline" hidden>🗑️ Удалить</button>
