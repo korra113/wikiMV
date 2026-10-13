@@ -1168,64 +1168,91 @@
 
 
 
- <script>
-    // Обработка PWA и установки на рабочий стол
+   <script>
     (function () {
-      var deferredPrompt = null;
       var btnInstall = document.getElementById('btn-install-pwa');
-      var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-      var isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      if (!btnInstall) return;
 
-      // Перехват события готовности к установке (Android / Chrome / Edge)
+      var deferredPrompt = null;
+      var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      var isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                         window.navigator.standalone === true;
+
+      function markAsInstalled() {
+        btnInstall.textContent = '✅ Приложение уже установлено';
+        btnInstall.disabled = true;
+        btnInstall.classList.remove('btn-primary');
+        btnInstall.classList.add('btn-secondary');
+      }
+
+      // 1. Проверка: запущено ли приложение прямо сейчас как PWA/Standalone
+      if (isStandalone) {
+        markAsInstalled();
+        return;
+      }
+
+      // 2. Проверка: было ли приложение установлено ранее на этом устройстве
+      if (localStorage.getItem('wm_pwa_installed') === 'true') {
+        markAsInstalled();
+      }
+
+      // 3. Асинхронная системная проверка через getInstalledRelatedApps (Chrome Android)
+      if ('getInstalledRelatedApps' in navigator) {
+        navigator.getInstalledRelatedApps().then(function (relatedApps) {
+          if (relatedApps && relatedApps.length > 0) {
+            localStorage.setItem('wm_pwa_installed', 'true');
+            markAsInstalled();
+          }
+        }).catch(function () {});
+      }
+
+      // 4. Перехват готовности к установке (если приложение ещё не стоит)
       window.addEventListener('beforeinstallprompt', function (e) {
         e.preventDefault();
         deferredPrompt = e;
-        if (btnInstall) {
-          btnInstall.style.display = 'flex';
-          btnInstall.textContent = '📲 Установить на телефон (PWA)';
-        }
+        // Если браузер снова разрешил установку, значит приложения нет в системе
+        localStorage.removeItem('wm_pwa_installed');
+        btnInstall.disabled = false;
+        btnInstall.classList.remove('btn-secondary');
+        btnInstall.classList.add('btn-primary');
+        btnInstall.style.display = 'flex';
+        btnInstall.textContent = '📲 Установить на телефон (PWA)';
       });
 
-      if (btnInstall) {
-        if (isStandalone) {
-          btnInstall.textContent = '✅ Приложение уже установлено';
-          btnInstall.disabled = true;
-          btnInstall.classList.replace('btn-primary', 'btn-secondary');
+      // 5. Обработка клика
+      btnInstall.onclick = async function () {
+        if (isStandalone || localStorage.getItem('wm_pwa_installed') === 'true') {
+          if (window.WM && WM.ui) {
+            WM.ui.showToast('✅ Приложение уже установлено на вашем устройстве!');
+          }
+          return;
         }
 
-        btnInstall.onclick = async function () {
-          if (isStandalone) {
-            if (window.WM && WM.ui) WM.ui.showToast('Приложение уже установлено и запущено!');
-            return;
+        if (deferredPrompt) {
+          deferredPrompt.prompt();
+          var choice = await deferredPrompt.userChoice;
+          if (choice.outcome === 'accepted') {
+            if (window.WM && WM.ui) WM.ui.showToast('🎉 Приложение успешно установлено!');
+            localStorage.setItem('wm_pwa_installed', 'true');
+            deferredPrompt = null;
+            markAsInstalled();
           }
+        } else if (isIOS) {
+          alert('Чтобы установить на iPhone/iPad:\n1. Нажмите кнопку «Поделиться» (квадрат со стрелкой вверх внизу экрана Safari).\n2. Выберите «На экран „Домой“».');
+        } else {
+          // Если prompt не готов и системно не определился
+          alert('Приложение уже скачано на домашний экран либо браузер ожидает повторного подтверждения через меню (три точки в углу -> «Установить приложение»).');
+        }
+      };
 
-          if (deferredPrompt) {
-            deferredPrompt.prompt();
-            var choice = await deferredPrompt.userChoice;
-            if (choice.outcome === 'accepted') {
-              if (window.WM && WM.ui) WM.ui.showToast('🎉 Приложение успешно установлено!');
-              deferredPrompt = null;
-              btnInstall.textContent = '✅ Установлено';
-              btnInstall.disabled = true;
-            }
-          } else if (isIOS) {
-            // Подсказка для пользователей iPhone / iPad
-            alert('Чтобы установить на iPhone/iPad:\n1. Нажмите кнопку «Поделиться» (иконка квадрата со стрелкой вверх внизу экрана Safari).\n2. Прокрутите меню и выберите «На экран „Домой“».');
-          } else {
-            alert('Чтобы установить приложение:\nОткройте меню браузера (три точки в правом верхнем углу) и выберите «Установить приложение» или «Добавить на главный экран».');
-          }
-        };
-      }
-
+      // 6. Системное событие успешной установки PWA
       window.addEventListener('appinstalled', function () {
         deferredPrompt = null;
-        if (btnInstall) {
-          btnInstall.textContent = '✅ Установлено';
-          btnInstall.disabled = true;
-        }
+        localStorage.setItem('wm_pwa_installed', 'true');
+        markAsInstalled();
       });
 
-      // Регистрация Service Worker (только для обычного браузера, не для Capacitor APK)
+      // Регистрация Service Worker
       var isApp = document.documentElement.classList.contains('capacitor-app');
       if ('serviceWorker' in navigator && !isApp) {
         window.addEventListener('load', function () {
