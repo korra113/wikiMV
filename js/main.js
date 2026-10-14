@@ -4,14 +4,20 @@
 (function() {
   const origTileOnError = L.TileLayer.prototype._tileOnError;
   const origTileOnLoad  = L.TileLayer.prototype._tileOnLoad;
+  const origInitTile    = L.GridLayer.prototype._initTile;
 
-  L.TileLayer.include({
+  L.GridLayer.include({
+    // Перехватываем именно _initTile, так как Leaflet выставляет размеры именно здесь!
+    _initTile: function(tile) {
+      origInitTile.call(this, tile);
+      const size = this.getTileSize();
+      // 1px нахлёста физически перекрывает субпиксельный зазор соседнего тайла
+      tile.style.width = (size.x + 1) + 'px';
+      tile.style.height = (size.y + 1) + 'px';
+    },
+
     _tileOnLoad: function(done, tile) {
-      const src = tile.getAttribute('src') || '';
-      // Снимаем статус ошибки только если загрузилась настоящая картинка, а не 1x1 заглушка сбоя
-      if (!src.startsWith('data:')) {
-        tile.classList.remove('leaflet-tile-retry', 'leaflet-tile-error');
-      }
+      tile.classList.remove('leaflet-tile-retry', 'leaflet-tile-error');
       origTileOnLoad.call(this, done, tile);
     },
 
@@ -25,12 +31,11 @@
       tile._retryCount = (tile._retryCount || 0) + 1;
       const maxRetries = 3;
 
-      // Если связь прервалась — переводим в статус повтора
       if (tile._retryCount <= maxRetries && this._map) {
         tile.classList.add('leaflet-tile-retry');
         tile.classList.remove('leaflet-tile-error');
 
-        const delay = tile._retryCount * 1400; // 1.4с, 2.8с, 4.2с
+        const delay = tile._retryCount * 1400;
         setTimeout(() => {
           if (this._map && tile.parentNode) {
             const src = tile.getAttribute('src');
@@ -46,7 +51,6 @@
         return;
       }
 
-      // Все попытки исчерпаны
       tile.classList.remove('leaflet-tile-retry');
       tile.classList.add('leaflet-tile-error');
       origTileOnError.call(this, done, tile, e);
@@ -77,14 +81,14 @@
   const EMPTY_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
   // Базовые параметры экономии трафика для ВСЕХ слоев тайлов
-  const COMMON_TILE_OPTIONS = {
-    crossOrigin: true,        // <-- ОБЯЗАТЕЛЬНО: заставляет Leaflet запрашивать тайлы с CORS
-    keepBuffer: 2,
-    updateWhenIdle: false,
-    updateWhenZooming: false,
-    updateInterval: 250,
-    errorTileUrl: EMPTY_TILE
-  };
+const COMMON_TILE_OPTIONS = {
+  // crossOrigin: true, // <-- УДАЛИТЬ ИЛИ ЗАКОММЕНТИРОВАТЬ ЭТУ СТРОКУ!
+  keepBuffer: 2,
+  updateWhenIdle: false,
+  updateWhenZooming: false,
+  updateInterval: 250,
+  errorTileUrl: EMPTY_TILE
+};
 
 
 
@@ -149,7 +153,8 @@
       const tile = L.TileLayer.prototype.createTile.call(this, coords, done);
       const coordsBelow = L.point(coords).add([0, 1]);
       coordsBelow.z = coords.z;
-      tile.style.height = (this._getTilePos(coordsBelow).y - this._getTilePos(coords).y) + 'px';
+      const h = Math.ceil(this._getTilePos(coordsBelow).y - this._getTilePos(coords).y);
+      tile.style.height = (h + 1) + 'px';
       return tile;
     }
   });
@@ -1037,11 +1042,11 @@
       isVectorsEnabled = true;
       localStorage.setItem('wm_overlay_vectors', 'true');
       WM.view.setVisible(true);
-    } else if (e.name.includes('Esri Hillshade')) {
+    } else if (e.name.includes('Тени (Esri)')) { // <-- БЫЛО: 'Esri Hillshade'
       localStorage.setItem('wm_overlay_hillshade', 'true');
-    } else if (e.name.includes('Esri Shaded Relief')) {
+    } else if (e.name.includes('Гипсометрия (Esri)')) { // <-- БЫЛО: 'Esri Shaded Relief'
       localStorage.setItem('wm_overlay_shaded_relief', 'true');
-    } else if (e.name.includes('Maps-For-Free')) {
+    } else if (e.name.includes('Художественный SRTM')) { // <-- БЫЛО: 'Maps-For-Free'
       localStorage.setItem('wm_overlay_mff_relief', 'true');
     } else if (e.name === 'Тайники (Geocaching.su)') {
       localStorage.setItem('wm_overlay_geocaching', 'true');
@@ -1060,11 +1065,11 @@
       isVectorsEnabled = false;
       localStorage.setItem('wm_overlay_vectors', 'false');
       WM.view.setVisible(false);
-    } else if (e.name.includes('Esri Hillshade')) {
+    } else if (e.name.includes('Тени (Esri)')) {           // <-- БЫЛО: 'Esri Hillshade'
       localStorage.setItem('wm_overlay_hillshade', 'false');
-    } else if (e.name.includes('Esri Shaded Relief')) {
+    } else if (e.name.includes('Гипсометрия (Esri)')) {    // <-- БЫЛО: 'Esri Shaded Relief'
       localStorage.setItem('wm_overlay_shaded_relief', 'false');
-    } else if (e.name.includes('Maps-For-Free')) {
+    } else if (e.name.includes('Художественный SRTM')) {   // <-- БЫЛО: 'Maps-For-Free'
       localStorage.setItem('wm_overlay_mff_relief', 'false');
     } else if (e.name === 'Тайники (Geocaching.su)') {
       localStorage.setItem('wm_overlay_geocaching', 'false');
@@ -1747,5 +1752,114 @@
       }
     });
   }
+// =========================================================================
+// ДЕБАГ-МОДУЛЬ: ДИАГНОСТИКА SERVICE WORKER И CACHE STORAGE
+// =========================================================================
+async function runSwDiagnostics() {
+  const logEl = document.getElementById('sw-debug-log');
+  if (!logEl) return;
+  
+  logEl.textContent = '⏳ Выполняется диагностика...\n';
+  const out = [];
+  const log = (msg) => { out.push(msg); logEl.textContent = out.join('\n'); };
 
+  log(`[Окружение]`);
+  log(`• Origin: ${window.location.origin}`);
+  log(`• Protocol: ${window.location.protocol}`);
+  log(`• Capacitor: ${typeof window.Capacitor !== 'undefined' ? 'Да (Native APK)' : 'Нет (Браузер)'}`);
+  log(`• UserAgent: ${navigator.userAgent.slice(0, 70)}...`);
+
+  log(`\n[Поддержка API]`);
+  log(`• 'serviceWorker' in navigator: ${'serviceWorker' in navigator}`);
+  log(`• 'caches' in window: ${'caches' in window}`);
+
+  // 1. Проверяем, отдается ли вообще сам sw.js
+  log(`\n[Проверка доступности sw.js]`);
+  try {
+    const swFetch = await fetch('./sw.js', { cache: 'no-store' });
+    log(`• fetch('./sw.js') HTTP: ${swFetch.status} ${swFetch.statusText}`);
+    log(`• Content-Type: ${swFetch.headers.get('content-type')}`);
+    const text = await swFetch.text();
+    log(`• Размер файла: ${text.length} байт`);
+  } catch (err) {
+    log(`❌ ОШИБКА загрузки sw.js: ${err.name} - ${err.message}`);
+    log(`   (В APK это означает, что WebView не может прочитать файл из ассетов!)`);
+  }
+
+  // 2. Статус регистрации Service Worker
+  log(`\n[Регистрация Service Worker]`);
+  if ('serviceWorker' in navigator) {
+    log(`• controller: ${navigator.serviceWorker.controller ? navigator.serviceWorker.controller.state : 'null (SW не управляет страницей!)'}`);
+    
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      log(`• Найдено регистраций: ${regs.length}`);
+      regs.forEach((r, idx) => {
+        log(`  [${idx + 1}] scope: ${r.scope}`);
+        log(`      active: ${r.active ? r.active.state : 'нет'}`);
+        log(`      installing: ${r.installing ? r.installing.state : 'нет'}`);
+        log(`      waiting: ${r.waiting ? r.waiting.state : 'нет'}`);
+      });
+
+      if (regs.length === 0) {
+        log(`⚠️ Попытка принудительной регистрации './sw.js'...`);
+        const newReg = await navigator.serviceWorker.register('./sw.js');
+        log(`✅ Успешно зарегистрирован! Scope: ${newReg.scope}`);
+      }
+    } catch (err) {
+      log(`❌ ОШИБКА регистрации SW: ${err.name} - ${err.message}`);
+    }
+  }
+
+  // 3. Анализ CacheStorage
+  log(`\n[Анализ CacheStorage]`);
+  if ('caches' in window) {
+    try {
+      const keys = await caches.keys();
+      log(`• Найдено кэшей: ${keys.length} [${keys.join(', ')}]`);
+
+      for (const k of keys) {
+        const c = await caches.open(k);
+        const reqs = await c.keys();
+        log(`  - "${k}": ${reqs.length} записей`);
+        if (k === 'wm-tiles-v1' && reqs.length > 0) {
+          log(`    Пример URL: ${reqs[0].url.slice(0, 60)}...`);
+        }
+      }
+    } catch (err) {
+      log(`❌ ОШИБКА чтения CacheStorage: ${err.message}`);
+    }
+  }
+
+  // 4. Тестовый запрос тайла через fetch
+  log(`\n[Тест перехвата тайла]`);
+  try {
+    const testTileUrl = 'https://tile.openstreetmap.fr/osmfr/0/0/0.png';
+    const res = await fetch(testTileUrl);
+    log(`• Запрос тестового тайла: HTTP ${res.status}`);
+    
+    if ('caches' in window) {
+      const tileCache = await caches.open('wm-tiles-v1');
+      const match = await tileCache.match(testTileUrl);
+      log(`• Наличие в кэше 'wm-tiles-v1': ${match ? '✅ Сохранён в кэш' : '❌ НЕ попал в кэш'}`);
+    }
+  } catch (err) {
+    log(`• Ошибка тестового запроса: ${err.message}`);
+  }
+
+  log(`\n--- Диагностика завершена ---`);
+}
+
+// Привязка обработчиков
+document.getElementById('btn-open-sw-debug')?.addEventListener('click', () => {
+  document.getElementById('modal-sw-debug')?.classList.add('open');
+  runSwDiagnostics();
+});
+document.getElementById('btn-sw-debug-rerun')?.addEventListener('click', runSwDiagnostics);
+document.getElementById('btn-sw-debug-copy')?.addEventListener('click', () => {
+  const text = document.getElementById('sw-debug-log')?.textContent || '';
+  navigator.clipboard.writeText(text).then(() => {
+    if (window.WM && WM.ui) WM.ui.showToast('📋 Отчёт скопирован');
+  });
+});
 })();
