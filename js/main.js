@@ -1655,62 +1655,68 @@ const isMobile = L.Browser.mobile;
     return null;
   }
 
-  // Быстрый 2D-расчет пересечения луча движения с прямоугольником видимой карты
-  function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
-    const R = 6371e3;
-    const courseRad = courseDeg * Math.PI / 180;
-    const sinC = Math.sin(courseRad);
-    const cosC = Math.cos(courseRad);
+  // Быстрый математический расчёт пересечения бесконечного луча курса с экраном
+function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
+  // Переводим координаты в плоскую меркаторскую проекцию EPSG:3857 (в метрах)
+  const crs = L.CRS.EPSG3857;
+  const O = crs.project(originLL);
+  const sw = crs.project(bounds.getSouthWest());
+  const ne = crs.project(bounds.getNorthEast());
 
-    const mPerLat = 111320;
-    const mPerLng = mPerLat * Math.cos(originLL.lat * Math.PI / 180);
+  const Xmin = Math.min(sw.x, ne.x);
+  const Xmax = Math.max(sw.x, ne.x);
+  const Ymin = Math.min(sw.y, ne.y);
+  const Ymax = Math.max(sw.y, ne.y);
 
-    const targetEndLL = L.latLng(
-      originLL.lat + (maxRayLenMeters * cosC) / mPerLat,
-      originLL.lng + (maxRayLenMeters * sinC) / mPerLng
-    );
+  // Вектор направления курса (в Mercator: X - восток, Y - север)
+  const rad = courseDeg * Math.PI / 180;
+  const Dx = Math.sin(rad);
+  const Dy = Math.cos(rad);
 
-    // Параметрический поиск t в диапазоне [0, 1] для отрезка [origin, targetEnd]
-    let t0 = 0;
-    let t1 = 1;
+  let t0 = 0;
+  let t1 = Infinity;
 
-    const dx = targetEndLL.lng - originLL.lng;
-    const dy = targetEndLL.lat - originLL.lat;
-
-    const p = [-dx, dx, -dy, dy];
-    const q = [
-      originLL.lng - bounds.getWest(),
-      bounds.getEast() - originLL.lng,
-      originLL.lat - bounds.getSouth(),
-      bounds.getNorth() - originLL.lat
-    ];
-
-    for (let i = 0; i < 4; i++) {
-      if (p[i] === 0) {
-        if (q[i] < 0) return null; // Параллелен и снаружи
-      } else {
-        const t = q[i] / p[i];
-        if (p[i] < 0) {
-          if (t > t1) return null;
-          if (t > t0) t0 = t;
-        } else {
-          if (t < t0) return null;
-          if (t < t1) t1 = t;
-        }
-      }
-    }
-
+  // 1. Пересечение с вертикальными границами экрана (X)
+  if (Math.abs(Dx) < 1e-9) {
+    if (O.x < Xmin || O.x > Xmax) return null; // Параллелен экрану и снаружи
+  } else {
+    let tx1 = (Xmin - O.x) / Dx;
+    let tx2 = (Xmax - O.x) / Dx;
+    if (tx1 > tx2) { const tmp = tx1; tx1 = tx2; tx2 = tmp; }
+    t0 = Math.max(t0, tx1);
+    t1 = Math.min(t1, tx2);
     if (t0 > t1) return null;
-
-    // Точки отрезка, попадающие на экран
-    const startLL = (t0 <= 0) 
-      ? originLL 
-      : L.latLng(originLL.lat + t0 * dy, originLL.lng + t0 * dx);
-
-    const endLL = L.latLng(originLL.lat + t1 * dy, originLL.lng + t1 * dx);
-
-    return { startLL, endLL, isEnteringFromOutside: t0 > 0.001 };
   }
+
+  // 2. Пересечение с горизонтальными границами экрана (Y)
+  if (Math.abs(Dy) < 1e-9) {
+    if (O.y < Ymin || O.y > Ymax) return null; // Параллелен экрану и снаружи
+  } else {
+    let ty1 = (Ymin - O.y) / Dy;
+    let ty2 = (Ymax - O.y) / Dy;
+    if (ty1 > ty2) { const tmp = ty1; ty1 = ty2; ty2 = tmp; }
+    t0 = Math.max(t0, ty1);
+    t1 = Math.min(t1, ty2);
+    if (t0 > t1) return null;
+  }
+
+  // Если весь экран остался позади направления взгляда
+  if (t1 < 0) return null;
+
+  // Вычисляем точки входа и выхода луча
+  const isEnteringFromOutside = (t0 > 0.001);
+  const startPt = isEnteringFromOutside 
+    ? L.point(O.x + t0 * Dx, O.y + t0 * Dy) 
+    : O;
+
+  const endPt = L.point(O.x + t1 * Dx, O.y + t1 * Dy);
+
+  return {
+    startLL: crs.unproject(startPt),
+    endLL: crs.unproject(endPt),
+    isEnteringFromOutside
+  };
+}
 
   function updateMotionVectorVisuals() {
     if (!isMotionVectorEnabled || !userLatLng || !map) {
@@ -1735,9 +1741,7 @@ const isMobile = L.Browser.mobile;
     const bounds = map.getBounds().pad(0.02);
 
     // Длина луча: запас хода на 8 минут, минимум 1 км, максимум 40 км
-    const maxRayLen = Math.max(1000, Math.min(40000, speed * 480));
-
-    const clipped = clipRayToBounds(originLL, course, maxRayLen, bounds);
+    const clipped = clipRayToBounds(originLL, course, Infinity, bounds);
     if (!clipped) {
       motionVectorLayer.clearLayers();
       motionVectorLine = null;
@@ -1764,7 +1768,9 @@ const isMobile = L.Browser.mobile;
     // Если GPS находится за экраном, но мы идём в сторону просматриваемой области:
     // показываем в месте входа луча на экран бейдж-указатель
     if (isEnteringFromOutside) {
-      const badgeHtml = `<div class="wm-motion-vector-badge">▲ Вектор курса (${Math.round(speed * 3.6)} км/ч)</div>`;
+      const speedKmh = Math.round(speed * 3.6);
+      const infoText = speedKmh > 0 ? `${speedKmh} км/ч` : `${Math.round(course)}°`;
+      const badgeHtml = `<div class="wm-motion-vector-badge">▲ Вектор курса (${infoText})</div>`;
       if (!motionVectorBadge) {
         motionVectorBadge = L.marker(startLL, {
           icon: L.divIcon({
