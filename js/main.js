@@ -1110,16 +1110,19 @@ const isMobile = L.Browser.mobile;
 
   let renderTimer = 0;
   function refreshStatus() {
-    const s = WM.loader.stats();
-    const mode = WM.ui ? WM.ui.getWorkMode() : 'manual';
-    const autoHover = WM.ui && WM.ui.isAutoHoverEnabled();
+    // ЗАЩИТА: если модуль UI ещё не загрузился, не падаем с ошибкой
+    if (!WM.ui || typeof WM.ui.setStatus !== 'function') return;
 
-    if (WM.ui && WM.ui.toggleTopGetKeyBtn) {
+    const s = WM.loader.stats();
+    const mode = WM.ui.getWorkMode ? WM.ui.getWorkMode() : 'manual';
+    const autoHover = WM.ui.isAutoHoverEnabled ? WM.ui.isAutoHoverEnabled() : false;
+
+    if (WM.ui.toggleTopGetKeyBtn) {
       WM.ui.toggleTopGetKeyBtn(!!s.isRateWaiting || (!!s.blocked && /ключ|key|limit|quota/i.test(s.blocked)));
     }
 
     if (s.blocked) return WM.ui.setStatus('⚠ ' + s.blocked, true);
-    if (s.isRateWaiting) return WM.ui.setStatus(`⏳ Лимит ключей\nПауза: ${WM.ui.fmtTimer(s.waitMs)}`, true);
+    if (s.isRateWaiting) return WM.ui.setStatus(`⏳ Лимит ключей\nПауза: ${WM.ui.fmtTimer ? WM.ui.fmtTimer(s.waitMs) : ''}`, true);
 
     if (mode === 'manual') {
       let t = `Ручной режим (только растр)\n${autoHover ? 'Наведите или кликните' : 'Кликните для загрузки'} · в памяти: ${WM.view.count()}`;
@@ -1192,8 +1195,13 @@ const isMobile = L.Browser.mobile;
   let tailColor = '#0284c7';
 
   try {
-    const savedEn = localStorage.getItem('wm_tail_enabled');
-    if (savedEn !== null) isTailEnabled = (savedEn !== 'false');
+    const savedVis = JSON.parse(localStorage.getItem('wm_ui_vis') || '{}');
+    if (savedVis.motiontail !== undefined) {
+      isTailEnabled = (savedVis.motiontail !== false);
+    } else {
+      const savedEn = localStorage.getItem('wm_tail_enabled');
+      if (savedEn !== null) isTailEnabled = (savedEn !== 'false');
+    }
     const savedLen = localStorage.getItem('wm_tail_length');
     if (savedLen) tailMaxPoints = Math.max(5, Math.min(50, parseInt(savedLen, 10) || 15));
     const savedCol = localStorage.getItem('wm_tail_color');
@@ -1213,7 +1221,7 @@ const isMobile = L.Browser.mobile;
     for (let i = 0; i < totalSegs; i++) {
       const p1 = tailPoints[i].latlng;
       const p2 = tailPoints[i + 1].latlng;
-      const progress = (i + 1) / totalSegs; // от ~0.1 до 1.0 (градиент свежести)
+      const progress = (i + 1) / totalSegs;
 
       const opacity = 0.2 + progress * 0.75;
       const weight = 2.5 + progress * 2.5;
@@ -1228,7 +1236,6 @@ const isMobile = L.Browser.mobile;
         interactive: false
       }).addTo(motionTailLayer);
 
-      // Маленькая точка в узле для читаемости траектории
       if (i > 0) {
         L.circleMarker(p1, {
           pane: 'wm-top-lines',
@@ -1244,13 +1251,11 @@ const isMobile = L.Browser.mobile;
   }
 
   function addPointToTail(latlng, coords, timestamp) {
-    if (!isTailEnabled) return;
-
+    // ВАЖНО: сохраняем точки в буфер всегда, даже когда хвост временно скрыт!
     const newLL = L.latLng(latlng[0], latlng[1]);
     const now = timestamp || Date.now();
     const accuracy = (coords && coords.accuracy) || 10;
 
-    // 1. Фильтр плохой точности (погрешность > 40 м отсекаем)
     if (accuracy > 40) return;
 
     if (tailPoints.length > 0) {
@@ -1258,16 +1263,14 @@ const isMobile = L.Browser.mobile;
       const dist = last.latlng.distanceTo(newLL);
       const dt = (now - last.time) / 1000;
 
-      // 2. Защита от кляксы при стоянке на месте (динамический порог)
       const minDistance = Math.max(3.8, Math.min(10, accuracy * 0.45));
       if (dist < minDistance) {
-        return; // Стоим на месте, не плодим узлы друг на друге
+        return;
       }
 
-      // 3. Защита от телепортации и разрывов связи
       const impliedSpeedKmh = dt > 0 ? (dist / dt) * 3.6 : 0;
       if (dt > 150 || (dist > 500 && impliedSpeedKmh > 180)) {
-        clearTail(); // Сброс хвоста при скачке
+        clearTail();
       }
     }
 
@@ -1277,7 +1280,10 @@ const isMobile = L.Browser.mobile;
       tailPoints.shift();
     }
 
-    redrawTail();
+    // Отрисовываем, только если хвост включен
+    if (isTailEnabled) {
+      redrawTail();
+    }
   }
 
   WM.motionTail = {
@@ -1285,8 +1291,11 @@ const isMobile = L.Browser.mobile;
     setEnabled(val) {
       isTailEnabled = !!val;
       try { localStorage.setItem('wm_tail_enabled', isTailEnabled ? 'true' : 'false'); } catch (e) {}
-      if (!isTailEnabled) clearTail();
-      else redrawTail();
+      if (!isTailEnabled) {
+        motionTailLayer.clearLayers(); // НЕ стираем массив tailPoints, а просто скрываем с карты
+      } else {
+        redrawTail(); // При включении сразу отрисовываем накопленные точки
+      }
     },
     getLength: () => tailMaxPoints,
     setLength(val) {
@@ -1596,7 +1605,7 @@ const isMobile = L.Browser.mobile;
   const motionVectorLayer = L.layerGroup().addTo(map);
   let motionVectorLine = null;
   let motionVectorBadge = null;
-  let isMotionVectorEnabled = true;
+  let isMotionVectorEnabled = false; // <-- По умолчанию выключена (включен только хвост)
 
   try {
     const savedVis = JSON.parse(localStorage.getItem('wm_ui_vis') || '{}');
@@ -2404,6 +2413,20 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
     );
   }
 
+  WM.setGpsPosition = function(lat, lng, speed = 5, heading = 0) {
+    const pCoords = {
+      latitude: lat,
+      longitude: lng,
+      accuracy: 5,
+      altitude: 150,
+      speed: speed, // в м/с (например, 5 м/с ≈ 18 км/ч)
+      heading: heading,
+      timestamp: Date.now()
+    };
+    WM.gpsState = { ...pCoords, lat, lng };
+    setGpsCoords([lat, lng], pCoords, pCoords.timestamp);
+  };
+
   WM.gpsDist = {
     isActive() { return isGpsDistEnabled; },
     refresh: updateGpsDistVisuals,
@@ -2463,6 +2486,10 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
   WM.view.render();
   WM.loader.update();
   refreshStatus();
+
+  if (WM.ui && WM.ui.updateMotionBtnState) {
+    WM.ui.updateMotionBtnState();
+  }
 
   // =========================================================================
   // ОБРАБОТКА ВОЗВРАТА ИЗ ФОНА (Leaflet invalidateSize & перерисовка)
