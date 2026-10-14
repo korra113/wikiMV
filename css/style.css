@@ -1061,15 +1061,17 @@ body.sheet-open .compass-btn-top {
   filter: none !important;
 }
 
-/* Отключаем серые заглушки/скелетоны для слоёв рельефа, чтобы не перекрывать базовую карту */
-.wm-raster-tile .leaflet-tile:not(.leaflet-tile-loaded),
-.wm-fallback-tile .leaflet-tile:not(.leaflet-tile-loaded),
-.wm-relief-tile .leaflet-tile:not(.leaflet-tile-loaded) {
-  background: transparent !important;
+/* Гарантированное отключение спиннеров на всех слоях наложения и подложках */
+.wm-raster-tile .leaflet-tile,
+.wm-fallback-tile .leaflet-tile,
+.wm-relief-tile .leaflet-tile,
+.leaflet-wm-raster-pane-pane .leaflet-tile,
+.leaflet-wm-hillshade-pane-pane .leaflet-tile,
+.leaflet-wm-underlay-pane .leaflet-tile {
+  background-image: none !important;
+  background-color: transparent !important;
   box-shadow: none !important;
-  animation: none !important;
 }
-
 
 /* =========================================================================
    ЧУЖИЕ МЕТКИ (LIVE MQTT)
@@ -4968,10 +4970,43 @@ body.sheet-open .measure-hud {
   border-radius: var(--radius-md) !important;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+
+  /* Фиксируем максимальную ширину меню */
+  max-width: 250px !important;
+  box-sizing: border-box;
 }
 
+/* Строка выбора */
 .leaflet-control-layers-expanded label {
   color: var(--text-main) !important;
+  margin-bottom: 4px;
+  cursor: pointer;
+  display: block !important;
+}
+
+/* Внешний контейнер Leaflet (обёртка для инпута и текста) */
+.leaflet-control-layers-expanded label > span {
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Радиокнопка / чекбокс: запрещаем сжиматься */
+.leaflet-control-layers-expanded .leaflet-control-layers-selector {
+  flex-shrink: 0 !important;
+  margin-right: 6px !important;
+}
+
+/* ТОЛЬКО САМ ТЕКСТ: ровно до 25 символов с троеточием */
+.leaflet-control-layers-expanded .leaflet-control-layers-selector + span {
+  display: block !important;
+  max-width: 25ch !important;          /* Лимит 25 символов */
+  overflow: hidden !important;
+  text-overflow: ellipsis !important; /* Троеточие «...» */
+  white-space: nowrap !important;
+  min-width: 0 !important;            /* Не даёт тексту сжиматься в 0 */
+  flex: 1 1 auto !important;
 }
 
 [data-theme="dark"] .leaflet-control-layers-expanded {
@@ -5661,14 +5696,11 @@ body.sheet-open .info-hud {
 /* 1. Пока тайл скачивается:
       Делаем его видимым (перебивая visibility: hidden от Leaflet),
       показываем сетку 256x256 и живой вращающийся SVG-спиннер. */
-.leaflet-tile:not(.leaflet-tile-loaded) {
+/* 1. Спиннер показываем ТОЛЬКО на тайлах базовой подложки в стандартном tile-pane */
+.leaflet-tile-pane .leaflet-tile:not(.leaflet-tile-loaded) {
   visibility: visible !important;
   opacity: 1 !important;
-
-  /* Тонкая сетка границ тайла */
   box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.16) !important;
-
-  /* Вращающийся спиннер (вращение зашито в сам SVG, не нагружает процессор) */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28' fill='none'%3E%3Ccircle cx='14' cy='14' r='9' stroke='%2364748b' stroke-width='2.2' stroke-dasharray='36 20' stroke-linecap='round' opacity='0.45'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 14 14' to='360 14 14' dur='1s' repeatCount='indefinite'/%3E%3C/circle%3E%3C/svg%3E") !important;
   background-repeat: no-repeat !important;
   background-position: center center !important;
@@ -5676,20 +5708,26 @@ body.sheet-open .info-hud {
   background-color: transparent !important;
 }
 
-/* 2. Как только картинка тайла докачалась:
-      Оставляем opacity: 1, убираем спиннер и сетку.
-      Картинка мгновенно и стабильно закрепляется без пропадания! */
+/* 2. Тёмная тема: обязательно дублируем no-repeat, center и size */
+[data-theme="dark"] .leaflet-tile-pane .leaflet-tile:not(.leaflet-tile-loaded) {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28' fill='none'%3E%3Ccircle cx='14' cy='14' r='9' stroke='%2394a3b8' stroke-width='2.2' stroke-dasharray='36 20' stroke-linecap='round' opacity='0.4'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 14 14' to='360 14 14' dur='1s' repeatCount='indefinite'/%3E%3C/circle%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: center center !important;
+  background-size: 20px 20px !important;
+}
+
+/* 3. Отключаем спиннеры во время анимации масштабирования, чтобы старые тайлы не двоились */
+.leaflet-zoom-animating .leaflet-tile:not(.leaflet-tile-loaded) {
+  background-image: none !important;
+}
+
+/* 4. Загруженный тайл */
 .leaflet-tile.leaflet-tile-loaded {
   visibility: inherit !important;
   opacity: 1 !important;
   background-image: none !important;
   box-shadow: none !important;
-}
-
-/* Тёмная тема: светлый спиннер */
-[data-theme="dark"] .leaflet-tile:not(.leaflet-tile-loaded) {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09) !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28' fill='none'%3E%3Ccircle cx='14' cy='14' r='9' stroke='%2394a3b8' stroke-width='2.2' stroke-dasharray='36 20' stroke-linecap='round' opacity='0.4'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 14 14' to='360 14 14' dur='1s' repeatCount='indefinite'/%3E%3C/circle%3E%3C/svg%3E") !important;
 }
 /* =========================================================================
    БЕЙДЖ И ЛИНИЯ РАССТОЯНИЯ ДО GPS / ЦЕЛИ
