@@ -1508,15 +1508,309 @@ const isMobile = L.Browser.mobile;
     };
   }
 
+// =========================================================================
+  // ВСПОМОГАТЕЛЬНАЯ ГЕОМЕТРИЯ: ПЕЛЕНГ, ВРЕМЯ И СКОЛЬЖЕНИЕ ПО ЛИНИИ
+  // =========================================================================
+  function computeBearing(fromLL, toLL) {
+    const lat1 = fromLL.lat * Math.PI / 180;
+    const lat2 = toLL.lat * Math.PI / 180;
+    const dLng = (toLL.lng - fromLL.lng) * Math.PI / 180;
+    const y = Math.sin(dLng) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+    return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+  }
+
+  function fmtEtaTime(seconds) {
+    if (!isFinite(seconds) || isNaN(seconds)) return '--:--';
+    const isNeg = seconds < 0;
+    const sec = Math.abs(Math.round(seconds));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    const sign = isNeg ? '-' : '';
+
+    if (h > 0) return `${sign}${h}ч ${m}м`;
+    if (m > 0) return `${sign}${m} мин`;
+    return `${sign}${s} сек`;
+  }
+
+  // Расчёт оптимальной точки скольжения бейджа по видимой на экране части линии
+  function getVisibleSegmentPoint(map, llA, llB, pad = { left: 90, right: 90, top: 110, bottom: 120 }) {
+    const pA = map.latLngToContainerPoint(llA);
+    const pB = map.latLngToContainerPoint(llB);
+    const size = map.getSize();
+
+    const minX = pad.left;
+    const maxX = Math.max(minX + 20, size.x - pad.right);
+    const minY = pad.top;
+    const maxY = Math.max(minY + 20, size.y - pad.bottom);
+
+    const dx = pB.x - pA.x;
+    const dy = pB.y - pA.y;
+
+    let t0 = 0;
+    let t1 = 1;
+
+    const p = [-dx, dx, -dy, dy];
+    const q = [pA.x - minX, maxX - pA.x, pA.y - minY, maxY - pA.y];
+
+    for (let i = 0; i < 4; i++) {
+      if (p[i] === 0) {
+        if (q[i] < 0) {
+          return L.latLng((llA.lat + llB.lat) / 2, (llA.lng + llB.lng) / 2);
+        }
+      } else {
+        const t = q[i] / p[i];
+        if (p[i] < 0) {
+          if (t > t1) return L.latLng((llA.lat + llB.lat) / 2, (llA.lng + llB.lng) / 2);
+          if (t > t0) t0 = t;
+        } else {
+          if (t < t0) return L.latLng((llA.lat + llB.lat) / 2, (llA.lng + llB.lng) / 2);
+          if (t < t1) t1 = t;
+        }
+      }
+    }
+
+    if (t0 > t1) {
+      return L.latLng((llA.lat + llB.lat) / 2, (llA.lng + llB.lng) / 2);
+    }
+
+    // Середина видимой на экране части отрезка
+    let tMid = (t0 + t1) / 2;
+
+    // Не даём бейджу наезжать вплотную на конечные маркеры/точки
+    const totalLen = Math.hypot(dx, dy);
+    if (totalLen > 90) {
+      const marginT = 36 / totalLen;
+      tMid = Math.max(marginT, Math.min(1 - marginT, tMid));
+    }
+
+    const resPt = L.point(pA.x + tMid * dx, pA.y + tMid * dy);
+    return map.containerPointToLatLng(resPt);
+  }
+
 
   // =========================================================================
-  // МОДУЛЬ ОТОБРАЖЕНИЯ РАССТОЯНИЯ ОТ ЦЕНТРА ЭКРАНА ДО GPS МЕТКИ
+  // МОДУЛЬ «ТРАЕКТОРИЯ ДВИЖЕНИЯ» (MOTION VECTOR / COURSE PREDICTION)
   // =========================================================================
-  const gpsDistLayer = L.layerGroup().addTo(map);
-  let gpsDistPolyline = null;
-  let gpsDistBadgeMarker = null;
-  let isGpsDistEnabled = false;
+  const motionVectorLayer = L.layerGroup().addTo(map);
+  let motionVectorLine = null;
+  let motionVectorBadge = null;
+  let isMotionVectorEnabled = true;
 
+  try {
+    const savedVis = JSON.parse(localStorage.getItem('wm_ui_vis') || '{}');
+    if (savedVis.motionvector !== undefined) isMotionVectorEnabled = !!savedVis.motionvector;
+  } catch (e) {}
+
+ // Определение умного курса: 
+  // 1-й приоритет: реальные точки движения (COG) на ходу/в авто
+  // 2-й приоритет: магнитный компас устройства при стоянке на месте
+  function getEstimatedMotionCourse() {
+    const now = Date.now();
+    const speed = (WM.gpsState && WM.gpsState.speed != null) ? WM.gpsState.speed : 0;
+    
+    // -----------------------------------------------------------------------
+    // 1. ВЫСШИЙ ПРИОРИТЕТ: ВЕКТОР ПЕРЕМЕЩЕНИЯ ПО ТОЧКАМ (Course Over Ground)
+    // -----------------------------------------------------------------------
+    if (motionHistory.length >= 2) {
+      // Берём окно точек за последние 8-10 секунд
+      const recent = motionHistory.filter(p => now - p.time <= 10000);
+      if (recent.length >= 2) {
+        const pOld = recent[0];
+        const pNew = recent[recent.length - 1];
+        const dist = pOld.latlng.distanceTo(pNew.latlng);
+        const dt = (pNew.time - pOld.time) / 1000;
+        const speedFromPoints = dt > 0 ? (dist / dt) : 0;
+
+        // Если есть физическое смещение >= 3.5 м и скорость >= 0.65 м/с (~2.3 км/ч — уверенный шаг)
+        if (dist >= 3.5 && (speed >= 0.65 || speedFromPoints >= 0.65)) {
+          return computeBearing(pOld.latlng, pNew.latlng);
+        }
+      }
+    }
+
+    // Дополнительный аппаратный курс чипа GPS при скорости > 3 км/ч
+    if (WM.gpsState && WM.gpsState.heading != null && !isNaN(WM.gpsState.heading) && speed >= 0.85) {
+      return WM.gpsState.heading;
+    }
+
+    // -----------------------------------------------------------------------
+    // 2. РЕЖИМ СТОЯНКИ / МЕДЛЕННОГО ОСМОТРА: Датчики ориентации (Компас)
+    // -----------------------------------------------------------------------
+    // Срабатывает только когда пользователь стоит на месте или движется медленнее 2 км/ч
+    if (currentHeading !== null) {
+      return currentHeading;
+    }
+
+    // 3. Fallback: если стоим и компас не откалиброван, сохраняем последний курс движения
+    if (motionHistory.length >= 2) {
+      const pOld = motionHistory[0];
+      const pNew = motionHistory[motionHistory.length - 1];
+      if (pOld.latlng.distanceTo(pNew.latlng) >= 2.5) {
+        return computeBearing(pOld.latlng, pNew.latlng);
+      }
+    }
+
+    return null;
+  }
+
+  // Быстрый 2D-расчет пересечения луча движения с прямоугольником видимой карты
+  function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
+    const R = 6371e3;
+    const courseRad = courseDeg * Math.PI / 180;
+    const sinC = Math.sin(courseRad);
+    const cosC = Math.cos(courseRad);
+
+    const mPerLat = 111320;
+    const mPerLng = mPerLat * Math.cos(originLL.lat * Math.PI / 180);
+
+    const targetEndLL = L.latLng(
+      originLL.lat + (maxRayLenMeters * cosC) / mPerLat,
+      originLL.lng + (maxRayLenMeters * sinC) / mPerLng
+    );
+
+    // Параметрический поиск t в диапазоне [0, 1] для отрезка [origin, targetEnd]
+    let t0 = 0;
+    let t1 = 1;
+
+    const dx = targetEndLL.lng - originLL.lng;
+    const dy = targetEndLL.lat - originLL.lat;
+
+    const p = [-dx, dx, -dy, dy];
+    const q = [
+      originLL.lng - bounds.getWest(),
+      bounds.getEast() - originLL.lng,
+      originLL.lat - bounds.getSouth(),
+      bounds.getNorth() - originLL.lat
+    ];
+
+    for (let i = 0; i < 4; i++) {
+      if (p[i] === 0) {
+        if (q[i] < 0) return null; // Параллелен и снаружи
+      } else {
+        const t = q[i] / p[i];
+        if (p[i] < 0) {
+          if (t > t1) return null;
+          if (t > t0) t0 = t;
+        } else {
+          if (t < t0) return null;
+          if (t < t1) t1 = t;
+        }
+      }
+    }
+
+    if (t0 > t1) return null;
+
+    // Точки отрезка, попадающие на экран
+    const startLL = (t0 <= 0) 
+      ? originLL 
+      : L.latLng(originLL.lat + t0 * dy, originLL.lng + t0 * dx);
+
+    const endLL = L.latLng(originLL.lat + t1 * dy, originLL.lng + t1 * dx);
+
+    return { startLL, endLL, isEnteringFromOutside: t0 > 0.001 };
+  }
+
+  function updateMotionVectorVisuals() {
+    if (!isMotionVectorEnabled || !userLatLng || !map) {
+      motionVectorLayer.clearLayers();
+      motionVectorLine = null;
+      motionVectorBadge = null;
+      return;
+    }
+
+    const course = getEstimatedMotionCourse();
+    const speed = (WM.gpsState && WM.gpsState.speed != null) ? WM.gpsState.speed : 0;
+
+    // Не чертим вектор, если стоим на месте (скорость < 1.2 км/ч) и нет чёткого курса
+    if (course === null || speed < 0.35) {
+      motionVectorLayer.clearLayers();
+      motionVectorLine = null;
+      motionVectorBadge = null;
+      return;
+    }
+
+    const originLL = L.latLng(userLatLng[0], userLatLng[1]);
+    const bounds = map.getBounds().pad(0.02);
+
+    // Длина луча: запас хода на 8 минут, минимум 1 км, максимум 40 км
+    const maxRayLen = Math.max(1000, Math.min(40000, speed * 480));
+
+    const clipped = clipRayToBounds(originLL, course, maxRayLen, bounds);
+    if (!clipped) {
+      motionVectorLayer.clearLayers();
+      motionVectorLine = null;
+      motionVectorBadge = null;
+      return;
+    }
+
+    const { startLL, endLL, isEnteringFromOutside } = clipped;
+
+    // Отрисовка линии курса
+    if (!motionVectorLine) {
+      motionVectorLine = L.polyline([startLL, endLL], {
+        pane: 'wm-top-lines',
+        color: '#0284c7',
+        weight: 3.5,
+        dashArray: '8, 6',
+        opacity: 0.85,
+        interactive: false
+      }).addTo(motionVectorLayer);
+    } else {
+      motionVectorLine.setLatLngs([startLL, endLL]);
+    }
+
+    // Если GPS находится за экраном, но мы идём в сторону просматриваемой области:
+    // показываем в месте входа луча на экран бейдж-указатель
+    if (isEnteringFromOutside) {
+      const badgeHtml = `<div class="wm-motion-vector-badge">▲ Вектор курса (${Math.round(speed * 3.6)} км/ч)</div>`;
+      if (!motionVectorBadge) {
+        motionVectorBadge = L.marker(startLL, {
+          icon: L.divIcon({
+            className: 'wm-motion-badge-wrap',
+            html: badgeHtml,
+            iconSize: [140, 24],
+            iconAnchor: [70, 12]
+          }),
+          interactive: false,
+          zIndexOffset: 1500
+        }).addTo(motionVectorLayer);
+      } else {
+        motionVectorBadge.setLatLng(startLL);
+        motionVectorBadge.setIcon(L.divIcon({
+          className: 'wm-motion-badge-wrap',
+          html: badgeHtml,
+          iconSize: [140, 24],
+          iconAnchor: [70, 12]
+        }));
+      }
+    } else if (motionVectorBadge) {
+      motionVectorLayer.removeLayer(motionVectorBadge);
+      motionVectorBadge = null;
+    }
+  }
+
+  WM.motionVector = {
+    isEnabled: () => isMotionVectorEnabled,
+    setEnabled(val) {
+      isMotionVectorEnabled = !!val;
+      if (!isMotionVectorEnabled) {
+        motionVectorLayer.clearLayers();
+        motionVectorLine = null;
+        motionVectorBadge = null;
+      } else {
+        updateMotionVectorVisuals();
+      }
+    },
+    getCourse: getEstimatedMotionCourse
+  };
+
+  // =========================================================================
+  // МОДУЛЬ ОТОБРАЖЕНИЯ РАССТОЯНИЯ, СКОРОСТИ И ВРЕМЕНИ ДО ЦЕНТРА ЭКРАНА
+  // =========================================================================
+
+  // Вспомогательное форматирование дистанции для GPS-линий
   function fmtGpsDistance(meters) {
     if (!meters || meters < 0.1) return '0 м';
     if (meters < 1000) return Math.round(meters) + ' м';
@@ -1524,6 +1818,46 @@ const isMobile = L.Browser.mobile;
     return (km < 10 ? km.toFixed(2) : km.toFixed(1)) + ' км';
   }
 
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/[&<>"']/g, m => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+    }[m]));
+  }
+  const gpsDistLayer = L.layerGroup().addTo(map);
+  let gpsDistPolyline = null;
+  let gpsDistBadgeMarker = null;
+  let isGpsDistEnabled = false;
+
+  // =========================================================================
+  // СОСТОЯНИЯ СВЁРНУТОСТИ ПЛАШЕК
+  // =========================================================================
+  let isGpsDistCollapsed = localStorage.getItem('wm_gps_dist_collapsed') === 'true';
+  let isNavTargetCollapsed = localStorage.getItem('wm_nav_target_collapsed') === 'true';
+
+  function toggleGpsDistCollapse(e) {
+    if (e) {
+      L.DomEvent.stopPropagation(e);
+      L.DomEvent.preventDefault(e);
+    }
+    isGpsDistCollapsed = !isGpsDistCollapsed;
+    try { localStorage.setItem('wm_gps_dist_collapsed', isGpsDistCollapsed ? 'true' : 'false'); } catch (err) {}
+    updateGpsDistVisuals();
+  }
+
+  function toggleNavTargetCollapse(e) {
+    if (e) {
+      L.DomEvent.stopPropagation(e);
+      L.DomEvent.preventDefault(e);
+    }
+    isNavTargetCollapsed = !isNavTargetCollapsed;
+    try { localStorage.setItem('wm_nav_target_collapsed', isNavTargetCollapsed ? 'true' : 'false'); } catch (err) {}
+    updateNavTargetVisuals();
+  }
+
+  // =========================================================================
+  // ОБНОВЛЕНИЕ БЕЙДЖА: ДИСТАНЦИЯ ДО ЦЕНТРА ЭКРАНА
+  // =========================================================================
   function updateGpsDistVisuals() {
     if (!isGpsDistEnabled || !userLatLng || !map) {
       if (gpsDistPolyline) { gpsDistLayer.removeLayer(gpsDistPolyline); gpsDistPolyline = null; }
@@ -1535,15 +1869,81 @@ const isMobile = L.Browser.mobile;
     const targetLL = L.latLng(userLatLng[0], userLatLng[1]);
     const dist = center.distanceTo(targetLL);
 
-    const midLatLng = L.latLng(
-      (center.lat + targetLL.lat) / 2,
-      (center.lng + targetLL.lng) / 2
-    );
+    const badgeLL = getVisibleSegmentPoint(map, targetLL, center, { left: 90, right: 90, top: 110, bottom: 120 });
+
+    const speed = (WM.gpsState && WM.gpsState.speed != null && WM.gpsState.speed >= 0) ? WM.gpsState.speed : 0;
+    const speedKmh = speed * 3.6;
+
+    const bearingToCenter = computeBearing(targetLL, center);
+    const motionCourse = getEstimatedMotionCourse();
+
+    let diffAngle = 0;
+    let signedDiff = 0;
+    let driftText = '—';
+    let colorClass = 'status-purple';
+    let strokeColor = '#8b5cf6';
+
+    if (isMotionVectorEnabled && motionCourse !== null) {
+      // Разница со знаком от -180° до +180°
+      signedDiff = (motionCourse - bearingToCenter + 540) % 360 - 180;
+      diffAngle = Math.abs(signedDiff);
+
+      if (speed >= 0.35) {
+        if (diffAngle <= 5) {
+          driftText = '🟢 Прямо к цели';
+        } else if (signedDiff > 0) {
+          driftText = `Крен вправо ${Math.round(diffAngle)}°`;
+        } else {
+          driftText = `Крен влево ${Math.round(diffAngle)}°`;
+        }
+      } else {
+        driftText = 'Стоянка';
+      }
+
+      if (diffAngle <= 25) {
+        colorClass = 'status-purple';
+        strokeColor = '#8b5cf6';
+      } else if (diffAngle <= 55) {
+        colorClass = 'status-yellow';
+        strokeColor = '#eab308';
+      } else if (diffAngle <= 90) {
+        colorClass = 'status-orange';
+        strokeColor = '#f97316';
+      } else {
+        colorClass = 'status-red';
+        strokeColor = '#ef4444';
+      }
+    } else if (speed < 0.35) {
+      driftText = 'Стоянка';
+    }
+
+    let durationText = '—';
+    let etaClock = '—';
+    let isMovingAway = false;
+
+    if (speed < 0.35) {
+      durationText = 'Стоянка';
+      etaClock = '—';
+    } else {
+      const radDiff = diffAngle * Math.PI / 180;
+      const vmg = speed * Math.cos(radDiff);
+
+      if (vmg > 0.08) {
+        const timeSec = dist / vmg;
+        durationText = fmtEtaTime(timeSec);
+        const arrDate = new Date(Date.now() + timeSec * 1000);
+        etaClock = `${String(arrDate.getHours()).padStart(2, '0')}:${String(arrDate.getMinutes()).padStart(2, '0')}`;
+      } else {
+        durationText = 'Удаление';
+        etaClock = '—';
+        isMovingAway = true;
+      }
+    }
 
     if (!gpsDistPolyline) {
       gpsDistPolyline = L.polyline([center, targetLL], {
         pane: 'wm-top-lines',
-        color: '#8b5cf6',
+        color: strokeColor,
         weight: 3,
         dashArray: '6, 6',
         opacity: 0.9,
@@ -1551,40 +1951,366 @@ const isMobile = L.Browser.mobile;
       }).addTo(gpsDistLayer);
     } else {
       gpsDistPolyline.setLatLngs([center, targetLL]);
+      gpsDistPolyline.setStyle({ color: strokeColor });
     }
 
-    const badgeHtml = `<div class="wm-gps-dist-badge">🧭 ${fmtGpsDistance(dist)}</div>`;
+    const distFormatted = fmtGpsDistance(dist);
+    const speedFormatted = `${speedKmh.toFixed(1)} км/ч`;
+
+    let badgeHtml = '';
+
+    if (isGpsDistCollapsed) {
+      // КОМПАКТНАЯ ВЕРСИЯ: только числа (дистанция, скорость, оставшееся время)
+      badgeHtml = `
+        <div class="wm-gps-dist-badge col-badge compact ${colorClass}" title="Нажмите, чтобы развернуть">
+          <span class="wm-gdb-compact-val">${distFormatted}</span>
+          <span class="wm-gdb-compact-sep">·</span>
+          <span class="wm-gdb-compact-val">${speedFormatted}</span>
+          <span class="wm-gdb-compact-sep">·</span>
+          <span class="wm-gdb-compact-val ${isMovingAway ? 'negative' : ''}">${durationText}</span>
+          <button type="button" class="wm-gdb-toggle-btn" title="Развернуть подробности">▼</button>
+        </div>
+      `;
+    } else {
+      // ПОЛНАЯ ВЕРСИЯ: с временем прибытия, курсом и кнопкой сворачивания
+      badgeHtml = `
+        <div class="wm-gps-dist-badge col-badge ${colorClass}">
+          <div class="wm-gdb-head">
+            <span class="wm-gdb-icon">🧭</span>
+            <span class="wm-gdb-name">К центру экрана</span>
+            <button type="button" class="wm-gdb-toggle-btn" title="Свернуть подробности">▲</button>
+          </div>
+          <div class="wm-gdb-grid">
+            <div class="wm-gdb-row">
+              <span class="wm-gdb-lbl">Дистанция:</span>
+              <span class="wm-gdb-val">${distFormatted}</span>
+            </div>
+            <div class="wm-gdb-row">
+              <span class="wm-gdb-lbl">Скорость:</span>
+              <span class="wm-gdb-val">${speedFormatted}</span>
+            </div>
+            <div class="wm-gdb-row">
+              <span class="wm-gdb-lbl">В пути:</span>
+              <span class="wm-gdb-val ${isMovingAway ? 'negative' : ''}">${durationText}</span>
+            </div>
+            <div class="wm-gdb-row">
+              <span class="wm-gdb-lbl">Прибытие:</span>
+              <span class="wm-gdb-val ${isMovingAway ? 'negative' : ''}">${etaClock}</span>
+            </div>
+            <div class="wm-gdb-row">
+              <span class="wm-gdb-lbl">Курс:</span>
+              <span class="wm-gdb-val ${diffAngle > 55 ? 'negative' : ''}">${driftText}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     if (!gpsDistBadgeMarker) {
-      gpsDistBadgeMarker = L.marker(midLatLng, {
+      gpsDistBadgeMarker = L.marker(badgeLL, {
         icon: L.divIcon({
           className: 'wm-gps-badge-wrap',
           html: badgeHtml,
-          iconSize: [110, 24],
-          iconAnchor: [55, 12]
+          iconSize: [0, 0],
+          iconAnchor: [0, 0]
         }),
-        interactive: false,
+        interactive: true,
         zIndexOffset: 1400
       }).addTo(gpsDistLayer);
+
+      gpsDistBadgeMarker._lastHtml = badgeHtml;
+      gpsDistBadgeMarker.on('click', toggleGpsDistCollapse);
     } else {
-      gpsDistBadgeMarker.setLatLng(midLatLng);
-      gpsDistBadgeMarker.setIcon(L.divIcon({
-        className: 'wm-gps-badge-wrap',
-        html: badgeHtml,
-        iconSize: [110, 24],
-        iconAnchor: [55, 12]
-      }));
+      gpsDistBadgeMarker.setLatLng(badgeLL);
+      if (gpsDistBadgeMarker._lastHtml !== badgeHtml) {
+        gpsDistBadgeMarker._lastHtml = badgeHtml;
+        const el = gpsDistBadgeMarker.getElement();
+        if (el) el.innerHTML = badgeHtml;
+      }
     }
   }
 
+
+
+  // =========================================================================
+  // МОДУЛЬ НАВИГАЦИИ НА ВЫБРАННУЮ ЦЕЛЬ (TARGET NAVIGATION)
+  // =========================================================================
+  const navTargetLayer = L.layerGroup().addTo(map);
+  let navTargetPolyline = null;
+  let navTargetBadgeMarker = null;
+  let activeNavTarget = null; // { id, lat, lng, title }
+
+  // =========================================================================
+  // ОБНОВЛЕНИЕ БЕЙДЖА: НАВИГАЦИЯ НА ЦЕЛЬ
+  // =========================================================================
+  function updateNavTargetVisuals() {
+    if (!activeNavTarget || !userLatLng || !map) {
+      if (navTargetPolyline) { navTargetLayer.removeLayer(navTargetPolyline); navTargetPolyline = null; }
+      if (navTargetBadgeMarker) { navTargetLayer.removeLayer(navTargetBadgeMarker); navTargetBadgeMarker = null; }
+      return;
+    }
+
+    const targetLL = L.latLng(activeNavTarget.lat, activeNavTarget.lng);
+    const originLL = L.latLng(userLatLng[0], userLatLng[1]);
+    const dist = originLL.distanceTo(targetLL);
+
+    const badgeLL = getVisibleSegmentPoint(map, originLL, targetLL, { left: 90, right: 90, top: 110, bottom: 120 });
+
+    const speed = (WM.gpsState && WM.gpsState.speed != null && WM.gpsState.speed >= 0) ? WM.gpsState.speed : 0;
+    const speedKmh = speed * 3.6;
+
+    const bearingToTarget = computeBearing(originLL, targetLL);
+    const motionCourse = getEstimatedMotionCourse();
+
+    let diffAngle = 0;
+    let signedDiff = 0;
+    let driftText = '—';
+    let colorClass = 'status-purple';
+    let strokeColor = '#8b5cf6';
+
+    if (isMotionVectorEnabled && motionCourse !== null) {
+      // Разница со знаком от -180° до +180°
+      signedDiff = (motionCourse - bearingToTarget + 540) % 360 - 180;
+      diffAngle = Math.abs(signedDiff);
+
+      if (speed >= 0.35) {
+        if (diffAngle <= 5) {
+          driftText = '🟢 Прямо к цели';
+        } else if (signedDiff > 0) {
+          driftText = `Крен вправо ${Math.round(diffAngle)}°`;
+        } else {
+          driftText = `Крен влево ${Math.round(diffAngle)}°`;
+        }
+      } else {
+        driftText = 'Стоянка';
+      }
+
+      if (diffAngle <= 25) {
+        colorClass = 'status-purple';
+        strokeColor = '#8b5cf6';
+      } else if (diffAngle <= 55) {
+        colorClass = 'status-yellow';
+        strokeColor = '#eab308';
+      } else if (diffAngle <= 90) {
+        colorClass = 'status-orange';
+        strokeColor = '#f97316';
+      } else {
+        colorClass = 'status-red';
+        strokeColor = '#ef4444';
+      }
+    } else if (speed < 0.35) {
+      driftText = 'Стоянка';
+    }
+
+    let durationText = '—';
+    let etaClock = '—';
+    let isMovingAway = false;
+
+    if (speed < 0.35) {
+      durationText = 'Стоянка';
+      etaClock = '—';
+    } else {
+      const radDiff = diffAngle * Math.PI / 180;
+      const vmg = speed * Math.cos(radDiff);
+
+      if (vmg > 0.08) {
+        const timeSec = dist / vmg;
+        durationText = fmtEtaTime(timeSec);
+        const arrDate = new Date(Date.now() + timeSec * 1000);
+        etaClock = `${String(arrDate.getHours()).padStart(2, '0')}:${String(arrDate.getMinutes()).padStart(2, '0')}`;
+      } else {
+        durationText = 'Удаление';
+        etaClock = '—';
+        isMovingAway = true;
+      }
+    }
+
+    if (!navTargetPolyline) {
+      navTargetPolyline = L.polyline([originLL, targetLL], {
+        pane: 'wm-top-lines',
+        color: strokeColor,
+        weight: 3.5,
+        dashArray: '8, 6',
+        opacity: 0.95,
+        interactive: false
+      }).addTo(navTargetLayer);
+    } else {
+      navTargetPolyline.setLatLngs([originLL, targetLL]);
+      navTargetPolyline.setStyle({ color: strokeColor });
+    }
+
+    const distFormatted = fmtGpsDistance(dist);
+    const speedFormatted = `${speedKmh.toFixed(1)} км/ч`;
+    const targetTitle = activeNavTarget.title ? escapeHtml(activeNavTarget.title) : 'Цель';
+
+    let badgeHtml = '';
+
+    if (isNavTargetCollapsed) {
+      // КОМПАКТНАЯ ВЕРСИЯ: только числа (дистанция, скорость, оставшееся время)
+      badgeHtml = `
+        <div class="wm-gps-dist-badge col-badge compact ${colorClass}" title="Нажмите, чтобы развернуть">
+          <span class="wm-gdb-compact-val">${distFormatted}</span>
+          <span class="wm-gdb-compact-sep">·</span>
+          <span class="wm-gdb-compact-val">${speedFormatted}</span>
+          <span class="wm-gdb-compact-sep">·</span>
+          <span class="wm-gdb-compact-val ${isMovingAway ? 'negative' : ''}">${durationText}</span>
+          <button type="button" class="wm-gdb-toggle-btn" title="Развернуть подробности">▼</button>
+        </div>
+      `;
+    } else {
+      // ПОЛНАЯ ВЕРСИЯ: с временем прибытия, курсом и кнопкой сворачивания
+      badgeHtml = `
+        <div class="wm-gps-dist-badge col-badge ${colorClass}">
+          <div class="wm-gdb-head">
+            <span class="wm-gdb-icon">🎯</span>
+            <span class="wm-gdb-name" title="${targetTitle}">${targetTitle}</span>
+            <button type="button" class="wm-gdb-toggle-btn" title="Свернуть подробности">▲</button>
+          </div>
+          <div class="wm-gdb-grid">
+            <div class="wm-gdb-row">
+              <span class="wm-gdb-lbl">Дистанция:</span>
+              <span class="wm-gdb-val">${distFormatted}</span>
+            </div>
+            <div class="wm-gdb-row">
+              <span class="wm-gdb-lbl">Скорость:</span>
+              <span class="wm-gdb-val">${speedFormatted}</span>
+            </div>
+            <div class="wm-gdb-row">
+              <span class="wm-gdb-lbl">В пути:</span>
+              <span class="wm-gdb-val ${isMovingAway ? 'negative' : ''}">${durationText}</span>
+            </div>
+            <div class="wm-gdb-row">
+              <span class="wm-gdb-lbl">Прибытие:</span>
+              <span class="wm-gdb-val ${isMovingAway ? 'negative' : ''}">${etaClock}</span>
+            </div>
+            <div class="wm-gdb-row">
+              <span class="wm-gdb-lbl">Курс:</span>
+              <span class="wm-gdb-val ${diffAngle > 55 ? 'negative' : ''}">${driftText}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (!navTargetBadgeMarker) {
+      navTargetBadgeMarker = L.marker(badgeLL, {
+        icon: L.divIcon({
+          className: 'wm-gps-badge-wrap',
+          html: badgeHtml,
+          iconSize: [0, 0],
+          iconAnchor: [0, 0]
+        }),
+        interactive: true,
+        zIndexOffset: 1450
+      }).addTo(navTargetLayer);
+
+      navTargetBadgeMarker._lastHtml = badgeHtml;
+      navTargetBadgeMarker.on('click', toggleNavTargetCollapse);
+    } else {
+      navTargetBadgeMarker.setLatLng(badgeLL);
+      if (navTargetBadgeMarker._lastHtml !== badgeHtml) {
+        navTargetBadgeMarker._lastHtml = badgeHtml;
+        const el = navTargetBadgeMarker.getElement();
+        if (el) el.innerHTML = badgeHtml;
+      }
+    }
+  }
+
+  WM.navTarget = {
+    set(target) {
+      activeNavTarget = target;
+      if (!userLatLng) {
+        if (WM.ui && WM.ui.showToast) WM.ui.showToast('🛰️ Определение геопозиции для навигации…', 1800);
+        acquireLocation(
+          () => {
+            updateNavTargetVisuals();
+            if (WM.ui && WM.ui.showToast) WM.ui.showToast(`🎯 Направление к цели: ${target.title || 'Точка'}`);
+          },
+          (err) => {
+            if (WM.ui && WM.ui.showToast) WM.ui.showToast('Ошибка геопозиции: ' + err.message);
+          }
+        );
+        return;
+      }
+      updateNavTargetVisuals();
+      if (WM.ui && WM.ui.showToast) WM.ui.showToast(`🎯 Направление к цели: ${target.title || 'Точка'}`);
+    },
+    clear() {
+      const hadTarget = !!activeNavTarget;
+      activeNavTarget = null;
+      updateNavTargetVisuals();
+      if (hadTarget && WM.ui && WM.ui.showToast) {
+        WM.ui.showToast('🛑 Навигация к цели отключена');
+      }
+    },
+    toggle(target) {
+      if (this.isTarget(target.id)) {
+        this.clear();
+      } else {
+        this.set(target);
+      }
+    },
+    isTarget(id) {
+      return !!(activeNavTarget && String(activeNavTarget.id) === String(id));
+    },
+    getTarget() {
+      return activeNavTarget;
+    },
+    updateCoordinates(lat, lng) {
+      if (activeNavTarget) {
+        activeNavTarget.lat = lat;
+        activeNavTarget.lng = lng;
+        updateNavTargetVisuals();
+      }
+    },
+    refresh: updateNavTargetVisuals
+  };
+
+  // Обновление при движении карты
   let moveAnimFrame = 0;
   map.on('move', () => {
     if (moveAnimFrame) return;
     moveAnimFrame = requestAnimationFrame(() => {
       moveAnimFrame = 0;
       if (isGpsDistEnabled) updateGpsDistVisuals();
+      if (activeNavTarget) updateNavTargetVisuals();
+      if (isMotionVectorEnabled) updateMotionVectorVisuals();
       if (WM.ui && WM.ui.updateRays) WM.ui.updateRays();
     });
   });
+
+  // =========================================================================
+  // НЕЗАВИСИМЫЙ БУФЕР ИСТОРИИ ПЕРЕМЕЩЕНИЙ ДЛЯ ВЫЧИСЛЕНИЯ КУРСА (COG)
+  // =========================================================================
+  const motionHistory = []; // [{ latlng: L.latLng, time: number, accuracy: number }]
+
+  function updateMotionHistory(ll, coords, timestamp) {
+    const newLL = L.latLng(ll[0], ll[1]);
+    const now = timestamp || Date.now();
+    const accuracy = (coords && coords.accuracy) || 10;
+    
+    // Игнорируем выбросы с грубой погрешностью (> 35 м)
+    if (accuracy > 35) return;
+
+    if (motionHistory.length > 0) {
+      const last = motionHistory[motionHistory.length - 1];
+      const dist = last.latlng.distanceTo(newLL);
+      const dt = (now - last.time) / 1000;
+
+      // Сброс буфера при скачке (телепортация или пауза более 45 сек)
+      if (dt > 45 || (dist > 350 && (dist / Math.max(0.1, dt)) > 55)) {
+        motionHistory.length = 0;
+      }
+    }
+
+    motionHistory.push({ latlng: newLL, time: now, accuracy });
+
+    // Храним точки за последние 12 секунд (до 15 записей)
+    const cutoff = now - 12000;
+    while (motionHistory.length > 0 && (motionHistory[0].time < cutoff || motionHistory.length > 15)) {
+      motionHistory.shift();
+    }
+  }
 
   function setGpsCoords(ll, coords, timestamp) {
     userLatLng = ll;
@@ -1597,14 +2323,25 @@ const isMobile = L.Browser.mobile;
         zIndexOffset: 1200
       }).addTo(map);
     }
+
+    // Всегда обновляем буфер перемещения независимо от визуального хвоста
+    updateMotionHistory(ll, coords, timestamp);
+
+    if (WM.motionTail) {
+      WM.motionTail.addPoint(ll, coords, timestamp);
+    }
+
+    if (isMotionVectorEnabled) {
+      updateMotionVectorVisuals();
+    }
     if (isGpsDistEnabled) {
       updateGpsDistVisuals();
     }
+    if (activeNavTarget) {
+      updateNavTargetVisuals();
+    }
     if (WM.compass) {
       updateCompassVisuals();
-    }
-    if (WM.motionTail) {
-      WM.motionTail.addPoint(ll, coords, timestamp);
     }
   }
 
@@ -1632,6 +2369,10 @@ const isMobile = L.Browser.mobile;
       );
     } catch (e) {}
   }
+
+
+
+
 
   function acquireLocation(onSuccess, onError) {
     if (!navigator.geolocation) {
@@ -1663,6 +2404,7 @@ const isMobile = L.Browser.mobile;
 
   WM.gpsDist = {
     isActive() { return isGpsDistEnabled; },
+    refresh: updateGpsDistVisuals,
     enable() {
       if (isGpsDistEnabled) return;
       if (!userLatLng) {
