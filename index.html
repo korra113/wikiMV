@@ -1067,6 +1067,15 @@
                   <span class="toggle-switch"></span>
                 </label>
 
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Траектория движения (вектор курса)</span>
+                    <small class="hint-text" style="margin:2px 0 0;">Линия прогноза движения вперед; отображается на экране даже если GPS за пределами видимости</small>
+                  </div>
+                  <input type="checkbox" id="toggle-ui-motionvector" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
                  <!-- НОВОЕ: Хвост движения GPS -->
                 <label class="toggle-item">
                   <div>
@@ -1539,7 +1548,10 @@
         </div>
 
       <div class="modal-actions" style="justify-content: space-between;">
-        <button id="marker-delete-btn" class="btn btn-danger-outline" hidden>🗑️ Удалить</button>
+        <div style="display: flex; gap: 8px;">
+          <button id="marker-delete-btn" class="btn btn-danger-outline" hidden>🗑️ Удалить</button>
+          <button id="marker-target-btn" class="btn btn-secondary" type="button" hidden>🎯 Как цель</button>
+        </div>
         <div style="display: flex; gap: 8px; margin-left: auto;">
           <button id="marker-cancel-btn" class="btn btn-secondary">Отмена</button>
           <button id="marker-save-btn" class="btn btn-primary">Поставить</button>
@@ -1694,7 +1706,7 @@
     <div class="modal-actions" style="margin-top: 10px;">
       <button id="clear-tiles-cancel" class="btn btn-secondary">Отмена</button>
       <button id="clear-tiles-submit" class="btn btn-danger-outline">🗑️ Удалить выбранные</button>
-      
+
     </div>
   </div>
 </div>
