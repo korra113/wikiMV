@@ -1694,6 +1694,7 @@
     <div class="modal-actions" style="margin-top: 10px;">
       <button id="clear-tiles-cancel" class="btn btn-secondary">Отмена</button>
       <button id="clear-tiles-submit" class="btn btn-danger-outline">🗑️ Удалить выбранные</button>
+      <button type="button" id="btn-open-sw-debug" class="btn-link" style="font-size: 11px;">🔍 Диагностика</button>
     </div>
   </div>
 </div>
@@ -1837,6 +1838,22 @@
     <div class="modal-actions" style="justify-content: space-between;">
       <button id="btn-open-add-overlay-modal" class="btn btn-primary">➕ Добавить карту</button>
       <button onclick="document.getElementById('modal-overlays-list').classList.remove('open')" class="btn btn-secondary">Закрыть</button>
+    </div>
+  </div>
+</div>
+<!-- Кнопка вызова диагностики в модальном окне очистки кэша -->
+<div id="modal-sw-debug" class="modal-overlay">
+  <div class="modal-box modal-box-large">
+    <div class="modal-header">
+      <h3>🔍 Диагностика Service Worker и Кэша</h3>
+      <button class="modal-close-x" onclick="document.getElementById('modal-sw-debug').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-content-scroll" style="max-height: 60vh;">
+      <pre id="sw-debug-log" style="background: var(--bg-secondary); color: var(--text-main); padding: 10px; border-radius: 8px; font-size: 11px; white-space: pre-wrap; word-break: break-all; font-family: monospace;"></pre>
+    </div>
+    <div class="modal-actions" style="justify-content: space-between;">
+      <button id="btn-sw-debug-copy" class="btn btn-secondary">📋 Скопировать отчёт</button>
+      <button id="btn-sw-debug-rerun" class="btn btn-primary">🔄 Запустить тест</button>
     </div>
   </div>
 </div>
