@@ -1476,16 +1476,14 @@
 
       // Регистрация Service Worker
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function () {
-          navigator.serviceWorker.register('./sw.js')
-            .then(function (reg) {
-              console.log('[SW] Готов:', reg.scope);
-              if (reg.waiting) {
-                reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-              }
-            })
-            .catch(function (err) { console.warn('[SW] Ошибка SW:', err); });
-        });
+        navigator.serviceWorker.register('./sw.js')
+          .then(function (reg) {
+            console.log('[SW] Зарегистрирован:', reg.scope);
+            if (reg.waiting) {
+              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            }
+          })
+          .catch(function (err) { console.warn('[SW] Ошибка SW:', err); });
       }
     })();
   </script>
