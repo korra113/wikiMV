@@ -46,6 +46,7 @@
     const [title, id, lat, lon] = item;
     const url = `https://geocaching.su/?pn=101&cid=${id}`;
     const coordsStr = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+    const isTarget = WM.navTarget && WM.navTarget.isTarget('gc_' + id);
 
     const wrap = document.createElement('div');
     wrap.className = 'wm-geocache-popup';
@@ -58,19 +59,43 @@
         </div>
       </div>
       <div class="wm-gc-actions">
-        <a href="${url}" target="_blank" rel="noopener noreferrer" class="wm-gc-btn primary">
-          🌐 Открыть тайник ↗
-        </a>
-        <button type="button" class="wm-gc-btn btn-copy-url">
-          📋 Копировать ссылку
-        </button>
-        <button type="button" class="wm-gc-btn btn-copy-coords">
-          📍 Копировать координаты
-        </button>
+        <div class="wm-gc-actions-row">
+          <button type="button" class="wm-gc-btn btn-target-gc ${isTarget ? 'active' : ''}">
+            ${isTarget ? '🛑 Снять цель' : '🎯 Как цель'}
+          </button>
+          <a href="${url}" target="_blank" rel="noopener noreferrer" class="wm-gc-btn primary">
+            🌐 Открыть тайник ↗
+          </a>
+        </div>
+        <div class="wm-gc-actions-row">
+          <button type="button" class="wm-gc-btn btn-copy-url">
+            📋 Ссылка
+          </button>
+          <button type="button" class="wm-gc-btn btn-copy-coords">
+            📍 Координаты
+          </button>
+        </div>
       </div>
     `;
 
     L.DomEvent.disableClickPropagation(wrap);
+
+    const btnTarget = wrap.querySelector('.btn-target-gc');
+    if (btnTarget) {
+      btnTarget.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (map) map.closePopup();
+        if (WM.navTarget) {
+          WM.navTarget.toggle({
+            id: 'gc_' + id,
+            lat: lat,
+            lng: lon,
+            title: title ? title.slice(0, 22) : ('Тайник #' + id)
+          });
+        }
+      };
+    }
 
     const btnUrl = wrap.querySelector('.btn-copy-url');
     if (btnUrl) {
