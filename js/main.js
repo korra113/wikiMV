@@ -78,10 +78,11 @@
 
   // Базовые параметры экономии трафика для ВСЕХ слоев тайлов
   const COMMON_TILE_OPTIONS = {
-    keepBuffer: 2,            // Хранить ближайшие тайлы, чтобы реже перезапрашивать
-    updateWhenIdle: false,     // Грузить только после остановки сдвига карты
-    updateWhenZooming: false, // Не слать запросы на промежуточных фазах зума
-    updateInterval: 250,      // Троттлинг 250 мс перед стартом загрузки новой пачки
+    crossOrigin: true,        // <-- ОБЯЗАТЕЛЬНО: заставляет Leaflet запрашивать тайлы с CORS
+    keepBuffer: 2,
+    updateWhenIdle: false,
+    updateWhenZooming: false,
+    updateInterval: 250,
     errorTileUrl: EMPTY_TILE
   };
 
