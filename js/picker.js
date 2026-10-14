@@ -41,7 +41,8 @@
       '.wm-qm-marker, .quick-measure-hud, .wm-sh-marker, .shadow-height-hud, ' +
       '.wm-gc-pin-anchor, .wm-gc-bubble, .wm-gc-div-icon, ' +
       '.wm-overlay-handle-wrap, .wm-overlay-handle-dot, .wm-overlay-frame-poly, ' +
-      '.wm-overlay-select-pin-wrap, .wm-overlay-select-pin' // <-- ДОБАВИТЬ ЭТИ ДВА КЛАССА
+      '.wm-overlay-select-pin-wrap, .wm-overlay-select-pin, ' +
+      '.wm-gps-badge-wrap, .wm-gps-dist-badge' // <-- ДОБАВЛЕНО
     ));
   }
   function isScaleAppropriate(o, zoom, mapSize, strictScreenFit = false) {
