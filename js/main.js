@@ -1834,10 +1834,14 @@ async function runSwDiagnostics() {
   // 4. Тестовый запрос тайла через fetch
   log(`\n[Тест перехвата тайла]`);
   try {
-    const testTileUrl = 'https://tile.openstreetmap.fr/osmfr/0/0/0.png';
+    // Берём тайл CyclOSM или Esri, который идёт строго в 'wm-tiles-v1'
+    const testTileUrl = 'https://tile-cyclosm.openstreetmap.fr/cyclosm/0/0/0.png';
     const res = await fetch(testTileUrl);
     log(`• Запрос тестового тайла: HTTP ${res.status}`);
     
+    // Даём SW 300 мс на завершение фоновой записи cache.put()
+    await new Promise(r => setTimeout(r, 300));
+
     if ('caches' in window) {
       const tileCache = await caches.open('wm-tiles-v1');
       const match = await tileCache.match(testTileUrl);
