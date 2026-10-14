@@ -117,14 +117,17 @@ jobs:
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
 
-                  // Включаем поддержку Service Worker в Android WebView для кэша тайлов
+                  // Перенаправляем запросы Service Worker в локальный сервер Capacitor
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                       try {
                           ServiceWorkerController swController = ServiceWorkerController.getInstance();
                           swController.setServiceWorkerClient(new ServiceWorkerClient() {
                               @Override
                               public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) {
-                                  return null; // Разрешаем SW кэшировать тайлы карт
+                                  if (bridge != null && bridge.getLocalServer() != null) {
+                                      return bridge.getLocalServer().shouldInterceptRequest(request);
+                                  }
+                                  return null;
                               }
                           });
                       } catch (Exception ignored) {}
