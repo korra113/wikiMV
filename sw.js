@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v33'; // обновляем версию
+const SHELL_CACHE = 'wm-shell-v34'; // обновляем версию
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -224,7 +224,15 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.includes('api.wikimapia.org') || url.includes('nominatim') || url.includes('photon') || url.includes('open-meteo.com')) {
+  if (
+    url.includes('api.wikimapia.org') || 
+    url.includes('nominatim') || 
+    url.includes('photon') || 
+    url.includes('open-meteo.com') ||
+    url.includes('corsproxy.io') ||
+    url.includes('allorigins.win') ||
+    url.includes('codetabs.com')
+  ) {
     return;
   }
 
