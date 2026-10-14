@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v34'; // обновляем версию
+const SHELL_CACHE = 'wm-shell-v35'; // обновляем версию
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -86,10 +86,9 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
-    }).then(() => self.clients.claim())
+    }).then(() => self.clients.claim()) // <-- перехватывает все запросы сразу
   );
 });
-
 // Запрос с быстрым таймаутом и поддержкой внешней отмены
 async function fetchTileWithTimeout(req, timeoutMs) {
   const ctl = new AbortController();
@@ -228,10 +227,14 @@ self.addEventListener('fetch', (event) => {
     url.includes('api.wikimapia.org') || 
     url.includes('nominatim') || 
     url.includes('photon') || 
+    url.includes('wttr.in') ||    
     url.includes('open-meteo.com') ||
+    url.includes('hexlet.app') ||
     url.includes('corsproxy.io') ||
+    url.includes('corsproxy.org') ||
     url.includes('allorigins.win') ||
-    url.includes('codetabs.com')
+    url.includes('codetabs.com') ||
+    url.includes('thingproxy.freeboard.io')
   ) {
     return;
   }
