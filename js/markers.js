@@ -192,6 +192,10 @@
       item.lng = pos.lng;
       saveStoredMarkers();
 
+      if (WM.navTarget && WM.navTarget.isTarget(item.id)) {
+        WM.navTarget.updateCoordinates(item.lat, item.lng);
+      }
+
       marker.dragging.disable();
       isDragging = false;
       const pin = el.querySelector('.wm-marker-pin-wrap');
@@ -281,6 +285,18 @@
     const useSavedBtn = $('marker-use-saved-pass-btn');
 
     const savedGlobalPass = (WM.sharedMarkers && WM.sharedMarkers.getPassword) ? WM.sharedMarkers.getPassword() : '';
+
+    const targetBtn = $('marker-target-btn');
+    if (targetBtn) {
+      if (item) {
+        targetBtn.hidden = false;
+        const isCurrentTarget = WM.navTarget && WM.navTarget.isTarget(item.id);
+        targetBtn.textContent = isCurrentTarget ? '🛑 Снять цель' : '🎯 Как цель';
+        targetBtn.classList.toggle('active', isCurrentTarget);
+      } else {
+        targetBtn.hidden = true;
+      }
+    }
 
     if (isPublicChk) {
       isPublicChk.checked = item ? !!item.isPublic : false;
@@ -428,6 +444,10 @@
       WM.sharedMarkers.deletePublicMarker(item.id);
     }
 
+    if (WM.navTarget && WM.navTarget.isTarget(currentEditingId)) {
+      WM.navTarget.clear();
+    }
+
     const marker = leafletMarkers.get(currentEditingId);
     if (marker && WM.map) {
       WM.map.removeLayer(marker);
@@ -462,6 +482,23 @@
       if (inputEl && charCount) {
         inputEl.oninput = () => {
           charCount.textContent = `${inputEl.value.length} / 200`;
+        };
+      }
+
+      const targetBtn = $('marker-target-btn');
+      if (targetBtn) {
+        targetBtn.onclick = () => {
+          if (!currentEditingId) return;
+          const item = markersData.find(m => m.id === currentEditingId);
+          if (item && WM.navTarget) {
+            WM.navTarget.toggle({
+              id: item.id,
+              lat: item.lat,
+              lng: item.lng,
+              title: item.text || item.emoji || 'Метка'
+            });
+          }
+          closeMarkerModal();
         };
       }
 
