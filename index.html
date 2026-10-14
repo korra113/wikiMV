@@ -183,6 +183,21 @@
     </div>
   </div>
 
+
+  <div id="modal-quick-swap-select" class="modal-overlay">
+  <div class="modal-box modal-box-large">
+    <div class="modal-header">
+      <h3>🔀 Вторая карта для переключения</h3>
+      <button class="modal-close-x" id="quick-swap-select-x">✕</button>
+    </div>
+    <p class="modal-desc">Выберите карту, на которую будет переключать кнопка 🔀 при обычном нажатии.</p>
+    <div class="modal-content-scroll" style="max-height: 52vh;">
+      <div id="quick-swap-maps-list" class="quick-menu-list"></div>
+    </div>
+  </div>
+</div>
+
+
   <!-- Карточка объекта (шторка снизу / сайдбар на ПК) -->
   <section id="sheet" class="sheet" aria-modal="true" role="dialog">
     <div class="sheet-head" id="sheet-head">
@@ -281,814 +296,917 @@
       </div>
 
       <div class="modal-content-scroll">
+
+        <!-- 1. РАЗДЕЛ: КАРТА И ЗАГРУЗКА -->
         <details class="spoiler">
           <summary class="spoiler-title">
-            <span>🗺️ Режим загрузки карты</span>
+            <span>🗺️ Карта и загрузка данных</span>
             <span class="chevron">▼</span>
           </summary>
           <div class="spoiler-body">
-            <div class="work-modes-group">
-              <label class="mode-card">
-                <input type="radio" name="app-work-mode" value="manual">
-                <div class="mode-card-content">
-                  <div class="mode-card-header">
-                    <span class="mode-name">Полностью ручной</span>
-                    <span class="mode-badge badge-eco">Минимум API</span>
-                  </div>
-                  <p class="mode-desc">Работает исключительно растровая карта на любых масштабах. Полигоны загружаются строго по клику или наведению.</p>
-                </div>
-              </label>
-
-              <label class="mode-card">
-                <input type="radio" name="app-work-mode" value="hybrid" checked>
-                <div class="mode-card-content">
-                  <div class="mode-card-header">
-                    <span class="mode-name">Гибридный</span>
-                    <span class="mode-badge badge-mid">Рекомендуемый</span>
-                  </div>
-                  <p class="mode-desc">На общем плане отображаются растровые контуры, а при приближении автоматически подгружаются векторные объекты с сохранением подложки.</p>
-                </div>
-              </label>
-
-              <!-- Ползунок тонкой настройки масштаба для гибридного режима -->
-              <div id="hybrid-zoom-wrap" class="style-row" style="margin: 2px 0 8px 12px; padding: 10px 14px; background: var(--bg-secondary); border-radius: var(--radius-sm); border: 1px solid var(--border);">
-                <label for="hybrid-zoom-slider" style="display: flex; justify-content: space-between; font-weight: 600; font-size: 12.5px; margin-bottom: 6px;">
-                  <span>Порог автозагрузки векторных полигонов:</span>
-                  <b id="hybrid-zoom-val" style="color: var(--accent);">зум 13.0</b>
-                </label>
-                <input type="range" id="hybrid-zoom-slider" min="11" max="16" step="0.5" value="13" class="styled-range">
-                <small class="hint-text" style="margin-top: 4px;">Ниже этого масштаба показывается только легкая растровая карта, а начиная с него — автоматически скачиваются векторные объекты.</small>
-              </div>
-
-              <label class="mode-card">
-                <input type="radio" name="app-work-mode" value="auto">
-                <div class="mode-card-content">
-                  <div class="mode-card-header">
-                    <span class="mode-name">Полностью автоматический</span>
-                    <span class="mode-badge badge-max">Максимум API</span>
-                  </div>
-                  <p class="mode-desc">Объекты загружаются автоматически во всём поле видимости на любых масштабах.</p>
-                </div>
-              </label>
-            </div>
-          </div>
-        </details>
-
-        <details class="spoiler">
-          <summary class="spoiler-title">
-            <span>🎯 Автоматическая загрузка объектов</span>
-            <span class="chevron">▼</span>
-          </summary>
-          <div class="spoiler-body toggles-list">
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Автозагрузка по удержанию</span>
-                <small class="hint-text">Загружает объект при удержании центра перекрестия или курсора дольше 1 секунды.</small>
-              </div>
-              <input type="checkbox" id="toggle-auto-hover">
-              <span class="toggle-switch"></span>
-            </label>
-
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Фоновая загрузка карточек</span>
-                <small class="hint-text">
-                  Скачивает описания, фото и отзывы для видимых объектов по направлению от центра экрана.
-                </small>
-              </div>
-              <input type="checkbox" id="toggle-auto-details">
-              <span class="toggle-switch"></span>
-            </label>
-
-            <!-- Дополнительная поднастройка: видна только при включении базовой -->
-            <div id="sub-auto-details-wrap" style="padding-left: 18px; margin-top: -4px;" hidden>
-              <label class="toggle-item">
-                <div>
-                  <span style="font-weight:600; display:block;">Загружать только на перекрестии или курсоре</span>
-                  <small class="hint-text">
-                    Скачивает карточку только при наведении прицела или курсора от 200 мс.
-                  </small>
-                  <!-- Предупреждение о высоком расходе API показывается только при выключении точечного режима -->
-                  <small id="warn-auto-details-bulk" class="hint-text-warn" hidden>
-                    ⚠️ 1 API-запрос на каждый объект! Рекомендуется использовать совместно с ручным режимом.
-                  </small>
-                </div>
-                <input type="checkbox" id="toggle-auto-details-crosshair" checked>
-                <span class="toggle-switch"></span>
-              </label>
-            </div>
-          </div>
-        </details>
-
-        <!-- =================== ВСТАВИТЬ ОТСЮДА =================== -->
-        <details class="spoiler" id="spoiler-quick-menu">
-          <summary class="spoiler-title">
-            <span>⚡ Быстрое меню</span>
-            <span class="chevron">▼</span>
-          </summary>
-          <div class="spoiler-body toggles-list">
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Включить быстрое меню</span>
-                <small class="hint-text">Быстрый доступ к ключевым инструментам без переключения панелей</small>
-              </div>
-              <input type="checkbox" id="toggle-qm-enabled" checked>
-              <span class="toggle-switch"></span>
-            </label>
-
-            <div id="quick-menu-settings-sub">
-              <hr class="style-divider" style="margin: 8px 0;">
-              <div style="font-size: 12.5px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">Способы открытия:</div>
-
-              <label class="toggle-item">
-                <div>
-                  <span style="font-weight:600; display:block;">Долгий тап на карте / правая кнопка мыши</span>
-                  <small class="hint-text">Удержание пальца на карте (смартфон) или правый клик (ПК)</small>
-                </div>
-                <input type="checkbox" id="toggle-qm-trigger-longpress">
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <div>
-                  <span style="font-weight:600; display:block;">Короткий тап по прицелу</span>
-                  <small class="hint-text">Нажатие пальцем или мышью по перекрестию в центре экрана</small>
-                </div>
-                <input type="checkbox" id="toggle-qm-trigger-crosshair">
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <div>
-                  <span style="font-weight:600; display:block;">Кнопка в левом нижнем углу</span>
-                  <small class="hint-text">Отдельная плавающая кнопка ☰ на экране</small>
-                </div>
-                <input type="checkbox" id="toggle-qm-trigger-btn" checked>
-                <span class="toggle-switch"></span>
-              </label>
-
-              <hr class="style-divider" style="margin: 8px 0;">
-              <div style="font-size: 12.5px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">Отображать в меню:</div>
-
-              <label class="toggle-item">
-                <span>📋 Объекты в зоне (список)</span>
-                <input type="checkbox" id="toggle-qm-item-objects" checked>
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <span>📐 Быстрое измерение (2 точки)</span>
-                <input type="checkbox" id="toggle-qm-item-quickmeasure" checked>
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <span>📏 Линейка / путь</span>
-                <input type="checkbox" id="toggle-qm-item-measure" checked>
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <span>🏢 Измерение высоты по тени</span>
-                <input type="checkbox" id="toggle-qm-item-shadowheight" checked>
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <span>📍 Поставить метку</span>
-                <input type="checkbox" id="toggle-qm-item-marker" checked>
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <span>✨ Азимуты Солнца и Луны</span>
-                <input type="checkbox" id="toggle-qm-item-rays" checked>
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <span>🧭 Расстояние от центра до GPS</span>
-                <input type="checkbox" id="toggle-qm-item-gps-dist" checked>
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <span>🌐 Скопировать координаты центра экрана</span>
-                <input type="checkbox" id="toggle-qm-item-coords" checked>
-                <span class="toggle-switch"></span>
-              </label>
-            </div>
-          </div>
-        </details>
-
-        <details class="spoiler" id="spoiler-base-maps">
-          <summary class="spoiler-title">
-            <span>🗺️ Выбор доступных карт</span>
-            <span class="chevron">▼</span>
-          </summary>
-          <div class="spoiler-body">
-            <div class="map-select-header">
-              <button type="button" id="btn-check-maps-status" class="map-check-btn">
-                🔍 Проверить текущую доступность
-              </button>
-              <div class="map-bulk-actions">
-                <button type="button" id="btn-maps-select-all" class="btn-link">Все</button>
-                <span style="color:var(--text-muted);">·</span>
-                <button type="button" id="btn-maps-deselect-all" class="btn-link">Снять все</button>
-              </div>
-            </div>
-            <div id="map-check-summary" class="map-check-summary" hidden></div>
-
-
-            <!-- Настройка быстрой смены карты -->
-            <div class="quick-swap-settings-box">
-              <label class="toggle-item">
-                <div>
-                  <span style="font-weight:600; display:block;">Кнопка быстрой смены карты</span>
-                  <small class="hint-text">Квадратная кнопка 🔀 слева от списка слоёв для мгновенного переключения туда и обратно</small>
-                </div>
-                <input type="checkbox" id="toggle-quick-swap-enabled">
-                <span class="toggle-switch"></span>
-              </label>
-
-              <div id="quick-swap-select-wrap" class="style-row" style="margin-top: 10px;" hidden>
-                <label for="quick-swap-map-select" style="font-size: 12.5px; font-weight: 600; margin-bottom: 5px;">Карта для быстрого переключения:</label>
-                <select id="quick-swap-map-select" class="styled-select"></select>
-              </div>
-            </div>
-            <hr class="style-divider" style="margin: 10px 0;">
-
-            <!-- Список современных карт -->
-            <div class="toggles-list" id="modern-maps-list"></div>
-
-            <!-- Подспойлер старинных карт -->
-            <details class="spoiler sub-spoiler" open>
+            
+            <!-- Режим загрузки карты -->
+            <details class="spoiler sub-spoiler">
               <summary class="spoiler-title sub-spoiler-title">
-                <span>📜 Старинные карты (<span id="historical-maps-count">11</span>)</span>
+                <span>🔄 Режим загрузки карты</span>
                 <span class="chevron">▼</span>
               </summary>
-              <div class="spoiler-body toggles-list" id="historical-maps-list" style="padding-top: 10px;"></div>
+              <div class="spoiler-body">
+                <div class="work-modes-group">
+                  <label class="mode-card">
+                    <input type="radio" name="app-work-mode" value="manual">
+                    <div class="mode-card-content">
+                      <div class="mode-card-header">
+                        <span class="mode-name">Полностью ручной</span>
+                        <span class="mode-badge badge-eco">Минимум API</span>
+                      </div>
+                      <p class="mode-desc">Работает исключительно растровая карта на любых масштабах. Полигоны загружаются строго по клику или наведению.</p>
+                    </div>
+                  </label>
+
+                  <label class="mode-card">
+                    <input type="radio" name="app-work-mode" value="hybrid" checked>
+                    <div class="mode-card-content">
+                      <div class="mode-card-header">
+                        <span class="mode-name">Гибридный</span>
+                        <span class="mode-badge badge-mid">Рекомендуемый</span>
+                      </div>
+                      <p class="mode-desc">На общем плане отображаются растровые контуры, а при приближении автоматически подгружаются векторные объекты с сохранением подложки.</p>
+                    </div>
+                  </label>
+
+                  <!-- Ползунок тонкой настройки масштаба для гибридного режима -->
+                  <div id="hybrid-zoom-wrap" class="style-row" style="margin: 2px 0 8px 12px; padding: 10px 14px; background: var(--bg-secondary); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                    <label for="hybrid-zoom-slider" style="display: flex; justify-content: space-between; font-weight: 600; font-size: 12.5px; margin-bottom: 6px;">
+                      <span>Порог автозагрузки векторных полигонов:</span>
+                      <b id="hybrid-zoom-val" style="color: var(--accent);">зум 13.0</b>
+                    </label>
+                    <input type="range" id="hybrid-zoom-slider" min="11" max="16" step="0.5" value="13" class="styled-range">
+                    <small class="hint-text" style="margin-top: 4px;">Ниже этого масштаба показывается только легкая растровая карта, а начиная с него — автоматически скачиваются векторные объекты.</small>
+                  </div>
+
+                  <label class="mode-card">
+                    <input type="radio" name="app-work-mode" value="auto">
+                    <div class="mode-card-content">
+                      <div class="mode-card-header">
+                        <span class="mode-name">Полностью автоматический</span>
+                        <span class="mode-badge badge-max">Максимум API</span>
+                      </div>
+                      <p class="mode-desc">Объекты загружаются автоматически во всём поле видимости на любых масштабах.</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
             </details>
-          </div>
-        </details>
 
-        <details class="spoiler" id="spoiler-keys">
-          <summary class="spoiler-title">
-            <span>🔑 API Ключи Wikimapia (<span id="keys-count">0</span>)</span>
-            <span class="chevron">▼</span>
-          </summary>
-          <div class="spoiler-body">
-            <!-- Плашка с пояснением -->
-            <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 12px;">
-              <div class="guide-tip-title">ℹ️ Встроенный ключ активен</div>
-              <p>
-                По умолчанию приложение использует встроенный ключ. Если у вас перестали загружаться объекты или появились ошибки лимита, попробуйте добавить свой собственный ключ (или несколько ключей), воспользовавшись кнопками и инструкцией ниже.
-              </p>
-            </div>
-
-            <!-- Кнопки перехода на сайт, пакетной вставки и инструкции -->
-            <div class="key-tools-row">
-              <a href="https://wikimapia.org/api/?action=my_keys" target="_blank" rel="noopener noreferrer" class="key-tool-btn">🔗 Получить ключ ↗</a>
-              <button type="button" id="btn-paste-keys" class="key-tool-btn">📋 Вставить из буфера</button>
-              <button type="button" id="btn-keys-guide" class="key-tool-btn">📖 Инструкция</button>
-            </div>
-
-            <div id="keys-list" class="keys-list"></div>
-            
-            <div class="key-add-row">
-              <input type="text" id="new-key-input" placeholder="Вставьте API ключ или пачку ключей" class="styled-input">
-              <button id="btn-add-key" class="btn btn-primary">+ Добавить</button>
-            </div>
-            <small class="hint-text">Кликните на ключ в списке, чтобы сделать его активным. Если удалить все ключи, приложение вернется к использованию встроенного ключа.</small>
-          </div>
-        </details>
-
-        <details class="spoiler">
-          <summary class="spoiler-title">
-            <span>🏷️ Фильтр типов объектов</span>
-            <span class="chevron">▼</span>
-          </summary>
-          <div class="spoiler-body toggles-list">
-            <!-- Умное скрытие при высокой плотности -->
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Скрывать мелкие при высокой плотности</span>
-                <small class="hint-text" style="margin:2px 0 0; color: var(--accent);">Убирает микро-объекты при отдалении карты, если в городе > 260 полигонов (ускоряет работу в разы)</small>
-              </div>
-              <input type="checkbox" id="toggle-filter-hide-small-density" checked>
-              <span class="toggle-switch"></span>
-            </label>
-
-            <hr class="style-divider" style="margin: 6px 0;">
-
-            <!-- Постоянные фильтры размеров -->
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Скрыть мелкие объекты</span>
-                <small class="hint-text" style="margin:2px 0 0;">Скрывать частные дома, гаражи, киоски, памятники на всех масштабах</small>
-              </div>
-              <input type="checkbox" id="toggle-filter-hide-small">
-              <span class="toggle-switch"></span>
-            </label>
-
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Скрыть средние объекты</span>
-                <small class="hint-text" style="margin:2px 0 0;">Скрывать школы, ТЦ, кварталы и средние предприятия</small>
-              </div>
-              <input type="checkbox" id="toggle-filter-hide-medium">
-              <span class="toggle-switch"></span>
-            </label>
-
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Скрыть крупные объекты</span>
-                <small class="hint-text" style="margin:2px 0 0;">Скрывать огромные лесопарки, водохранилища и целые районы</small>
-              </div>
-              <input type="checkbox" id="toggle-filter-hide-large">
-              <span class="toggle-switch"></span>
-            </label>
-
-            <hr class="style-divider" style="margin: 6px 0;">
-
-            <!-- Плашка с пояснением -->
-            <div class="guide-tip-box" style="margin-top: 4px; margin-bottom: 8px;">
-              <div class="guide-tip-title">ℹ️ Ограничение фильтрации</div>
-              <p>
-                Фильтры свойств (здания, регионы, удалённые) применяются только к полностью загруженным объектам.
-              </p>
-            </div>
-
-            <!-- Базовые фильтры свойств -->
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Скрывать здания (is_building)</span>
-                <small class="hint-text" style="margin:2px 0 0;">Не показывать полигоны строений и домов</small>
-              </div>
-              <input type="checkbox" id="toggle-filter-hide-buildings">
-              <span class="toggle-switch"></span>
-            </label>
-
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Скрывать регионы и границы (is_region)</span>
-                <small class="hint-text" style="margin:2px 0 0;">Не показывать крупные территориальные образования</small>
-              </div>
-              <input type="checkbox" id="toggle-filter-hide-regions">
-              <span class="toggle-switch"></span>
-            </label>
-
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Скрывать удалённые (is_deleted)</span>
-                <small class="hint-text" style="margin:2px 0 0;">Не показывать объекты, помеченные как удалённые</small>
-              </div>
-              <input type="checkbox" id="toggle-filter-hide-deleted">
-              <span class="toggle-switch"></span>
-            </label>
-          </div>
-        </details>
-
-
-          <details class="spoiler">
-
-          <summary class="spoiler-title">
-            <span>👁️ Видимость элементов интерфейса</span>
-            <span class="chevron">▼</span>
-          </summary>
-          <div class="spoiler-body toggles-list">
-            <!-- Информационное меню и его поднастройки -->
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Информационная панель на карте</span>
-                <small class="hint-text">Отображает плавающее окно со временем, астрономией и GPS слева под кнопками зума</small>
-              </div>
-              <input type="checkbox" id="toggle-ui-infomenu">
-              <span class="toggle-switch"></span>
-            </label>
-
-            <div id="sub-infomenu-settings" class="sub-infomenu-settings" hidden>
-              <div class="sub-infomenu-header">Что отображать в панели:</div>
-              <label class="toggle-item">
-                <span>🕒 Текущее время и дата</span>
-                <input type="checkbox" id="toggle-info-time" checked>
-                <span class="toggle-switch"></span>
-              </label>
-              <label class="toggle-item">
-                <span>🛰️ Координаты GPS и точность</span>
-                <input type="checkbox" id="toggle-info-usercoords" checked>
-                <span class="toggle-switch"></span>
-              </label>
-              <label class="toggle-item">
-                <span>🎯 Координаты центра экрана и зум</span>
-                <input type="checkbox" id="toggle-info-centercoords" checked>
-                <span class="toggle-switch"></span>
-              </label>
-              <label class="toggle-item">
-                <span>🧭 Статус GPS (скорость, курс, высота)</span>
-                <input type="checkbox" id="toggle-info-gps" checked>
-                <span class="toggle-switch"></span>
-              </label>
-              <label class="toggle-item">
-                <span>☀️ Солнце (рассвет, полдень, закат, сумерки, золотой час)</span>
-                <input type="checkbox" id="toggle-info-sun" checked>
-                <span class="toggle-switch"></span>
-              </label>
-              <label class="toggle-item">
-                <span>🌙 Луна (фаза, освещенность, восход и заход)</span>
-                <input type="checkbox" id="toggle-info-moon" checked>
-                <span class="toggle-switch"></span>
-              </label>
-              <label class="toggle-item">
-                <span>🌦️ Погода (утро, день, вечер, ночь, осадки)</span>
-                <input type="checkbox" id="toggle-info-weather" checked>
-                <span class="toggle-switch"></span>
-              </label>
-              <label class="toggle-item">
-                <span>✨ Линии азимута Солнца и Луны на карте</span>
-                <input type="checkbox" id="toggle-info-rays">
-                <span class="toggle-switch"></span>
-              </label>
-            </div>
-
-            <hr class="style-divider" style="margin: 6px 0;">
-
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Круг дальности (оценка расстояний)</span>
-                <small class="hint-text">Круговой визир от центра экрана с мерными шкалами в метрах/километрах</small>
-              </div>
-              <input type="checkbox" id="toggle-ui-rangering">
-              <span class="toggle-switch"></span>
-            </label>
-
-            <!-- Поднастройки круга дальности -->
-            <div id="sub-rangering-settings" class="sub-rangering-settings" hidden>
-              <div class="style-row" style="margin-bottom: 8px;">
-                <label for="rr-radius-slider">
-                  <span>Радиус круга на экране:</span>
-                  <b id="rr-radius-val">35%</b>
+            <!-- Автоматическая подгрузка -->
+            <details class="spoiler sub-spoiler">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🎯 Автоматическая загрузка объектов</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body toggles-list">
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Автозагрузка по удержанию</span>
+                    <small class="hint-text">Загружает объект при удержании центра перекрестия или курсора дольше 1 секунды.</small>
+                  </div>
+                  <input type="checkbox" id="toggle-auto-hover">
+                  <span class="toggle-switch"></span>
                 </label>
-                <input type="range" id="rr-radius-slider" min="15" max="65" step="5" value="35" class="styled-range">
-              </div>
 
-              <label class="toggle-item" style="margin-bottom: 8px;">
-                <div>
-                  <span style="font-weight:600; font-size:12px;">Мерные шкалы (вверх и в стороны)</span>
-                  <small class="hint-text" style="margin:0;">Оси с делениями и отметками расстояния</small>
-                </div>
-                <input type="checkbox" id="toggle-rr-axes" checked>
-                <span class="toggle-switch"></span>
-              </label>
-
-              <div id="rr-axes-sub-options" class="style-row" style="margin-bottom: 8px;">
-                <label for="rr-axis-len-slider">
-                  <span>Длина осей относительно круга:</span>
-                  <b id="rr-axis-len-val">1.15x</b>
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Фоновая загрузка карточек</span>
+                    <small class="hint-text">
+                      Скачивает описания, фото и отзывы для видимых объектов по направлению от центра экрана.
+                    </small>
+                  </div>
+                  <input type="checkbox" id="toggle-auto-details">
+                  <span class="toggle-switch"></span>
                 </label>
-                <input type="range" id="rr-axis-len-slider" min="70" max="160" step="5" value="115" class="styled-range">
-              </div>
 
-              <div class="style-row" style="margin-bottom: 0;">
-                <label for="rr-color-select">Цвет разметки:</label>
-                <div class="color-input-wrap">
-                  <input type="color" id="rr-color-select" value="#38bdf8">
-                  <span class="color-val" id="rr-color-val">#38bdf8</span>
+                <div id="sub-auto-details-wrap" style="padding-left: 18px; margin-top: -4px;" hidden>
+                  <label class="toggle-item">
+                    <div>
+                      <span style="font-weight:600; display:block;">Загружать только на перекрестии или курсоре</span>
+                      <small class="hint-text">
+                        Скачивает карточку только при наведении прицела или курсора от 200 мс.
+                      </small>
+                      <small id="warn-auto-details-bulk" class="hint-text-warn" hidden>
+                        ⚠️ 1 API-запрос на каждый объект! Рекомендуется использовать совместно с ручным режимом.
+                      </small>
+                    </div>
+                    <input type="checkbox" id="toggle-auto-details-crosshair" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
                 </div>
               </div>
-            </div>
+            </details>
 
-            <hr class="style-divider" style="margin: 6px 0;">
-
-            <label class="toggle-item">
-              <span>Верхняя плашка статуса</span>
-              <input type="checkbox" id="toggle-ui-status" checked>
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Счетчик запросов (лимит ключа)</span>
-              <input type="checkbox" id="toggle-ui-limit" checked>
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Нижняя кнопка-подсказка</span>
-              <input type="checkbox" id="toggle-ui-pill" checked>
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Кнопки масштаба карты (+ / -)</span>
-              <input type="checkbox" id="toggle-ui-zoom" checked>
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Список слоёв карт</span>
-              <input type="checkbox" id="toggle-ui-layers" checked>
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Кнопка поиска</span>
-              <input type="checkbox" id="toggle-ui-search" checked>
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Кнопка смены режима (палец / перекрестие)</span>
-              <input type="checkbox" id="toggle-ui-mode" checked>
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Кнопка «Линейка» (измерения)</span>
-              <input type="checkbox" id="toggle-ui-measure" checked>
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Кнопка «Добавить метку»</span>
-              <input type="checkbox" id="toggle-ui-marker" checked>
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Кнопка «Скачать область»</span>
-              <input type="checkbox" id="toggle-ui-precache" checked>
-              <span class="toggle-switch"></span>
-            </label>
-
-            <label class="toggle-item">
-              <span>Кнопка «Быстрое измерение» (2 точки)</span>
-              <input type="checkbox" id="toggle-ui-quickmeasure">
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Кнопка «Моя геопозиция»</span>
-              <input type="checkbox" id="toggle-ui-location" checked>
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Кнопка «Расстояние до GPS»</span>
-              <input type="checkbox" id="toggle-ui-gpsdist" checked>
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Кнопка «Азимуты Солнца и Луны»</span>
-              <input type="checkbox" id="toggle-ui-rays">
-              <span class="toggle-switch"></span>
-            </label>
-            <label class="toggle-item">
-              <span>Кнопка смены темы</span>
-              <input type="checkbox" id="toggle-ui-theme" checked>
-              <span class="toggle-switch"></span>
-            </label>
-
-            <label class="toggle-item">
-            <div>
-              <span style="font-weight:600; display:block;">Конус направления GPS</span>
-              <small class="hint-text" style="margin:2px 0 0;">Луч обзора из точки позиции (куда направлен смартфон)</small>
-            </div>
-            <input type="checkbox" id="toggle-ui-compasscone" checked>
-            <span class="toggle-switch"></span>
-          </label>
-
-          <label class="toggle-item">
-            <div>
-              <span style="font-weight:600; display:block;">Стрелка компаса (север)</span>
-              <small class="hint-text" style="margin:2px 0 0;">Круглая кнопка-компас в левом верхнем углу над зумом</small>
-            </div>
-            <input type="checkbox" id="toggle-ui-compassneedle" checked>
-            <span class="toggle-switch"></span>
-          </label>
-
-          </div>
-        </details>
-
-
-        <details class="spoiler">
-          <summary class="spoiler-title">
-            <span>🖌️ Внешний вид контуров</span>
-            <span class="chevron">▼</span>
-          </summary>
-          <div class="spoiler-body">
-            <div class="style-group">
-              <div class="style-group-header">
-                <span class="style-group-title">📐 Векторные контуры</span>
-                <button id="btn-reset-vector-style" type="button" class="btn-link">Сброс</button>
-              </div>
-
-              <div class="style-row">
-                <label for="vec-stroke-color">Цвет границ</label>
-                <div class="color-input-wrap">
-                  <input type="color" id="vec-stroke-color" value="#f97316">
-                  <span class="color-val" id="vec-stroke-color-val">#f97316</span>
-                </div>
-              </div>
-
-              <div class="style-row">
-                <label for="vec-stroke-width">Толщина границы: <b id="vec-stroke-width-val">1.5 px</b></label>
-                <input type="range" id="vec-stroke-width" min="0.5" max="6" step="0.5" value="1.5" class="styled-range">
-              </div>
-
-              <div class="style-row">
-                <label for="vec-fill-color">Цвет заливки</label>
-                <div class="color-input-wrap">
-                  <input type="color" id="vec-fill-color" value="#fb923c">
-                  <span class="color-val" id="vec-fill-color-val">#fb923c</span>
-                </div>
-              </div>
-
-              <div class="style-row">
-                <label for="vec-fill-opacity">Прозрачность заливки: <b id="vec-fill-opacity-val">18%</b></label>
-                <input type="range" id="vec-fill-opacity" min="0" max="80" step="2" value="18" class="styled-range">
-              </div>
-
-              <div class="style-row">
-                <label for="vec-hover-color">Цвет наведения / прицела</label>
-                <div class="color-input-wrap">
-                  <input type="color" id="vec-hover-color" value="#facc15">
-                  <span class="color-val" id="vec-hover-color-val">#facc15</span>
-                </div>
-              </div>
-
-              <div class="style-row">
-                <label for="vec-sel-color">Цвет выбранного объекта</label>
-                <div class="color-input-wrap">
-                  <input type="color" id="vec-sel-color" value="#ef4444">
-                  <span class="color-val" id="vec-sel-color-val">#ef4444</span>
-                </div>
-              </div>
-            </div>
-
-            <hr class="style-divider">
-
-            <div class="style-group">
-              <div class="style-group-header">
-                <span class="style-group-title">🗺️ Растровые контуры (тайлы)</span>
-                <button id="btn-reset-raster-style" type="button" class="btn-link">Сброс</button>
-              </div>
-
-              <label class="toggle-item" style="margin-top: 10px;">
-                <div>
-                  <span style="font-weight: 600; display: block;">Монохромная покраска (как в Nakarte)</span>
-                  <small class="hint-text" style="margin: 2px 0 0;">Перекрашивает все линии в один выбранный цвет</small>
-                </div>
-                <input type="checkbox" id="rast-tint-enabled">
-                <span class="toggle-switch"></span>
-              </label>
-
-              <div class="style-row" id="rast-tint-color-row" style="margin-top: 8px;">
-                <label for="rast-tint-color">Цвет контуров</label>
-                <div class="color-input-wrap">
-                  <input type="color" id="rast-tint-color" value="#acd2b1">
-                  <span class="color-val" id="rast-tint-color-val">#acd2b1</span>
-                </div>
-              </div>
-
-              <div class="style-row" style="margin-top: 10px;">
-                <label for="rast-width">Толщина линий: <b id="rast-width-val">Исходная (0)</b></label>
-                <input type="range" id="rast-width" min="-1" max="2" step="0.5" value="0" class="styled-range">
-              </div>
-
-              <div class="style-row">
-                <label for="rast-opacity">Прозрачность: <b id="rast-opacity-val">100%</b></label>
-                <input type="range" id="rast-opacity" min="10" max="100" step="5" value="100" class="styled-range">
-              </div>
-
-              <div class="style-row">
-                <label for="rast-contrast">Контрастность: <b id="rast-contrast-val">240%</b></label>
-                <input type="range" id="rast-contrast" min="50" max="350" step="10" value="240" class="styled-range">
-              </div>
-
-              <div class="style-row">
-                <label for="rast-saturate">Насыщенность: <b id="rast-saturate-val">300%</b></label>
-                <input type="range" id="rast-saturate" min="0" max="350" step="10" value="300" class="styled-range">
-              </div>
-
-              <div class="style-row">
-                <label for="rast-brightness">Яркость: <b id="rast-brightness-val">100%</b></label>
-                <input type="range" id="rast-brightness" min="50" max="200" step="5" value="100" class="styled-range">
-              </div>
-
-              <label class="toggle-item" style="margin-top: 8px;">
-                <span>Микро-обводка (Drop-Shadow)</span>
-                <input type="checkbox" id="rast-shadow" checked>
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item" style="margin-top: 8px;">
-                <span>Инвертировать цвета (негатив)</span>
-                <input type="checkbox" id="rast-invert">
-                <span class="toggle-switch"></span>
-              </label>
-            </div>
-          </div>
-        </details>
-
-        <details class="spoiler" id="spoiler-shared-markers">
-          <summary class="spoiler-title">
-            <span>📡 Публичные метки (Firebase)</span>
-            <span class="chevron">▼</span>
-          </summary>
-          <div class="spoiler-body toggles-list">
-            <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 8px;">
-              <div class="guide-tip-title">ℹ️ Общая база меток</div>
-              <p style="margin: 0; font-size: 11.5px; line-height: 1.4;">
-                Метки, помеченные как публичные, сохраняются в облаке Firebase. При включении загрузки они загружаются с сервера и отображаются на карте.
-              </p>
-            </div>
-
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Скачивать чужие метки</span>
-                <small class="hint-text">Загружать актуальные публичные метки из базы</small>
-              </div>
-              <input type="checkbox" id="toggle-download-foreign" checked>
-              <span class="toggle-switch"></span>
-            </label>
-
-            <label class="toggle-item">
-              <div>
-                <span style="font-weight:600; display:block;">Отображать чужие метки</span>
-                <small class="hint-text">Показывать метки других пользователей на карте</small>
-              </div>
-              <input type="checkbox" id="toggle-show-foreign" checked>
-              <span class="toggle-switch"></span>
-            </label>
-
-            <!-- БЛОК ПАРОЛЯ ДОСТУПА / ЗАКРЫТОЙ ГРУППЫ -->
-            <div class="shared-pass-settings-box">
-              <div class="shared-pass-header">
-                <label for="shared-markers-password-input" class="shared-pass-label">
-                  🔑 Пароль доступа (комната / группа):
+            <!-- Фильтр типов объектов -->
+            <details class="spoiler sub-spoiler">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🏷️ Фильтр типов и размеров объектов</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body toggles-list">
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Скрывать мелкие при высокой плотности</span>
+                    <small class="hint-text" style="margin:2px 0 0; color: var(--accent);">Убирает микро-объекты при отдалении карты, если в городе > 260 полигонов (ускоряет работу в разы)</small>
+                  </div>
+                  <input type="checkbox" id="toggle-filter-hide-small-density" checked>
+                  <span class="toggle-switch"></span>
                 </label>
-                <button type="button" id="btn-shared-pass-clear" class="btn-link shared-pass-clear-btn" hidden>Очистить</button>
+
+                <hr class="style-divider" style="margin: 6px 0;">
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Скрыть мелкие объекты</span>
+                    <small class="hint-text" style="margin:2px 0 0;">Скрывать частные дома, гаражи, киоски, памятники на всех масштабах</small>
+                  </div>
+                  <input type="checkbox" id="toggle-filter-hide-small">
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Скрыть средние объекты</span>
+                    <small class="hint-text" style="margin:2px 0 0;">Скрывать школы, ТЦ, кварталы и средние предприятия</small>
+                  </div>
+                  <input type="checkbox" id="toggle-filter-hide-medium">
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Скрыть крупные объекты</span>
+                    <small class="hint-text" style="margin:2px 0 0;">Скрывать огромные лесопарки, водохранилища и целые районы</small>
+                  </div>
+                  <input type="checkbox" id="toggle-filter-hide-large">
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <hr class="style-divider" style="margin: 6px 0;">
+
+                <div class="guide-tip-box" style="margin-top: 4px; margin-bottom: 8px;">
+                  <div class="guide-tip-title">ℹ️ Ограничение фильтрации</div>
+                  <p>Фильтры свойств (здания, регионы, удалённые) применяются только к полностью загруженным объектам.</p>
+                </div>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Скрывать здания (is_building)</span>
+                    <small class="hint-text" style="margin:2px 0 0;">Не показывать полигоны строений и домов</small>
+                  </div>
+                  <input type="checkbox" id="toggle-filter-hide-buildings">
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Скрывать регионы и границы (is_region)</span>
+                    <small class="hint-text" style="margin:2px 0 0;">Не показывать крупные территориальные образования</small>
+                  </div>
+                  <input type="checkbox" id="toggle-filter-hide-regions">
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Скрывать удалённые (is_deleted)</span>
+                    <small class="hint-text" style="margin:2px 0 0;">Не показывать объекты, помеченные как удалённые</small>
+                  </div>
+                  <input type="checkbox" id="toggle-filter-hide-deleted">
+                  <span class="toggle-switch"></span>
+                </label>
               </div>
-              <div class="input-with-action">
-                <input type="password" id="shared-markers-password-input" class="styled-input" placeholder="Введите пароль или оставьте пустым…" autocomplete="off">
-                <button type="button" id="btn-shared-pass-toggle-eye" class="input-action-btn" title="Показать / скрыть пароль">👁️</button>
-              </div>
-              <div id="shared-markers-pass-info" class="hint-text shared-pass-mode-hint"></div>
-            </div>
+            </details>
 
-            <div id="shared-markers-status" class="hint-text" style="padding-top: 4px; font-weight: 600;">
-              Статус: выключено
-            </div>
-          </div>
-        </details>
-
-
-        <details class="spoiler">
-          <summary class="spoiler-title">
-            <span>🌐 Сеть и подключение</span>
-            <span class="chevron">▼</span>
-          </summary>
-          <div class="spoiler-body">
-            <div class="form-group" style="margin-bottom: 0;">
-              <label for="net-mode">Режим отправки запросов</label>
-              <select id="net-mode" class="styled-select">
-                <option value="direct">Напрямую (рекомендуется для WebView / APK)</option>
-                <option value="auto">Авто (напрямую, при блокировке — прокси)</option>
-                <option value="proxy">Всегда через CORS-прокси</option>
-              </select>
-            </div>
-          </div>
-        </details>
-
-        <details class="spoiler">
-          <summary class="spoiler-title">
-            <span>🎨 Тема оформления</span>
-            <span class="chevron">▼</span>
-          </summary>
-          <div class="spoiler-body">
-            <div class="work-modes-group">
-              <label class="mode-card">
-                <input type="radio" name="app-theme-mode" value="light">
-                <div class="mode-card-content">
-                  <div class="mode-card-header">
-                    <span class="mode-name">☀️ Светлая</span>
+            <!-- Выбор карт и слоев -->
+            <details class="spoiler sub-spoiler" id="spoiler-base-maps">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🗺️ Слои и подложки карт</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body">
+                <div class="map-select-header">
+                  <button type="button" id="btn-check-maps-status" class="map-check-btn">
+                    🔍 Проверить доступность
+                  </button>
+                  <div class="map-bulk-actions">
+                    <button type="button" id="btn-maps-select-all" class="btn-link">Все</button>
+                    <span style="color:var(--text-muted);">·</span>
+                    <button type="button" id="btn-maps-deselect-all" class="btn-link">Снять все</button>
                   </div>
                 </div>
-              </label>
-              <label class="mode-card">
-                <input type="radio" name="app-theme-mode" value="dark">
-                <div class="mode-card-content">
-                  <div class="mode-card-header">
-                    <span class="mode-name">🌙 Тёмная</span>
+                <div id="map-check-summary" class="map-check-summary" hidden></div>
+
+                <div class="quick-swap-settings-box">
+                  <label class="toggle-item">
+                    <div>
+                      <span style="font-weight:600; display:block;">Кнопка быстрой смены карты</span>
+                      <small class="hint-text">Квадратная кнопка 🔀 слева от списка слоёв для мгновенного переключения</small>
+                    </div>
+                    <input type="checkbox" id="toggle-quick-swap-enabled">
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <div id="quick-swap-select-wrap" class="style-row" style="margin-top: 10px;" hidden>
+                    <label for="quick-swap-map-select" style="font-size: 12.5px; font-weight: 600; margin-bottom: 5px;">Вторая карта для переключения:</label>
+                    <select id="quick-swap-map-select" class="styled-select"></select>
                   </div>
                 </div>
-              </label>
-              <label class="mode-card">
-                <input type="radio" name="app-theme-mode" value="night-vision">
-                <div class="mode-card-content">
-                  <div class="mode-card-header">
-                    <span class="mode-name" style="color:#ef4444;">🔴 Ночное зрение (красный монохром)</span>
-                  </div>
-                  <p class="mode-desc">Отключает синий/зеленый свет, инвертирует карты в глубокие оттенки красного для сохранения адаптации глаз в полной темноте. Включается также долгим нажатием на кнопку темы.</p>
+
+                <hr class="style-divider" style="margin: 10px 0;">
+                <div class="toggles-list" id="modern-maps-list"></div>
+
+                <details class="spoiler sub-spoiler" open style="margin-top: 10px;">
+                  <summary class="spoiler-title sub-spoiler-title">
+                    <span>📜 Старинные карты (<span id="historical-maps-count">11</span>)</span>
+                    <span class="chevron">▼</span>
+                  </summary>
+                  <div class="spoiler-body toggles-list" id="historical-maps-list" style="padding-top: 10px;"></div>
+                </details>
+              </div>
+            </details>
+
+            <details class="spoiler sub-spoiler" id="spoiler-user-overlays">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🖼️ Пользовательские карты-наложения</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body">
+                <p class="mode-desc" style="margin-bottom: 10px;">
+                  Добавление своих фотопланов, старинных карт и схем с поддержкой привязки KML и регулировкой прозрачности.
+                </p>
+                <div style="display: flex; gap: 8px;">
+                  <button type="button" class="btn btn-primary" id="btn-settings-add-overlay" style="flex: 1; font-size: 12px; padding: 7px 10px;">
+                    ➕ Добавить карту
+                  </button>
+                  <button type="button" class="btn btn-secondary" id="btn-settings-list-overlay" style="flex: 1; font-size: 12px; padding: 7px 10px;">
+                    📋 Список наложений
+                  </button>
                 </div>
-              </label>
-            </div>
+              </div>
+            </details>
+
+
+
           </div>
         </details>
 
-        <!-- НОВЫЙ СПОЙЛЕР: Кэш, резервные копии и все виды очистки/сброса -->
+        <!-- 2. РАЗДЕЛ: ВНЕШНИЙ ВИД И ИНТЕРФЕЙС -->
+        <details class="spoiler">
+          <summary class="spoiler-title">
+            <span>🎨 Внешний вид и интерфейс</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body">
+
+            <!-- Тема оформления -->
+            <details class="spoiler sub-spoiler">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🌓 Тема оформления</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body">
+                <div class="work-modes-group">
+                  <label class="mode-card">
+                    <input type="radio" name="app-theme-mode" value="light">
+                    <div class="mode-card-content">
+                      <div class="mode-card-header">
+                        <span class="mode-name">☀️ Светлая</span>
+                      </div>
+                    </div>
+                  </label>
+                  <label class="mode-card">
+                    <input type="radio" name="app-theme-mode" value="dark">
+                    <div class="mode-card-content">
+                      <div class="mode-card-header">
+                        <span class="mode-name">🌙 Тёмная</span>
+                      </div>
+                    </div>
+                  </label>
+                  <label class="mode-card">
+                    <input type="radio" name="app-theme-mode" value="night-vision">
+                    <div class="mode-card-content">
+                      <div class="mode-card-header">
+                        <span class="mode-name" style="color:#ef4444;">🔴 Ночное зрение (красный монохром)</span>
+                      </div>
+                      <p class="mode-desc">Отключает синий/зеленый свет, инвертирует карты в глубокие оттенки красного для сохранения ночной адаптации глаз. Включается также долгим нажатием на кнопку темы.</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </details>
+
+            <!-- Внешний вид контуров -->
+            <details class="spoiler sub-spoiler">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🖌️ Стилизация контуров (вектор и растр)</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body">
+                <div class="style-group">
+                  <div class="style-group-header">
+                    <span class="style-group-title">📐 Векторные контуры</span>
+                    <button id="btn-reset-vector-style" type="button" class="btn-link">Сброс</button>
+                  </div>
+
+                  <div class="style-row">
+                    <label for="vec-stroke-color">Цвет границ</label>
+                    <div class="color-input-wrap">
+                      <input type="color" id="vec-stroke-color" value="#f97316">
+                      <span class="color-val" id="vec-stroke-color-val">#f97316</span>
+                    </div>
+                  </div>
+
+                  <div class="style-row">
+                    <label for="vec-stroke-width">Толщина границы: <b id="vec-stroke-width-val">1.5 px</b></label>
+                    <input type="range" id="vec-stroke-width" min="0.5" max="6" step="0.5" value="1.5" class="styled-range">
+                  </div>
+
+                  <div class="style-row">
+                    <label for="vec-fill-color">Цвет заливки</label>
+                    <div class="color-input-wrap">
+                      <input type="color" id="vec-fill-color" value="#fb923c">
+                      <span class="color-val" id="vec-fill-color-val">#fb923c</span>
+                    </div>
+                  </div>
+
+                  <div class="style-row">
+                    <label for="vec-fill-opacity">Прозрачность заливки: <b id="vec-fill-opacity-val">18%</b></label>
+                    <input type="range" id="vec-fill-opacity" min="0" max="80" step="2" value="18" class="styled-range">
+                  </div>
+
+                  <div class="style-row">
+                    <label for="vec-hover-color">Цвет наведения / прицела</label>
+                    <div class="color-input-wrap">
+                      <input type="color" id="vec-hover-color" value="#facc15">
+                      <span class="color-val" id="vec-hover-color-val">#facc15</span>
+                    </div>
+                  </div>
+
+                  <div class="style-row">
+                    <label for="vec-sel-color">Цвет выбранного объекта</label>
+                    <div class="color-input-wrap">
+                      <input type="color" id="vec-sel-color" value="#ef4444">
+                      <span class="color-val" id="vec-sel-color-val">#ef4444</span>
+                    </div>
+                  </div>
+                </div>
+
+                <hr class="style-divider">
+
+                <div class="style-group">
+                  <div class="style-group-header">
+                    <span class="style-group-title">🗺️ Растровые контуры (тайлы)</span>
+                    <button id="btn-reset-raster-style" type="button" class="btn-link">Сброс</button>
+                  </div>
+
+                  <label class="toggle-item" style="margin-top: 10px;">
+                    <div>
+                      <span style="font-weight: 600; display: block;">Монохромная покраска (как в Nakarte)</span>
+                      <small class="hint-text" style="margin: 2px 0 0;">Перекрашивает все линии в один выбранный цвет</small>
+                    </div>
+                    <input type="checkbox" id="rast-tint-enabled">
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <div class="style-row" id="rast-tint-color-row" style="margin-top: 8px;">
+                    <label for="rast-tint-color">Цвет контуров</label>
+                    <div class="color-input-wrap">
+                      <input type="color" id="rast-tint-color" value="#acd2b1">
+                      <span class="color-val" id="rast-tint-color-val">#acd2b1</span>
+                    </div>
+                  </div>
+
+                  <div class="style-row" style="margin-top: 10px;">
+                    <label for="rast-width">Толщина линий: <b id="rast-width-val">Исходная (0)</b></label>
+                    <input type="range" id="rast-width" min="-1" max="2" step="0.5" value="0" class="styled-range">
+                  </div>
+
+                  <div class="style-row">
+                    <label for="rast-opacity">Прозрачность: <b id="rast-opacity-val">100%</b></label>
+                    <input type="range" id="rast-opacity" min="10" max="100" step="5" value="100" class="styled-range">
+                  </div>
+
+                  <div class="style-row">
+                    <label for="rast-contrast">Контрастность: <b id="rast-contrast-val">240%</b></label>
+                    <input type="range" id="rast-contrast" min="50" max="350" step="10" value="240" class="styled-range">
+                  </div>
+
+                  <div class="style-row">
+                    <label for="rast-saturate">Насыщенность: <b id="rast-saturate-val">300%</b></label>
+                    <input type="range" id="rast-saturate" min="0" max="350" step="10" value="300" class="styled-range">
+                  </div>
+
+                  <div class="style-row">
+                    <label for="rast-brightness">Яркость: <b id="rast-brightness-val">100%</b></label>
+                    <input type="range" id="rast-brightness" min="50" max="200" step="5" value="100" class="styled-range">
+                  </div>
+
+                  <label class="toggle-item" style="margin-top: 8px;">
+                    <span>Микро-обводка (Drop-Shadow)</span>
+                    <input type="checkbox" id="rast-shadow" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item" style="margin-top: 8px;">
+                    <span>Инвертировать цвета (негатив)</span>
+                    <input type="checkbox" id="rast-invert">
+                    <span class="toggle-switch"></span>
+                  </label>
+                </div>
+              </div>
+            </details>
+
+            <!-- Быстрое меню -->
+            <details class="spoiler sub-spoiler" id="spoiler-quick-menu">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>⚡ Быстрое радиальное меню</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body toggles-list">
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Включить быстрое меню</span>
+                    <small class="hint-text">Быстрый доступ к инструментам без переключения панелей</small>
+                  </div>
+                  <input type="checkbox" id="toggle-qm-enabled" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <div id="quick-menu-settings-sub">
+                  <hr class="style-divider" style="margin: 8px 0;">
+                  <div style="font-size: 12.5px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">Способы открытия:</div>
+
+                  <label class="toggle-item">
+                    <div>
+                      <span style="font-weight:600; display:block;">Долгий тап на карте / правая кнопка мыши</span>
+                      <small class="hint-text">Удержание пальца на карте (смартфон) или правый клик (ПК)</small>
+                    </div>
+                    <input type="checkbox" id="toggle-qm-trigger-longpress">
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <div>
+                      <span style="font-weight:600; display:block;">Короткий тап по прицелу</span>
+                      <small class="hint-text">Нажатие пальцем или мышью по перекрестию в центре экрана</small>
+                    </div>
+                    <input type="checkbox" id="toggle-qm-trigger-crosshair">
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <div>
+                      <span style="font-weight:600; display:block;">Кнопка в левом нижнем углу</span>
+                      <small class="hint-text">Отдельная плавающая кнопка ☰ на экране</small>
+                    </div>
+                    <input type="checkbox" id="toggle-qm-trigger-btn" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <hr class="style-divider" style="margin: 8px 0;">
+                  <div style="font-size: 12.5px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">Отображать в меню:</div>
+
+                  <label class="toggle-item">
+                    <span>📋 Объекты в зоне (список)</span>
+                    <input type="checkbox" id="toggle-qm-item-objects" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>📐 Быстрое измерение (2 точки)</span>
+                    <input type="checkbox" id="toggle-qm-item-quickmeasure" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>📏 Линейка / путь</span>
+                    <input type="checkbox" id="toggle-qm-item-measure" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>🏢 Измерение высоты по тени</span>
+                    <input type="checkbox" id="toggle-qm-item-shadowheight" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>📍 Поставить метку</span>
+                    <input type="checkbox" id="toggle-qm-item-marker" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>✨ Азимуты Солнца и Луны</span>
+                    <input type="checkbox" id="toggle-qm-item-rays" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>🧭 Расстояние от центра до GPS</span>
+                    <input type="checkbox" id="toggle-qm-item-gps-dist" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>🎯 Круг дальности (визир)</span>
+                    <input type="checkbox" id="toggle-qm-item-rangering">
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>🌐 Скопировать координаты центра экрана</span>
+                    <input type="checkbox" id="toggle-qm-item-coords" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                </div>
+              </div>
+            </details>
+
+            <!-- Информационные оверлеи: Панель инфо и круг дальности -->
+            <details class="spoiler sub-spoiler">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>📊 Инфо-панель и круг дальности (HUD)</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body toggles-list">
+                
+                <!-- Инфо-панель -->
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Информационная панель на карте</span>
+                    <small class="hint-text">Отображает плавающее окно со временем, астрономией и GPS слева под кнопками зума</small>
+                  </div>
+                  <input type="checkbox" id="toggle-ui-infomenu">
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <div id="sub-infomenu-settings" class="sub-infomenu-settings" hidden>
+                  <div class="sub-infomenu-header">Что отображать в панели:</div>
+                  <label class="toggle-item">
+                    <span>🕒 Текущее время и дата</span>
+                    <input type="checkbox" id="toggle-info-time" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item">
+                    <span>🛰️ Координаты GPS и точность</span>
+                    <input type="checkbox" id="toggle-info-usercoords" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item">
+                    <span>🎯 Координаты центра экрана и зум</span>
+                    <input type="checkbox" id="toggle-info-centercoords" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item">
+                    <span>🧭 Статус GPS (скорость, курс, высота)</span>
+                    <input type="checkbox" id="toggle-info-gps" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item">
+                    <span>☀️ Солнце (рассвет, полдень, закат, сумерки, золотой час)</span>
+                    <input type="checkbox" id="toggle-info-sun" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item">
+                    <span>🌙 Луна (фаза, освещенность, восход и заход)</span>
+                    <input type="checkbox" id="toggle-info-moon" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item">
+                    <span>🌦️ Погода (утро, день, вечер, ночь, осадки)</span>
+                    <input type="checkbox" id="toggle-info-weather" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item">
+                    <span>✨ Линии азимута Солнца и Луны на карте</span>
+                    <input type="checkbox" id="toggle-info-rays">
+                    <span class="toggle-switch"></span>
+                  </label>
+                </div>
+
+                <hr class="style-divider" style="margin: 8px 0;">
+
+                <!-- Круг дальности -->
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Круг дальности (оценка расстояний)</span>
+                    <small class="hint-text">Круговой визир от центра экрана с мерными шкалами в метрах/километрах</small>
+                  </div>
+                  <input type="checkbox" id="toggle-ui-rangering">
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <div id="sub-rangering-settings" class="sub-rangering-settings" hidden>
+                  <div class="style-row" style="margin-bottom: 8px;">
+                    <label for="rr-radius-slider">
+                      <span>Радиус круга на экране:</span>
+                      <b id="rr-radius-val">35%</b>
+                    </label>
+                    <input type="range" id="rr-radius-slider" min="15" max="65" step="5" value="35" class="styled-range">
+                  </div>
+
+                  <label class="toggle-item" style="margin-bottom: 8px;">
+                    <div>
+                      <span style="font-weight:600; font-size:12px;">Мерные шкалы (вверх и в стороны)</span>
+                      <small class="hint-text" style="margin:0;">Оси с делениями и отметками расстояния</small>
+                    </div>
+                    <input type="checkbox" id="toggle-rr-axes" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <div id="rr-axes-sub-options" class="style-row" style="margin-bottom: 8px;">
+                    <label for="rr-axis-len-slider">
+                      <span>Длина осей относительно круга:</span>
+                      <b id="rr-axis-len-val">1.15x</b>
+                    </label>
+                    <input type="range" id="rr-axis-len-slider" min="70" max="160" step="5" value="115" class="styled-range">
+                  </div>
+
+                  <div class="style-row" style="margin-bottom: 0;">
+                    <label for="rr-color-select">Цвет разметки:</label>
+                    <div class="color-input-wrap">
+                      <input type="color" id="rr-color-select" value="#38bdf8">
+                      <span class="color-val" id="rr-color-val">#38bdf8</span>
+                    </div>
+                  </div>
+
+                  <div class="style-row" style="margin-top: 8px; margin-bottom: 8px;">
+                    <label for="rr-font-size-slider">
+                      <span>Размер шрифта цифр:</span>
+                      <b id="rr-font-size-val">10 px</b>
+                    </label>
+                    <input type="range" id="rr-font-size-slider" min="8" max="18" step="1" value="10" class="styled-range">
+                  </div>
+
+                  <div class="style-row" style="margin-bottom: 0;">
+                    <label for="rr-text-color-select">Цвет текста цифр:</label>
+                    <div class="color-input-wrap">
+                      <input type="color" id="rr-text-color-select" value="#ffffff">
+                      <span class="color-val" id="rr-text-color-val">#ffffff</span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </details>
+
+            <!-- Видимость элементов интерфейса и кнопок -->
+            <details class="spoiler sub-spoiler">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>👁️ Видимость кнопок и панелей</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body toggles-list">
+                <label class="toggle-item">
+                  <span>Верхняя плашка статуса</span>
+                  <input type="checkbox" id="toggle-ui-status" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Счетчик запросов (лимит ключа)</span>
+                  <input type="checkbox" id="toggle-ui-limit" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Нижняя кнопка-подсказка</span>
+                  <input type="checkbox" id="toggle-ui-pill" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопки масштаба карты (+ / -)</span>
+                  <input type="checkbox" id="toggle-ui-zoom" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Список слоёв карт</span>
+                  <input type="checkbox" id="toggle-ui-layers" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопка поиска</span>
+                  <input type="checkbox" id="toggle-ui-search" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопка смены режима (палец / перекрестие)</span>
+                  <input type="checkbox" id="toggle-ui-mode" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопка «Линейка» (измерения)</span>
+                  <input type="checkbox" id="toggle-ui-measure" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопка «Быстрое измерение» (2 точки)</span>
+                  <input type="checkbox" id="toggle-ui-quickmeasure">
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопка «Добавить метку»</span>
+                  <input type="checkbox" id="toggle-ui-marker" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопка «Скачать область»</span>
+                  <input type="checkbox" id="toggle-ui-precache" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопка «Моя геопозиция»</span>
+                  <input type="checkbox" id="toggle-ui-location" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопка «Расстояние до GPS»</span>
+                  <input type="checkbox" id="toggle-ui-gpsdist" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопка «Азимуты Солнца и Луны»</span>
+                  <input type="checkbox" id="toggle-ui-rays">
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопка смены темы</span>
+                  <input type="checkbox" id="toggle-ui-theme" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <hr class="style-divider" style="margin: 6px 0;">
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Конус направления GPS</span>
+                    <small class="hint-text" style="margin:2px 0 0;">Луч обзора из точки позиции (куда направлен смартфон)</small>
+                  </div>
+                  <input type="checkbox" id="toggle-ui-compasscone" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Стрелка компаса (север)</span>
+                    <small class="hint-text" style="margin:2px 0 0;">Круглая кнопка-компас в левом верхнем углу над зумом</small>
+                  </div>
+                  <input type="checkbox" id="toggle-ui-compassneedle" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                 <!-- НОВОЕ: Хвост движения GPS -->
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Хвост движения GPS</span>
+                    <small class="hint-text" style="margin:2px 0 0;">Траектория последних перемещений для индикации направления движения</small>
+                  </div>
+                  <input type="checkbox" id="toggle-ui-motiontail" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <div id="sub-motiontail-settings" class="sub-motiontail-settings">
+                  <div class="style-row" style="margin-bottom: 8px;">
+                    <label for="tail-len-slider">
+                      <span>Длина хвоста (точек):</span>
+                      <b id="tail-len-val">15</b>
+                    </label>
+                    <input type="range" id="tail-len-slider" min="5" max="40" step="1" value="15" class="styled-range">
+                  </div>
+                  <div class="style-row" style="margin-bottom: 0;">
+                    <label for="tail-color-select">Цвет хвоста:</label>
+                    <div class="color-input-wrap">
+                      <input type="color" id="tail-color-select" value="#0284c7">
+                      <span class="color-val" id="tail-color-val">#0284c7</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+          </div>
+        </details>
+
+        <!-- 3. РАЗДЕЛ: ПОДКЛЮЧЕНИЕ, КЛЮЧИ И ОБЛАКО -->
+        <details class="spoiler">
+          <summary class="spoiler-title">
+            <span>🔑 Подключение, ключи и синхронизация</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body">
+
+            <!-- API ключи Wikimapia -->
+            <details class="spoiler sub-spoiler" id="spoiler-keys">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🔑 API Ключи Wikimapia (<span id="keys-count">0</span>)</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body">
+                <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 12px;">
+                  <div class="guide-tip-title">ℹ️ Встроенный ключ активен</div>
+                  <p>По умолчанию используется встроенный ключ. Если перестали загружаться объекты или возникли ошибки лимита, добавьте свои ключи с помощью инструкции ниже.</p>
+                </div>
+
+                <div class="key-tools-row">
+                  <a href="https://wikimapia.org/api/?action=my_keys" target="_blank" rel="noopener noreferrer" class="key-tool-btn">🔗 Получить ключ ↗</a>
+                  <button type="button" id="btn-paste-keys" class="key-tool-btn">📋 Вставить из буфера</button>
+                  <button type="button" id="btn-keys-guide" class="key-tool-btn">📖 Инструкция</button>
+                </div>
+
+                <div id="keys-list" class="keys-list"></div>
+                
+                <div class="key-add-row">
+                  <input type="text" id="new-key-input" placeholder="Вставьте API ключ или пачку ключей" class="styled-input">
+                  <button id="btn-add-key" class="btn btn-primary">+ Добавить</button>
+                </div>
+                <small class="hint-text">Кликните на ключ в списке, чтобы сделать его активным. Если удалить все ключи, приложение вернется к встроенному.</small>
+              </div>
+            </details>
+
+            <!-- Сеть и CORS-режим -->
+            <details class="spoiler sub-spoiler">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🌐 Сеть и подключение</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label for="net-mode">Режим отправки запросов</label>
+                  <select id="net-mode" class="styled-select">
+                    <option value="direct">Напрямую (рекомендуется для WebView / APK)</option>
+                    <option value="auto">Авто (напрямую, при блокировке — через прокси)</option>
+                    <option value="proxy">Всегда через CORS-прокси</option>
+                  </select>
+                </div>
+              </div>
+            </details>
+
+            <!-- Публичные метки Firebase -->
+            <details class="spoiler sub-spoiler" id="spoiler-shared-markers">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>📡 Публичные метки (Firebase)</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body toggles-list">
+                <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 8px;">
+                  <div class="guide-tip-title">ℹ️ Общая база меток</div>
+                  <p style="margin: 0; font-size: 11.5px; line-height: 1.4;">
+                    Метки, отмеченные как публичные, синхронизируются через Firebase.
+                  </p>
+                </div>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Скачивать чужие метки</span>
+                    <small class="hint-text">Загружать актуальные публичные метки из базы</small>
+                  </div>
+                  <input type="checkbox" id="toggle-download-foreign" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Отображать чужие метки</span>
+                    <small class="hint-text">Показывать метки других пользователей на карте</small>
+                  </div>
+                  <input type="checkbox" id="toggle-show-foreign" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <div class="shared-pass-settings-box">
+                  <div class="shared-pass-header">
+                    <label for="shared-markers-password-input" class="shared-pass-label">
+                      🔑 Пароль доступа (комната / группа):
+                    </label>
+                    <button type="button" id="btn-shared-pass-clear" class="btn-link shared-pass-clear-btn" hidden>Очистить</button>
+                  </div>
+                  <div class="input-with-action">
+                    <input type="password" id="shared-markers-password-input" class="styled-input" placeholder="Введите пароль или оставьте пустым…" autocomplete="off">
+                    <button type="button" id="btn-shared-pass-toggle-eye" class="input-action-btn" title="Показать / скрыть пароль">👁️</button>
+                  </div>
+                  <div id="shared-markers-pass-info" class="hint-text shared-pass-mode-hint"></div>
+                </div>
+
+                <div id="shared-markers-status" class="hint-text" style="padding-top: 4px; font-weight: 600;">
+                  Статус: выключено
+                </div>
+              </div>
+            </details>
+
+          </div>
+        </details>
+
+        <!-- 4. РАЗДЕЛ: ПАМЯТЬ, БЭКАП И СБРОС -->
         <details class="spoiler" id="spoiler-cache-management">
           <summary class="spoiler-title">
-            <span>💾 Кэш, очистка и сброс</span>
+            <span>💾 Память, бэкап и сброс</span>
             <span class="chevron">▼</span>
           </summary>
           <div class="spoiler-body">
@@ -1134,14 +1252,15 @@
             </div>
           </div>
         </details>
+
+        <!-- 5. РАЗДЕЛ: УСТАНОВКА И ПРИЛОЖЕНИЕ -->
         <details class="spoiler">
           <summary class="spoiler-title">
-            <span>📥 Скачать и установить</span>
+            <span>📲 Скачать и установить</span>
             <span class="chevron">▼</span>
           </summary>
           <div class="spoiler-body">
             <div style="display: flex; flex-direction: column; gap: 8px;">
-              <!-- Кнопка быстрой установки PWA без APK -->
               <button type="button" id="btn-install-pwa" class="btn btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700;">
                 📲 Установить на телефон (без APK)
               </button>
@@ -1189,6 +1308,7 @@
   <script src="js/picker.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/markers.js"></script> 
+  <script src="js/imageOverlay.js"></script>
 
   <script src="js/sharedMarkers.js"></script>
   <script src="js/geocaching.js"></script>
@@ -1570,15 +1690,144 @@
     </div>
   </div>
 </div>
-<div id="modal-quick-swap-select" class="modal-overlay">
-  <div class="modal-box modal-box-large">
-    <div class="modal-header">
-      <h3>🔀 Вторая карта для переключения</h3>
-      <button class="modal-close-x" id="quick-swap-select-x">✕</button>
+
+<!-- ПАНЕЛЬ РЕГУЛИРОВКИ НАЛОЖЕННОЙ КАРТЫ (HUD) -->
+<div id="overlay-hud" class="overlay-hud" hidden>
+  <div class="ov-hud-header">
+    <div class="ov-hud-title-wrap">
+      <span style="font-size: 18px;">🗺️</span>
+      <b id="ov-hud-title" class="ov-hud-title">Слой карты</b>
     </div>
-    <p class="modal-desc">Выберите карту, на которую будет переключать кнопка 🔀 при обычном нажатии.</p>
-    <div class="modal-content-scroll" style="max-height: 52vh;">
-      <div id="quick-swap-maps-list" class="quick-menu-list"></div>
+    <div class="ov-hud-header-actions">
+      <button id="ov-btn-flyto" class="ov-icon-btn" title="Приблизить к слою">🎯</button>
+      <button id="ov-btn-reset" class="ov-icon-btn" title="Сбросить к исходным параметрам">↺</button>
+      <button id="ov-btn-delete" class="ov-icon-btn danger" title="Удалить этот слой">🗑️</button>
+      <button id="ov-btn-close" class="ov-icon-btn close" title="Завершить редактирование">✕</button>
+    </div>
+  </div>
+
+  <!-- Ползунок прозрачности -->
+  <div class="ov-hud-row">
+    <label for="ov-hud-opacity">Прозрачность: <b id="ov-hud-opacity-val">80%</b></label>
+    <input type="range" id="ov-hud-opacity" min="5" max="100" step="5" value="80" class="styled-range">
+  </div>
+
+  <!-- Режим наложения -->
+  <div class="ov-hud-row" style="display:flex; justify-content:space-between; align-items:center;">
+    <label for="ov-hud-blend" style="margin:0;">Смешивание:</label>
+    <select id="ov-hud-blend" class="styled-select" style="width: auto; padding: 4px 8px; font-size: 12px;">
+      <option value="normal">Обычный</option>
+      <option value="multiply">Умножение (без белого фона)</option>
+      <option value="screen">Осветление (Screen)</option>
+    </select>
+  </div>
+
+  <!-- Кнопки сдвига (D-Pad), масштаба и вращения -->
+  <div class="ov-hud-controls-grid">
+    <div class="ov-dpad-wrap">
+      <button id="ov-btn-nudge-up" class="ov-dpad-btn up" title="Сдвиг вверх">▲</button>
+      <div class="ov-dpad-middle">
+        <button id="ov-btn-nudge-left" class="ov-dpad-btn left" title="Сдвиг влево">◀</button>
+        <div class="ov-dpad-center">✥</div>
+        <button id="ov-btn-nudge-right" class="ov-dpad-btn right" title="Сдвиг вправо">▶</button>
+      </div>
+      <button id="ov-btn-nudge-down" class="ov-dpad-btn down" title="Сдвиг вниз">▼</button>
+    </div>
+
+    <div class="ov-tools-column">
+      <div class="ov-tool-row">
+        <span class="ov-tool-label">Масштаб:</span>
+        <button id="ov-btn-scale-minus" class="ov-btn-small" title="Уменьшить">🔍−</button>
+        <button id="ov-btn-scale-plus" class="ov-btn-small" title="Увеличить">🔍+</button>
+        <button id="ov-btn-lock-aspect" class="ov-btn-small ov-btn-aspect active" title="Сохранять пропорции (нажмите для свободного изменения)">🔒</button>
+      </div>
+      <div class="ov-tool-row">
+        <span class="ov-tool-label">Поворот:</span>
+        <button id="ov-btn-rot-ccw" class="ov-btn-small" title="Повернуть против часовой">↺ 1°</button>
+        <button id="ov-btn-rot-cw" class="ov-btn-small" title="Повернуть по часовой">↻ 1°</button>
+        <b id="ov-hud-rot-val" style="font-size:11px; margin-left:4px;">0°</b>
+      </div>
+      <div class="ov-tool-row">
+        <span class="ov-tool-label">Шаг сдвига:</span>
+        <select id="ov-hud-step" class="styled-select" style="width:auto; padding:3px 6px; font-size:11px;">
+          <option value="1">1 м</option>
+          <option value="5" selected>5 м</option>
+          <option value="25">25 м</option>
+          <option value="100">100 м</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="ov-hud-footer">
+    <div class="ov-hud-footer-left">
+      <!-- Скрытый инпут для выбора KML файла -->
+      <input type="file" id="ov-hud-kml-input" accept=".kml" style="display: none;">
+      <button type="button" id="ov-btn-import-kml" class="ov-btn-small" title="Загрузить координаты и размеры из KML">📥 KML</button>
+      <button type="button" id="ov-btn-export-kml" class="ov-btn-small" title="Выгрузить текущую привязку в файл KML">📤 KML</button>
+    </div>
+    <span>Центр: <b id="ov-hud-center-val">--</b></span>
+  </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: ДОБАВЛЕНИЕ СЛОЯ КАРТЫ -->
+<div id="modal-add-overlay" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>➕ Добавить слой-карту</h3>
+      <button class="modal-close-x" id="ov-modal-x">✕</button>
+    </div>
+    <p class="modal-desc">Загрузите снимок (JPG/PNG/WebP до 25 МБ). При необходимости укажите KML-файл с готовой геопривязкой.</p>
+
+    <div class="form-group">
+      <label for="ov-input-name">Название слоя:</label>
+      <input type="text" id="ov-input-name" class="styled-input" placeholder="Например: План 1910 года">
+    </div>
+
+    <div class="form-group">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <label for="ov-input-file" style="margin:0;">Файл изображения (*.jpg, *.png, *.webp):</label>
+        <button type="button" id="ov-file-clear" class="btn-link" style="font-size:11px;" hidden>✕ Очистить</button>
+      </div>
+      <input type="file" id="ov-input-file" accept="image/*" class="styled-input">
+      <small class="hint-text">Лимит: до 25 МБ, макс. 4096×4096 px.</small>
+    </div>
+
+    <div class="form-group">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <label for="ov-input-kml" style="margin:0;">Файл привязки KML (необязательно):</label>
+        <button type="button" id="ov-kml-clear" class="btn-link" style="font-size:11px;" hidden>✕ Очистить</button>
+      </div>
+      <input type="file" id="ov-input-kml" accept=".kml" class="styled-input">
+      <small class="hint-text" id="ov-kml-hint">Если выбран .kml (GroundOverlay), координаты и границы заполнятся автоматически. Поддерживаются многотайловые KML с сайта ЭтоМесто.</small>
+    </div>
+
+    <div class="form-group">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <label for="ov-input-coords" style="margin:0;">Координаты центра (Широта, Долгота):</label>
+        <button type="button" id="ov-btn-cur-center" class="btn-link" style="font-size:11px;">🎯 Центр экрана</button>
+      </div>
+      <input type="text" id="ov-input-coords" class="styled-input" placeholder="55.75124, 37.61842">
+    </div>
+
+    <div class="modal-actions">
+      <button id="ov-btn-cancel" class="btn btn-secondary">Отмена</button>
+      <button id="ov-btn-submit" class="btn btn-primary">Поместить на карту</button>
+    </div>
+  </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: СПИСОК НАЛОЖЕННЫХ КАРТ -->
+<div id="modal-overlays-list" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>📋 Наложенные карты</h3>
+      <button class="modal-close-x" id="overlays-list-x">✕</button>
+    </div>
+    <div class="modal-content-scroll" id="overlays-list-items" style="max-height: 48vh;"></div>
+    <div class="modal-actions" style="justify-content: space-between;">
+      <button id="btn-open-add-overlay-modal" class="btn btn-primary">➕ Добавить карту</button>
+      <button onclick="document.getElementById('modal-overlays-list').classList.remove('open')" class="btn btn-secondary">Закрыть</button>
     </div>
   </div>
 </div>
