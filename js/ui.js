@@ -843,15 +843,15 @@
     precache: true,
     location: true,
     gpsdist: false,
-    motion: false, // <-- Добавлено (по умолчанию скрыта)
+    motion: false,
     compasscone: true,
     compassneedle: true,
     rays: false,
     theme: true,
     infomenu: true,
     rangering: false,
-    motiontail: true,
-    motionvector: true
+    motiontail: true,    // <-- Хвост по умолчанию включен
+    motionvector: false  // <-- Траектория по умолчанию выключена
   };
   let uiVis = { ...UI_VIS_DEFAULT };
   const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'gpsdist', 'motion', 'compasscone', 'compassneedle', 'rays', 'theme', 'infomenu', 'rangering', 'motiontail', 'motionvector'];
@@ -1816,9 +1816,7 @@
       WM.rangeRing.setEnabled(!!uiVis.rangering);
     }
 
-    if (WM.motionVector) {
-      WM.motionVector.setEnabled(uiVis.motionvector !== false);
-    }
+    if (WM.motionVector) WM.motionVector.setEnabled(!!uiVis.motionvector);
 
     const btnCompass = $('btn-compass');
     if (btnCompass) {
@@ -3492,9 +3490,10 @@
       'btn-motion-toggle': () => {
         const tail = WM.motionTail ? WM.motionTail.isEnabled() : false;
         const vector = WM.motionVector ? WM.motionVector.isEnabled() : false;
-        if (tail && !vector) return '🐾 Хвост движения (активен)\nНажмите для переключения на траекторию';
+        if (tail && !vector) return '🐾 Хвост движения (активен)\nНажмите для включения траектории';
+        if (tail && vector) return '🐾↗️ Хвост и траектория (активны)\nНажмите для выключения';
         if (!tail && vector) return '↗️ Траектория движения (активна)\nНажмите для выключения';
-        return '🐾 Хвост и траектория движения (выключены)\nНажмите для включения хвоста';
+        return '🐾 Хвост и траектория (выключены)\nНажмите для включения хвоста';
       },
       'btn-gps-dist': () => (WM.gpsDist && WM.gpsDist.isActive()) ? '🧭 Расстояние до GPS: активно\nНажмите, чтобы отключить линию' : '🧭 Расстояние до GPS\nПоказывает прямую линию и расстояние от центра экрана до вашей геопозиции',
       'btn-theme-toggle': () => '🌙/☀️ Смена темы: переключение между тёмной и светлой темой оформления',
@@ -4023,7 +4022,81 @@
   }
 
 
+  function updateMotionBtnState() {
+    const btn = $('btn-motion-toggle');
+    if (!btn) return;
+
+    const tailOn = WM.motionTail ? WM.motionTail.isEnabled() : false;
+    const vectorOn = WM.motionVector ? WM.motionVector.isEnabled() : false;
+
+    if (tailOn && !vectorOn) {
+      // Режим 1: Только хвост
+      btn.textContent = '🐾';
+      btn.classList.add('active');
+      btn.title = 'Режим: Хвост движения (нажмите: хвост + траектория)';
+    } else if (tailOn && vectorOn) {
+      // Режим 2: Хвост + Траектория курса
+      btn.textContent = '🐾↗️';
+      btn.classList.add('active');
+      btn.title = 'Режим: Хвост и траектория (нажмите для выключения)';
+    } else if (!tailOn && vectorOn) {
+      // Резервный случай: если в настройках включили только вектор
+      btn.textContent = '↗️';
+      btn.classList.add('active');
+      btn.title = 'Режим: Только траектория (нажмите для выключения)';
+    } else {
+      // Режим 3: Всё выключено
+      btn.textContent = '🐾';
+      btn.classList.remove('active');
+      btn.title = 'Хвост и траектория выключены (нажмите для включения хвоста)';
+    }
+  }
+
+  
+
+  function setMotionMode(tailOn, vectorOn) {
+    if (WM.motionTail) WM.motionTail.setEnabled(tailOn);
+    if (WM.motionVector) WM.motionVector.setEnabled(vectorOn);
+
+    uiVis.motiontail = tailOn;
+    uiVis.motionvector = vectorOn;
+    WM.api.store.set('wm_ui_vis', JSON.stringify(uiVis));
+    try { localStorage.setItem('wm_tail_enabled', tailOn ? 'true' : 'false'); } catch (e) {}
+
+    const chkTail = $('toggle-ui-motiontail');
+    const subTail = $('sub-motiontail-settings');
+    if (chkTail) {
+      chkTail.checked = tailOn;
+      if (subTail) subTail.hidden = !tailOn;
+    }
+    const chkVector = $('toggle-ui-motionvector');
+    if (chkVector) chkVector.checked = vectorOn;
+
+    if (WM.gpsDist && WM.gpsDist.refresh) WM.gpsDist.refresh();
+    updateMotionBtnState();
+  }
+
+  function cycleMotionMode() {
+    const tailOn = WM.motionTail ? WM.motionTail.isEnabled() : false;
+    const vectorOn = WM.motionVector ? WM.motionVector.isEnabled() : false;
+
+    if (tailOn && !vectorOn) {
+      // Из «Только хвост» переключаем в «Хвост + Траектория»
+      setMotionMode(true, true);
+      showToast('🐾↗️ Включены хвост и траектория');
+    } else if (vectorOn || tailOn) {
+      // Если включено комбо (или отдельно вектор) — выключаем всё
+      setMotionMode(false, false);
+      showToast('🛑 Хвост и траектория выключены');
+    } else {
+      // Из выключенного состояния включаем хвост
+      setMotionMode(true, false);
+      showToast('🐾 Включён хвост движения');
+    }
+  }
+
   WM.ui = {
+    updateMotionBtnState,
     updateRays,
     openPlace(obj, alts) {
       obj.isVisited = true;
@@ -4253,8 +4326,9 @@
         subTail.hidden = !chkTail.checked;
         chkTail.onchange = (e) => {
           subTail.hidden = !e.target.checked;
+          uiVis.motiontail = e.target.checked; // <-- добавить эту строчку
           if (WM.motionTail) WM.motionTail.setEnabled(e.target.checked);
-          updateMotionBtnState(); // <-- Добавлено
+          updateMotionBtnState();
         };
       }
 
@@ -4606,71 +4680,9 @@
       });
       updateHybridSliderVisibility();
 
-      function updateMotionBtnState() {
-        const btn = $('btn-motion-toggle');
-        if (!btn) return;
+      
 
-        const tailOn = WM.motionTail ? WM.motionTail.isEnabled() : false;
-        const vectorOn = WM.motionVector ? WM.motionVector.isEnabled() : false;
 
-        if (tailOn && !vectorOn) {
-          btn.textContent = '🐾';
-          btn.classList.add('active');
-          btn.title = 'Режим: Хвост движения (нажмите для переключения на траекторию)';
-        } else if (!tailOn && vectorOn) {
-          btn.textContent = '↗️';
-          btn.classList.add('active');
-          btn.title = 'Режим: Траектория движения (нажмите для выключения)';
-        } else if (tailOn && vectorOn) {
-          btn.textContent = '🐾';
-          btn.classList.add('active');
-          btn.title = 'Режим: Хвост и траектория (нажмите для выключения)';
-        } else {
-          btn.textContent = '🐾';
-          btn.classList.remove('active');
-          btn.title = 'Хвост и траектория движения (выключены)';
-        }
-      }
-
-      // Применение состояния к обоим модулям, сохранение и синхронизация
-      function setMotionMode(tailOn, vectorOn) {
-        if (WM.motionTail) WM.motionTail.setEnabled(tailOn);
-        if (WM.motionVector) WM.motionVector.setEnabled(vectorOn);
-
-        uiVis.motiontail = tailOn;
-        uiVis.motionvector = vectorOn;
-        WM.api.store.set('wm_ui_vis', JSON.stringify(uiVis));
-
-        // Синхронизация чекбоксов настроек (если окно открыто)
-        const chkTail = $('toggle-ui-motiontail');
-        const subTail = $('sub-motiontail-settings');
-        if (chkTail) {
-          chkTail.checked = tailOn;
-          if (subTail) subTail.hidden = !tailOn;
-        }
-        const chkVector = $('toggle-ui-motionvector');
-        if (chkVector) chkVector.checked = vectorOn;
-
-        if (WM.gpsDist && WM.gpsDist.refresh) WM.gpsDist.refresh();
-        updateMotionBtnState();
-      }
-
-      // 3-шаговый цикл: 1) Хвост -> 2) Траектория -> 3) Выключить оба
-      function cycleMotionMode() {
-        const tailOn = WM.motionTail ? WM.motionTail.isEnabled() : false;
-        const vectorOn = WM.motionVector ? WM.motionVector.isEnabled() : false;
-
-        if (!tailOn && !vectorOn) {
-          setMotionMode(true, false);
-          showToast('🐾 Включён хвост движения');
-        } else if (tailOn && !vectorOn) {
-          setMotionMode(false, true);
-          showToast('🎯 Включена траектория движения');
-        } else {
-          setMotionMode(false, false);
-          showToast('🛑 Хвост и траектория выключены');
-        }
-      }
 
       const btnForceRefresh = $('btn-force-refresh');
       if (btnForceRefresh) {
@@ -5326,6 +5338,7 @@
         if (WM.loader && WM.loader.onSettingsChanged) {
           WM.loader.onSettingsChanged();
         }
+        updateMotionBtnState();
       };
 
       $('btn-download-area').onclick = () => $('modal-precache').classList.add('open');
