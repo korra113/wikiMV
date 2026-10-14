@@ -274,10 +274,15 @@
 
   // --- 4. Локальное скрытие чужой метки на данном устройстве ---
   function hideForeignMarker(markerId) {
+    if (WM.navTarget && WM.navTarget.isTarget('foreign_' + markerId)) {
+      WM.navTarget.clear();
+    }
     hiddenForeignMarkerIds.add(markerId);
     try {
       localStorage.setItem('wm_hidden_foreign_markers', JSON.stringify(Array.from(hiddenForeignMarkerIds)));
     } catch (e) {}
+
+    
 
     foreignMarkers.delete(markerId);
     if (renderedLayers.has(markerId)) {
@@ -296,6 +301,7 @@
   function createForeignPopup(item, markerInstance) {
     const coordsStr = `${item.lat.toFixed(5)}, ${item.lng.toFixed(5)}`;
     const dateStr = item.createdAt ? fmtDate(item.createdAt) : '';
+    const isTarget = WM.navTarget && WM.navTarget.isTarget('foreign_' + item.id);
 
     const wrap = document.createElement('div');
     wrap.className = 'wm-foreign-popup';
@@ -320,19 +326,43 @@
       </div>
 
       <div class="wm-foreign-pop-actions">
-        <button type="button" class="btn btn-primary btn-save-foreign">
-          💾 В мои заметки
-        </button>
-        <button type="button" class="btn btn-secondary btn-copy-foreign" title="Скопировать текст и координаты">
-          📋 Копировать
-        </button>
-        <button type="button" class="btn btn-danger-outline btn-delete-foreign" title="Скрыть только на моем устройстве">
-          🗑️ Скрыть
-        </button>
+        <div class="wm-foreign-actions-row">
+          <button type="button" class="btn btn-target-foreign ${isTarget ? 'btn-target-active' : 'btn-target'}">
+            ${isTarget ? '🛑 Снять цель' : '🎯 Как цель'}
+          </button>
+          <button type="button" class="btn btn-primary btn-save-foreign">
+            💾 В мои заметки
+          </button>
+        </div>
+        <div class="wm-foreign-actions-row secondary">
+          <button type="button" class="btn btn-secondary btn-copy-foreign" title="Скопировать текст и координаты">
+            📋 Копировать
+          </button>
+          <button type="button" class="btn btn-danger-outline btn-delete-foreign" title="Скрыть только на моем устройстве">
+            🗑️ Скрыть
+          </button>
+        </div>
       </div>
     `;
 
     L.DomEvent.disableClickPropagation(wrap);
+
+    const btnTarget = wrap.querySelector('.btn-target-foreign');
+    if (btnTarget) {
+      btnTarget.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (markerInstance) markerInstance.closePopup();
+        if (WM.navTarget) {
+          WM.navTarget.toggle({
+            id: 'foreign_' + item.id,
+            lat: item.lat,
+            lng: item.lng,
+            title: item.text ? item.text.slice(0, 22) : (item.emoji || 'Метка')
+          });
+        }
+      };
+    }
 
     const coordsEl = wrap.querySelector('.wm-foreign-pop-coords');
     if (coordsEl) {
