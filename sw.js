@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v32'; // обновляем версию
+const SHELL_CACHE = 'wm-shell-v33'; // обновляем версию
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -56,6 +56,7 @@ const ASSETS_TO_CACHE = [
   'js/measure.js',
   'js/shadowHeight.js',
   'js/rangeRing.js', // добавлен!
+  'js/imageOverlay.js',
   'js/main.js'
 ];
 self.addEventListener('install', (event) => {
@@ -187,6 +188,8 @@ self.addEventListener('fetch', (event) => {
   const isTile =
     url.includes('arcgisonline.com') ||
     url.includes('arcgis.com') ||                 // Esri Clarity
+    url.includes('etomesto.com') ||               // <-- ДОБАВИТЬ ЭТУ СТРОКУ
+    url.includes('etomesto.ru') ||                // <-- ДОБАВИТЬ ЭТУ СТРОКУ
     url.includes('google.com/vt') ||
     url.includes('openstreetmap.fr') ||          // Покроет и osmfr, и tile-cyclosm
     url.includes('opentopomap.org') ||
