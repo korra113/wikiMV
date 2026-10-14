@@ -1832,8 +1832,8 @@ const isMobile = L.Browser.mobile;
   // =========================================================================
   // СОСТОЯНИЯ СВЁРНУТОСТИ ПЛАШЕК
   // =========================================================================
-  let isGpsDistCollapsed = localStorage.getItem('wm_gps_dist_collapsed') === 'true';
-  let isNavTargetCollapsed = localStorage.getItem('wm_nav_target_collapsed') === 'true';
+  let isGpsDistCollapsed = localStorage.getItem('wm_gps_dist_collapsed') !== 'false';
+  let isNavTargetCollapsed = localStorage.getItem('wm_nav_target_collapsed') !== 'false';
 
   function toggleGpsDistCollapse(e) {
     if (e) {
@@ -1960,14 +1960,12 @@ const isMobile = L.Browser.mobile;
     let badgeHtml = '';
 
     if (isGpsDistCollapsed) {
-      // КОМПАКТНАЯ ВЕРСИЯ: только числа (дистанция, скорость, оставшееся время)
+      // КОМПАКТНАЯ ВЕРСИЯ: только расстояние и скорость
       badgeHtml = `
         <div class="wm-gps-dist-badge col-badge compact ${colorClass}" title="Нажмите, чтобы развернуть">
           <span class="wm-gdb-compact-val">${distFormatted}</span>
           <span class="wm-gdb-compact-sep">·</span>
           <span class="wm-gdb-compact-val">${speedFormatted}</span>
-          <span class="wm-gdb-compact-sep">·</span>
-          <span class="wm-gdb-compact-val ${isMovingAway ? 'negative' : ''}">${durationText}</span>
           <button type="button" class="wm-gdb-toggle-btn" title="Развернуть подробности">▼</button>
         </div>
       `;
@@ -2146,14 +2144,12 @@ const isMobile = L.Browser.mobile;
     let badgeHtml = '';
 
     if (isNavTargetCollapsed) {
-      // КОМПАКТНАЯ ВЕРСИЯ: только числа (дистанция, скорость, оставшееся время)
+      // КОМПАКТНАЯ ВЕРСИЯ: только расстояние и скорость
       badgeHtml = `
         <div class="wm-gps-dist-badge col-badge compact ${colorClass}" title="Нажмите, чтобы развернуть">
           <span class="wm-gdb-compact-val">${distFormatted}</span>
           <span class="wm-gdb-compact-sep">·</span>
           <span class="wm-gdb-compact-val">${speedFormatted}</span>
-          <span class="wm-gdb-compact-sep">·</span>
-          <span class="wm-gdb-compact-val ${isMovingAway ? 'negative' : ''}">${durationText}</span>
           <button type="button" class="wm-gdb-toggle-btn" title="Развернуть подробности">▼</button>
         </div>
       `;
