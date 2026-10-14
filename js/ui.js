@@ -848,12 +848,12 @@
     rays: false,
     theme: true,
     infomenu: true,
-    rangering: false, // <-- ДОБАВЛЕНО (по умолчанию выключен)
-    motiontail: true // <-- ПО УМОЛЧАНИЮ ВКЛЮЧЕНО
+    rangering: false,
+    motiontail: true,
+    motionvector: true // <-- ДОБАВЛЕНО
   };
   let uiVis = { ...UI_VIS_DEFAULT };
-  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'gpsdist', 'compasscone', 'compassneedle', 'rays', 'theme', 'infomenu', 'rangering', 'motiontail'];
-
+  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'gpsdist', 'compasscone', 'compassneedle', 'rays', 'theme', 'infomenu', 'rangering', 'motiontail', 'motionvector'];
   const DEFAULT_INFO_ITEMS = {
     time: true,
     userCoords: true,
@@ -1813,6 +1813,10 @@
 
     if (WM.rangeRing) {
       WM.rangeRing.setEnabled(!!uiVis.rangering);
+    }
+
+    if (WM.motionVector) {
+      WM.motionVector.setEnabled(uiVis.motionvector !== false);
     }
 
     const btnCompass = $('btn-compass');
@@ -4117,6 +4121,16 @@
         });
       });
 
+      const chkMotionVector = $('toggle-ui-motionvector');
+      if (chkMotionVector) {
+        chkMotionVector.checked = uiVis.motionvector !== false;
+        chkMotionVector.onchange = (e) => {
+          uiVis.motionvector = e.target.checked;
+          if (WM.motionVector) WM.motionVector.setEnabled(e.target.checked);
+          if (WM.gpsDist && WM.gpsDist.refresh) WM.gpsDist.refresh();
+        };
+      }
+
       // Обработка клика и долгого тапа для btn-theme-toggle
       const btnTheme = $('btn-theme-toggle');
       if (btnTheme) {
@@ -5099,6 +5113,12 @@
         const passSettingsInput = $('shared-markers-password-input');
         if (passSettingsInput && WM.sharedMarkers) {
           WM.sharedMarkers.setPassword(passSettingsInput.value);
+        }
+
+        const chkMV = $('toggle-ui-motionvector');
+        if (chkMV) {
+          uiVis.motionvector = chkMV.checked;
+          if (WM.motionVector) WM.motionVector.setEnabled(chkMV.checked);
         }
 
         const disabledMaps = [];
