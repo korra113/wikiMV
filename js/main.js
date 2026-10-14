@@ -70,10 +70,11 @@
     tapTolerance: 20, 
     maxZoom: 20,
     minZoom: 3,
-    zoomSnap: 1,      // 1 вместо 0.5 убирает интерполяцию пикселей и размытие растра при зуме
+    zoomSnap: 1,
     zoomDelta: 1,
     zoomAnimation: true,
-    zoomAnimationThreshold: 4 // При резком скачке зума не анимировать лишние кадры
+    fadeAnimation: false, // <-- ОТКЛЮЧАЕТ внутренний сброс тайла в opacity: 0
+    zoomAnimationThreshold: 4
   }).setView(saved ? saved.c : [55.751244, 37.618423], saved ? saved.z : 16);
 
   L.control.zoom({ position: 'topleft' }).addTo(map);
@@ -81,14 +82,15 @@
   const EMPTY_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
   // Базовые параметры экономии трафика для ВСЕХ слоев тайлов
-const COMMON_TILE_OPTIONS = {
-  // crossOrigin: true, // <-- УДАЛИТЬ ИЛИ ЗАКОММЕНТИРОВАТЬ ЭТУ СТРОКУ!
-  keepBuffer: 2,
-  updateWhenIdle: false,
-  updateWhenZooming: false,
-  updateInterval: 250,
-  errorTileUrl: EMPTY_TILE
-};
+const isMobile = L.Browser.mobile;
+
+  const COMMON_TILE_OPTIONS = {
+    keepBuffer: 3,                 // Держим чуть больший запас тайлов вокруг экрана, чтобы они не удалялись на границе
+    updateWhenIdle: isMobile,      // На смартфонах обновляем тайлы только в паузах скролла — устраняет дёрганье!
+    updateWhenZooming: true,       // Разрешаем Leaflet плавно масштабировать тайлы во время зума
+    updateInterval: isMobile ? 200 : 100,
+    errorTileUrl: EMPTY_TILE
+  };
 
 
 
@@ -922,7 +924,7 @@ const COMMON_TILE_OPTIONS = {
 
   const wmContours = new WmRasterLayer('https://i{hash}.wikimapia.org/?x={x}&y={y}&zoom={z}&type=hybrid&lng=1', {
     ...COMMON_TILE_OPTIONS,
-    keepBuffer: 0,
+    keepBuffer: 2, // Было 0! Значение 0 уничтожало тайл при малейшем выходе за край экрана
     pane: 'wm-raster-pane',
     subdomains: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'],
     maxNativeZoom: 18,
