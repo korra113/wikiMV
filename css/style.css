@@ -2229,6 +2229,55 @@ body.sheet-open .overlay-hud {
   margin-top: 2px;
 }
 
+.wm-kml-tiles-container {
+  will-change: transform;
+  transform-origin: 0 0;
+  contain: layout style;
+}
+
+/* Индикатор и спиннер загрузки фото в лайтбоксе */
+.lb-loader {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 4050;
+  pointer-events: none;
+  animation: qmOverlayFade 0.15s ease-out;
+}
+
+.lb-spinner {
+  width: 44px;
+  height: 44px;
+  border: 3.5px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--accent, #38bdf8);
+  border-radius: 50%;
+  animation: lbSpin 0.75s linear infinite;
+}
+
+.lb-loader-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.3px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+@keyframes lbSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Скрытие фото до момента завершения скачивания */
+#lb-img {
+  transition: opacity 0.2s ease, transform 0.08s ease-out;
+}
+
+#lb-img.loading {
+  opacity: 0 !important;
+}
+
 /* Стилизация для темы ночного зрения */
 [data-theme="night-vision"] .wm-kml-placeholder {
   background: rgba(18, 3, 3, 0.94);
@@ -2360,7 +2409,83 @@ body.sheet-open .overlay-hud {
   background: #ef4444;
   box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.9);
 }
+/* =========================================================================
+   ПОЛНАЯ МОНОХРОМАТИЗАЦИЯ ИНТЕРФЕЙСА ДЛЯ ТЕМЫ НОЧНОГО ЗРЕНИЯ
+   ========================================================================= */
 
+/* 1. Кнопки масштаба карты (+ / -) */
+[data-theme="night-vision"] .leaflet-control-zoom {
+  border-color: #3b0707 !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.8) !important;
+}
+
+[data-theme="night-vision"] .leaflet-control-zoom a {
+  background-color: #120303 !important;
+  color: #ef4444 !important;
+  border-color: #3b0707 !important;
+  box-shadow: none !important;
+}
+
+[data-theme="night-vision"] .leaflet-control-zoom a:hover,
+[data-theme="night-vision"] .leaflet-control-zoom a:active {
+  background-color: #260505 !important;
+  color: #ff2a2a !important;
+}
+
+/* 2. Иконка выбора слоев Leaflet */
+[data-theme="night-vision"] .leaflet-control-layers-toggle {
+  background-color: #120303 !important;
+  border-color: #3b0707 !important;
+  /* Превращение синей растровой иконки слоев в чисто красную */
+  filter: invert(100%) grayscale(100%) sepia(100%) hue-rotate(315deg) saturate(900%) brightness(0.9) !important;
+}
+
+[data-theme="night-vision"] .leaflet-control-layers {
+  background-color: #120303 !important;
+  border-color: #3b0707 !important;
+}
+
+/* 3. Превращение всех эмодзи интерфейса в красные */
+[data-theme="night-vision"] .floating-btn,
+[data-theme="night-vision"] .square-btn-top,
+[data-theme="night-vision"] .quick-swap-top-btn,
+[data-theme="night-vision"] .quick-menu-item-icon,
+[data-theme="night-vision"] .quick-menu-title,
+[data-theme="night-vision"] .limit-badge,
+[data-theme="night-vision"] .limit-reset-btn,
+[data-theme="night-vision"] .tag-filter-badge,
+[data-theme="night-vision"] .hover-pill,
+[data-theme="night-vision"] .info-hud-title,
+[data-theme="night-vision"] .ih-spoiler-summary,
+[data-theme="night-vision"] .ih-weather-icon,
+[data-theme="night-vision"] .sh-hud-icon,
+[data-theme="night-vision"] .qm-hud-icon,
+[data-theme="night-vision"] .coords-copy-badge {
+  filter: grayscale(100%) sepia(100%) hue-rotate(315deg) saturate(750%) brightness(0.92);
+}
+
+/* 4. Плавающие кнопки и стрелка компаса */
+[data-theme="night-vision"] .floating-btn,
+[data-theme="night-vision"] .square-btn-top,
+[data-theme="night-vision"] .quick-swap-top-btn,
+[data-theme="night-vision"] .compass-btn-top {
+  background: rgba(18, 3, 3, 0.94) !important;
+  border-color: #3b0707 !important;
+  color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .floating-btn.active,
+[data-theme="night-vision"] .quick-swap-top-btn.active-target {
+  background: #2b0505 !important;
+  border-color: #ef4444 !important;
+  color: #ff3333 !important;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.35) !important;
+}
+
+/* 5. Стрелка компаса: делаем южный кончик тёмно-красным вместо серого */
+[data-theme="night-vision"] .needle-south {
+  border-top-color: #4a0d0d !important;
+}
 .limit-reset-btn {
   width: 27px;
   height: 27px;
