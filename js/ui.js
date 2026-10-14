@@ -843,6 +843,7 @@
     precache: true,
     location: true,
     gpsdist: false,
+    motion: false, // <-- Добавлено (по умолчанию скрыта)
     compasscone: true,
     compassneedle: true,
     rays: false,
@@ -850,10 +851,10 @@
     infomenu: true,
     rangering: false,
     motiontail: true,
-    motionvector: true // <-- ДОБАВЛЕНО
+    motionvector: true
   };
   let uiVis = { ...UI_VIS_DEFAULT };
-  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'gpsdist', 'compasscone', 'compassneedle', 'rays', 'theme', 'infomenu', 'rangering', 'motiontail', 'motionvector'];
+  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'gpsdist', 'motion', 'compasscone', 'compassneedle', 'rays', 'theme', 'infomenu', 'rangering', 'motiontail', 'motionvector'];
   const DEFAULT_INFO_ITEMS = {
     time: true,
     userCoords: true,
@@ -1843,6 +1844,7 @@
     if ($('btn-add-marker')) $('btn-add-marker').style.display = uiVis.marker ? '' : 'none';
     if ($('btn-download-area')) $('btn-download-area').style.display = uiVis.precache ? '' : 'none';
     if ($('btn-location')) $('btn-location').style.display = uiVis.location ? '' : 'none';
+    if ($('btn-motion-toggle')) $('btn-motion-toggle').style.display = uiVis.motion ? '' : 'none'; // <-- Добавлено
     if ($('btn-gps-dist')) $('btn-gps-dist').style.display = uiVis.gpsdist ? '' : 'none';
     if ($('btn-rays-toggle')) $('btn-rays-toggle').style.display = uiVis.rays ? '' : 'none';
     if ($('btn-theme-toggle')) $('btn-theme-toggle').style.display = uiVis.theme ? '' : 'none';
@@ -3487,6 +3489,13 @@
       'btn-add-marker': () => '📍 Добавить метку: создать заметку с эмодзи в центре экрана с возможностью перемещения',
       'btn-download-area': () => '📥 Скачать область: сохранить контуры и описания видимой области для автономной работы',
       'btn-location': () => '🛰️ Моя геопозиция: определить и показать текущие координаты по GPS',
+      'btn-motion-toggle': () => {
+        const tail = WM.motionTail ? WM.motionTail.isEnabled() : false;
+        const vector = WM.motionVector ? WM.motionVector.isEnabled() : false;
+        if (tail && !vector) return '🐾 Хвост движения (активен)\nНажмите для переключения на траекторию';
+        if (!tail && vector) return '↗️ Траектория движения (активна)\nНажмите для выключения';
+        return '🐾 Хвост и траектория движения (выключены)\nНажмите для включения хвоста';
+      },
       'btn-gps-dist': () => (WM.gpsDist && WM.gpsDist.isActive()) ? '🧭 Расстояние до GPS: активно\nНажмите, чтобы отключить линию' : '🧭 Расстояние до GPS\nПоказывает прямую линию и расстояние от центра экрана до вашей геопозиции',
       'btn-theme-toggle': () => '🌙/☀️ Смена темы: переключение между тёмной и светлой темой оформления',
       'btn-compass': () => '🧭 Компас ориентации: стрелка указывает на географический Север. Нажмите для калибровки и азимута',
@@ -4128,8 +4137,15 @@
           uiVis.motionvector = e.target.checked;
           if (WM.motionVector) WM.motionVector.setEnabled(e.target.checked);
           if (WM.gpsDist && WM.gpsDist.refresh) WM.gpsDist.refresh();
+          updateMotionBtnState(); // <-- Добавлено
         };
       }
+
+      const btnMotion = $('btn-motion-toggle');
+      if (btnMotion) {
+        btnMotion.onclick = cycleMotionMode;
+      }
+      updateMotionBtnState();
 
       // Обработка клика и долгого тапа для btn-theme-toggle
       const btnTheme = $('btn-theme-toggle');
@@ -4238,6 +4254,7 @@
         chkTail.onchange = (e) => {
           subTail.hidden = !e.target.checked;
           if (WM.motionTail) WM.motionTail.setEnabled(e.target.checked);
+          updateMotionBtnState(); // <-- Добавлено
         };
       }
 
@@ -4588,6 +4605,72 @@
         r.addEventListener('change', updateHybridSliderVisibility);
       });
       updateHybridSliderVisibility();
+
+      function updateMotionBtnState() {
+        const btn = $('btn-motion-toggle');
+        if (!btn) return;
+
+        const tailOn = WM.motionTail ? WM.motionTail.isEnabled() : false;
+        const vectorOn = WM.motionVector ? WM.motionVector.isEnabled() : false;
+
+        if (tailOn && !vectorOn) {
+          btn.textContent = '🐾';
+          btn.classList.add('active');
+          btn.title = 'Режим: Хвост движения (нажмите для переключения на траекторию)';
+        } else if (!tailOn && vectorOn) {
+          btn.textContent = '↗️';
+          btn.classList.add('active');
+          btn.title = 'Режим: Траектория движения (нажмите для выключения)';
+        } else if (tailOn && vectorOn) {
+          btn.textContent = '🐾';
+          btn.classList.add('active');
+          btn.title = 'Режим: Хвост и траектория (нажмите для выключения)';
+        } else {
+          btn.textContent = '🐾';
+          btn.classList.remove('active');
+          btn.title = 'Хвост и траектория движения (выключены)';
+        }
+      }
+
+      // Применение состояния к обоим модулям, сохранение и синхронизация
+      function setMotionMode(tailOn, vectorOn) {
+        if (WM.motionTail) WM.motionTail.setEnabled(tailOn);
+        if (WM.motionVector) WM.motionVector.setEnabled(vectorOn);
+
+        uiVis.motiontail = tailOn;
+        uiVis.motionvector = vectorOn;
+        WM.api.store.set('wm_ui_vis', JSON.stringify(uiVis));
+
+        // Синхронизация чекбоксов настроек (если окно открыто)
+        const chkTail = $('toggle-ui-motiontail');
+        const subTail = $('sub-motiontail-settings');
+        if (chkTail) {
+          chkTail.checked = tailOn;
+          if (subTail) subTail.hidden = !tailOn;
+        }
+        const chkVector = $('toggle-ui-motionvector');
+        if (chkVector) chkVector.checked = vectorOn;
+
+        if (WM.gpsDist && WM.gpsDist.refresh) WM.gpsDist.refresh();
+        updateMotionBtnState();
+      }
+
+      // 3-шаговый цикл: 1) Хвост -> 2) Траектория -> 3) Выключить оба
+      function cycleMotionMode() {
+        const tailOn = WM.motionTail ? WM.motionTail.isEnabled() : false;
+        const vectorOn = WM.motionVector ? WM.motionVector.isEnabled() : false;
+
+        if (!tailOn && !vectorOn) {
+          setMotionMode(true, false);
+          showToast('🐾 Включён хвост движения');
+        } else if (tailOn && !vectorOn) {
+          setMotionMode(false, true);
+          showToast('🎯 Включена траектория движения');
+        } else {
+          setMotionMode(false, false);
+          showToast('🛑 Хвост и траектория выключены');
+        }
+      }
 
       const btnForceRefresh = $('btn-force-refresh');
       if (btnForceRefresh) {
