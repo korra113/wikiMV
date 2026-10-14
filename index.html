@@ -128,6 +128,7 @@
     <button id="btn-add-marker" class="floating-btn" title="Добавить метку" style="display: none;">📍</button>
     <button id="btn-download-area" class="floating-btn" title="Скачать область">📥</button>
     <button id="btn-location" class="floating-btn" title="Моя геопозиция">🛰️</button>
+    <button id="btn-motion-toggle" class="floating-btn" title="Хвост и траектория движения" style="display: none;">🐾</button>
     <button id="btn-gps-dist" class="floating-btn" title="Расстояние от центра до GPS" style="display: none;">🧭</button>
     <button id="btn-rays-toggle" class="floating-btn" title="Азимуты Солнца и Луны" style="display: none;">✨</button>
     <button id="btn-theme-toggle" class="floating-btn" title="Сменить тему">🌙</button>
@@ -1029,6 +1030,11 @@
                 <label class="toggle-item">
                   <span>Кнопка «Моя геопозиция»</span>
                   <input type="checkbox" id="toggle-ui-location" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <span>Кнопка «Хвост и траектория движения»</span>
+                  <input type="checkbox" id="toggle-ui-motion">
                   <span class="toggle-switch"></span>
                 </label>
                 <label class="toggle-item">
