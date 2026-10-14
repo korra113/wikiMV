@@ -91,11 +91,11 @@ body.capacitor-app .leaflet-control-layers-expanded {
   background: #0f172a;
 }
 
-/* Выносим тайловые панели на GPU без лишнего перерисовывания */
-.leaflet-tile-pane,
-.leaflet-wm-raster-pane-pane,
-.leaflet-wm-hillshade-pane-pane {
-  transform: translate3d(0, 0, 0);
+/* Убираем конфликт transform и принудительно сглаживаем границы растра на GPU */
+.leaflet-tile {
+  /* Прозрачный outline заставляет видеочип не отсекать крайний ряд субпикселей */
+  outline: 1px solid transparent;
+  -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
 }
 
@@ -5723,14 +5723,28 @@ body.sheet-open .info-hud {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23f87171' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' opacity='0.6'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cline x1='12' y1='8' x2='12' y2='12'/%3E%3Cline x1='12' y1='16' x2='12.01' y2='16'/%3E%3C/svg%3E") !important;
 }
 
-/* 4. Отключение фонового скелетона для оверлея контуров и аварийной подложки */
+/* 4. Отключение фонового скелетона для всех оверлеев: контуров, аварийной подложки и рельефа */
 .wm-raster-tile .leaflet-tile:not(.leaflet-tile-loaded),
-.wm-fallback-tile .leaflet-tile:not(.leaflet-tile-loaded) {
+.wm-fallback-tile .leaflet-tile:not(.leaflet-tile-loaded),
+.wm-relief-tile .leaflet-tile:not(.leaflet-tile-loaded),
+.leaflet-wm-hillshade-pane-pane .leaflet-tile:not(.leaflet-tile-loaded),
+.leaflet-wm-raster-pane-pane .leaflet-tile:not(.leaflet-tile-loaded) {
   background: transparent !important;
+  background-image: none !important;
   box-shadow: none !important;
   animation: none !important;
 }
 
+/* Полное отключение значков ошибок и повторов на полупрозрачных оверлеях (чтобы не двоились) */
+.leaflet-wm-hillshade-pane-pane .leaflet-tile-retry,
+.leaflet-wm-hillshade-pane-pane .leaflet-tile-error,
+.leaflet-wm-raster-pane-pane .leaflet-tile-retry,
+.leaflet-wm-raster-pane-pane .leaflet-tile-error {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
 /* 5. Отключение анимации при масштабировании для 60 FPS */
 .leaflet-zoom-animating .leaflet-tile:not(.leaflet-tile-loaded) {
   animation: none !important;
