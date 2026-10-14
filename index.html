@@ -221,15 +221,20 @@
 
   <!-- Просмотрщик изображений с удобным масштабированием -->
   <div id="lightbox" class="lightbox" hidden>
+    <div class="lb-viewport" id="lb-viewport">
+      <!-- Индикатор загрузки фото -->
+      <div id="lb-loader" class="lb-loader" hidden>
+        <div class="lb-spinner"></div>
+        <span class="lb-loader-text">Загрузка фото…</span>
+      </div>
+      <img id="lb-img" alt="" draggable="false">
+    </div>
+    
     <button id="lb-close" class="lb-btn lb-close" title="Закрыть">✕</button>
     
     <!-- Стрелки перелистывания для ПК / больших экранов -->
     <button id="lb-prev" class="lb-btn lb-nav lb-prev" title="Предыдущее фото" hidden>‹</button>
     <button id="lb-next" class="lb-btn lb-nav lb-next" title="Следующее фото" hidden>›</button>
-
-    <div class="lb-viewport" id="lb-viewport">
-      <img id="lb-img" alt="" draggable="false">
-    </div>
 
     <!-- Панель управления масштабированием -->
     <div class="lb-bottom-bar">
@@ -445,7 +450,7 @@
                     <span style="font-weight:600; display:block;">Скрыть крупные объекты</span>
                     <small class="hint-text" style="margin:2px 0 0;">Скрывать огромные лесопарки, водохранилища и целые районы</small>
                   </div>
-                  <input type="checkbox" id="toggle-filter-hide-large">
+                  <input type="checkbox" id="toggle-filter-hide-large" checked>
                   <span class="toggle-switch"></span>
                 </label>
 
@@ -1470,12 +1475,16 @@
       });
 
       // Регистрация Service Worker
-      var isApp = document.documentElement.classList.contains('capacitor-app');
-      if ('serviceWorker' in navigator && !isApp) {
+      if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () {
           navigator.serviceWorker.register('./sw.js')
-            .then(function (reg) { console.log('[PWA] SW готов:', reg.scope); })
-            .catch(function (err) { console.warn('[PWA] Ошибка SW:', err); });
+            .then(function (reg) {
+              console.log('[SW] Готов:', reg.scope);
+              if (reg.waiting) {
+                reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+              }
+            })
+            .catch(function (err) { console.warn('[SW] Ошибка SW:', err); });
         });
       }
     })();
@@ -1699,6 +1708,8 @@
       <b id="ov-hud-title" class="ov-hud-title">Слой карты</b>
     </div>
     <div class="ov-hud-header-actions">
+      <!-- НОВАЯ КНОПКА СКРЫТИЯ/ОТОБРАЖЕНИЯ СЛОЯ -->
+      <button id="ov-btn-toggle-vis" class="ov-icon-btn" title="Скрыть этот слой">👁️</button>
       <button id="ov-btn-flyto" class="ov-icon-btn" title="Приблизить к слою">🎯</button>
       <button id="ov-btn-reset" class="ov-icon-btn" title="Сбросить к исходным параметрам">↺</button>
       <button id="ov-btn-delete" class="ov-icon-btn danger" title="Удалить этот слой">🗑️</button>
