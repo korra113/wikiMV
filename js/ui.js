@@ -915,40 +915,107 @@
   // =========================================================================
   // МАРШРУТЫ И ФОЛЛБЕКИ ЗАГРУЗКИ ПОГОДЫ (ОБХОД БЛОКИРОВОК)
   // =========================================================================
-  const WEATHER_ROUTES = {
-    direct: u => u,
-    corsproxy: u => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
-    allorigins: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
-    codetabs: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)
-  };
+  // =========================================================================
+  // МАРШРУТЫ И ФОЛЛБЕКИ ЗАГРУЗКИ ПОГОДЫ (OPEN-METEO + WTTR.IN)
+  // =========================================================================
+  
+  // Конвертер кода погоды WWO (wttr.in) в стандартный код WMO (Open-Meteo)
+  // =========================================================================
+  // МАРШРУТЫ И ФОЛЛБЕКИ ЗАГРУЗКИ ПОГОДЫ (OPEN-METEO + WTTR.IN + МНОГОУРОВНЕВЫЙ ПРОКСИ)
+  // =========================================================================
 
-  let lastGoodWeatherRoute = null;
-  try {
-    lastGoodWeatherRoute = localStorage.getItem('wm_last_weather_route') || null;
-  } catch (e) {}
-
-  function getWeatherRouteOrder() {
-    const isProxyForced = WM.api && WM.api.netMode === 'proxy';
-    let list = isProxyForced
-      ? ['corsproxy', 'allorigins', 'codetabs', 'direct']
-      : ['direct', 'corsproxy', 'allorigins', 'codetabs'];
-
-    if (lastGoodWeatherRoute && list.includes(lastGoodWeatherRoute)) {
-      list = [lastGoodWeatherRoute, ...list.filter(r => r !== lastGoodWeatherRoute)];
+  function wwoToWmoCode(wwoCode) {
+    const code = parseInt(wwoCode, 10);
+    switch (code) {
+      case 113: return 0;  // Ясно
+      case 116: return 2;  // Переменная облачность
+      case 119:
+      case 122: return 3;  // Пасмурно
+      case 143:
+      case 248:
+      case 260: return 45; // Туман
+      case 176:
+      case 263:
+      case 266:
+      case 293:
+      case 296: return 61; // Небольшой дождь
+      case 302:
+      case 308: return 65; // Сильный дождь
+      case 179:
+      case 227:
+      case 230:
+      case 323:
+      case 326: return 71; // Небольшой снег
+      case 332:
+      case 338: return 75; // Снегопад
+      case 200:
+      case 386:
+      case 389: return 95; // Гроза
+      default: return 1;
     }
-    return list;
   }
 
-  async function fetchWeatherWithTimeout(url, timeoutMs = 3800) {
+  // Адаптер: преобразует формат wttr.in (?format=j1) в структуру Open-Meteo
+  function parseWttrAsOpenMeteo(data) {
+    if (!data || !Array.isArray(data.weather)) throw new Error('Некорректный wttr.in');
+    const hourlyTimes = [];
+    const hourlyTemps = [];
+    const hourlyCodes = [];
+    const dailyTimes = [];
+    const dailyPrecip = [];
+    const dailyCodes = [];
+
+    const pad = n => String(n).padStart(2, '0');
+
+    data.weather.forEach(day => {
+      dailyTimes.push(day.date);
+      const dayPrecip = (day.hourly || []).reduce((acc, h) => acc + (parseFloat(h.precipMM) || 0), 0);
+      dailyPrecip.push(dayPrecip);
+      dailyCodes.push(day.hourly && day.hourly[4] ? wwoToWmoCode(day.hourly[4].weatherCode) : 0);
+
+      (day.hourly || []).forEach(h => {
+        const hour = Math.floor(parseInt(h.time, 10) / 100);
+        hourlyTimes.push(`${day.date}T${pad(hour)}:00`);
+        hourlyTemps.push(parseFloat(h.tempC != null ? h.tempC : h.temp_C));
+        hourlyCodes.push(wwoToWmoCode(h.weatherCode));
+      });
+    });
+
+    return {
+      hourly: {
+        time: hourlyTimes,
+        temperature_2m: hourlyTemps,
+        weather_code: hourlyCodes
+      },
+      daily: {
+        time: dailyTimes,
+        precipitation_sum: dailyPrecip,
+        weather_code: dailyCodes
+      }
+    };
+  }
+
+  // Безопасный запрос с таймаутом и распаковкой прокси-обёрток
+  async function fetchWeatherEndpoint(url, timeoutMs = 3800) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
     try {
       const res = await fetch(url, { signal: ctl.signal });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const text = await res.text();
-      const data = JSON.parse(text);
-      if (!data || !data.hourly) throw new Error('Некорректная структура JSON погоды');
-      return data;
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        throw new Error('Ответ не в формате JSON');
+      }
+
+      // Если ответ пришел через прокси с полем contents (например, allorigins / hexlet)
+      if (json && typeof json.contents === 'string') {
+        json = JSON.parse(json.contents);
+      }
+
+      return json;
     } finally {
       clearTimeout(timer);
     }
@@ -959,59 +1026,88 @@
   let isWeatherLoading = false;
   let lastWeatherFailTime = 0;
 
+  // Восстановление последнего прогноза из локальной памяти при старте
+  try {
+    const savedWeather = localStorage.getItem('wm_weather_last_cache');
+    if (savedWeather) {
+      const parsed = JSON.parse(savedWeather);
+      if (parsed && parsed.data && parsed.key) {
+        weatherCacheData = parsed.data;
+        weatherCacheKey = parsed.key;
+      }
+    }
+  } catch (e) {}
+
   async function loadWeatherIfNeeded(lat, lng) {
     if (!infoHudConfig.weather) return;
 
     const key = `${lat.toFixed(2)}_${lng.toFixed(2)}`;
     if (weatherCacheKey === key && weatherCacheData) return;
     
-    // Если уже идёт загрузка или был полный сбой менее 25 секунд назад — ждём
+    // Если уже загружается или была неудача менее 6 секунд назад — не спамим запросы
     if (isWeatherLoading) return;
-    if (Date.now() - lastWeatherFailTime < 25000) return;
+    if (Date.now() - lastWeatherFailTime < 6000) return;
 
     isWeatherLoading = true;
-    weatherCacheKey = key;
 
-    const targetUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&hourly=temperature_2m,precipitation,weather_code&daily=weather_code,precipitation_sum&past_days=4&forecast_days=8&timezone=auto`;
+    // URL прогноза Open-Meteo
+    const openMeteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&hourly=temperature_2m,precipitation,weather_code&daily=weather_code,precipitation_sum&past_days=4&forecast_days=8&timezone=auto`;
+    const wttrUrl = `https://wttr.in/${lat.toFixed(4)},${lng.toFixed(4)}?format=j1`;
 
-    const routes = getWeatherRouteOrder();
-    let resultData = null;
-    let successfulRoute = null;
+    try {
+      let data = null;
 
-    for (const rName of routes) {
-      const getUrl = WEATHER_ROUTES[rName];
-      if (!getUrl) continue;
-      const finalUrl = getUrl(targetUrl);
-
+      // 1. Попытка напрямую (для тех, кто под VPN или у кого провайдер не фильтрует Open-Meteo)
       try {
-        resultData = await fetchWeatherWithTimeout(finalUrl, 3800);
-        if (resultData && resultData.hourly) {
-          successfulRoute = rName;
-          break; // Успешно загрузили — выходим из цикла фоллбеков
+        data = await fetchWeatherEndpoint(openMeteoUrl, 1200);
+      } catch (errDirect) {
+        // 2. Для пользователей из РФ без VPN: запускаем параллельную гонку проверенных зеркал
+        const candidateTasks = [
+          // А. Зеркало Хекслета (всегда доступно в РФ без VPN)
+          fetchWeatherEndpoint('https://allorigins.hexlet.app/raw?url=' + encodeURIComponent(openMeteoUrl), 3600),
+
+          // Б. Альтернативный CORS-прокси CodeTabs
+          fetchWeatherEndpoint('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(openMeteoUrl), 3800),
+
+          // В. CORSProxy.org
+          fetchWeatherEndpoint('https://corsproxy.org/?' + encodeURIComponent(openMeteoUrl), 3800),
+
+          // Г. wttr.in напрямую
+          fetchWeatherEndpoint(wttrUrl, 3200).then(parseWttrAsOpenMeteo),
+
+          // Д. wttr.in через прокси Хекслета (на случай блокировки IP wttr.in провайдером)
+          fetchWeatherEndpoint('https://allorigins.hexlet.app/raw?url=' + encodeURIComponent(wttrUrl), 3800).then(parseWttrAsOpenMeteo)
+        ];
+
+        // Пользовательский прокси, если задан
+        const customProxy = localStorage.getItem('wm_custom_weather_proxy');
+        if (customProxy && customProxy.startsWith('http')) {
+          candidateTasks.unshift(
+            fetchWeatherEndpoint(customProxy.replace('{url}', encodeURIComponent(openMeteoUrl)), 3500)
+          );
         }
-      } catch (err) {
-        // Пробуем следующий маршрут без задержки
+
+        // Берем первый успешно ответивший источник
+        data = await Promise.any(candidateTasks);
       }
-    }
 
-    if (resultData && successfulRoute) {
-      weatherCacheData = resultData;
-      lastWeatherFailTime = 0;
+      if (data && data.hourly && Array.isArray(data.hourly.time)) {
+        weatherCacheData = data;
+        weatherCacheKey = key;
+        lastWeatherFailTime = 0;
 
-      if (lastGoodWeatherRoute !== successfulRoute) {
-        lastGoodWeatherRoute = successfulRoute;
+        // Сохраняем в память устройства
         try {
-          localStorage.setItem('wm_last_weather_route', successfulRoute);
+          localStorage.setItem('wm_weather_last_cache', JSON.stringify({ key, data }));
         } catch (e) {}
+      } else {
+        throw new Error('Пустой или некорректный ответ погоды');
       }
-    } else {
-      console.warn('[Weather] Все маршруты (напрямую и через прокси) временно недоступны');
-      // Ранее загруженные данные не стираем, чтобы экран не мигал
+    } catch (err) {
+      console.warn('[Weather] Фоллбэки погоды временно недоступны:', err);
       lastWeatherFailTime = Date.now();
-    }
-
-    isWeatherLoading = false;
-    if (weatherCacheData) {
+    } finally {
+      isWeatherLoading = false;
       updateInfoHudUI();
     }
   }
@@ -3405,7 +3501,6 @@
       'btn-measure-undo': () => '↩ Отменить узел: удалить последнюю поставленную точку измерения',
       'btn-measure-finish': () => '✓ Фиксация: зафиксировать измерение или продолжить добавление узлов',
       'btn-measure-clear': () => '🗑️ Удалить измерение: стереть текущую линию с карты',
-      'btn-theme-toggle': () => '🌙/☀️ Смена темы\nУдерживайте для режима ночного зрения (красный монохром)',
       'btn-measure-close': () => '✕ Закрыть линейку: скрыть панель измерений с экрана',
       'btn-quick-swap-map': () => '🔀 Быстрая смена: нажатие — переключить, долгое удержание — выбрать вторую карту',
       'btn-measure-new': () => '＋ Новое измерение: начать рисовать ещё одну независимую линию',
@@ -4027,25 +4122,33 @@
       if (btnTheme) {
         let themeHoldTimer = null;
         let isThemeLongPress = false;
-        let lastThemeLongPressTime = 0; // Защита от синтетического клика
+        let lastLongPressTime = 0;
         let themeTouchStartPt = null;
+        let isTouchAction = false;
 
-        // Контекстное меню (ПК — правый клик)
+        // Контекстное меню — срабатывает ТОЛЬКО от реального правого клика мыши на ПК
         btnTheme.addEventListener('contextmenu', (e) => {
           e.preventDefault();
-          toggleNightVision();
+          e.stopPropagation();
+          // Если это долгий тап на телефоне — игнорируем (его уже обработал touchstart)
+          if (isTouchAction || (e.pointerType && e.pointerType !== 'mouse')) return;
+          if (e.button === 2) {
+            toggleNightVision();
+          }
         });
 
-        // Долгий тап на смартфоне
+        // 1. Смартфон: touchstart
         btnTheme.addEventListener('touchstart', (e) => {
           if (e.touches.length !== 1) return;
+          isTouchAction = true;
           isThemeLongPress = false;
           const t = e.touches[0];
           themeTouchStartPt = { x: t.clientX, y: t.clientY };
           clearTimeout(themeHoldTimer);
+
           themeHoldTimer = setTimeout(() => {
             isThemeLongPress = true;
-            lastThemeLongPressTime = Date.now();
+            lastLongPressTime = Date.now();
             if (navigator.vibrate) navigator.vibrate(45);
             toggleNightVision();
           }, 450);
@@ -4062,40 +4165,49 @@
         btnTheme.addEventListener('touchend', (e) => {
           clearTimeout(themeHoldTimer);
           themeTouchStartPt = null;
-          if (isThemeLongPress || (Date.now() - lastThemeLongPressTime < 800)) {
+
+          if (isThemeLongPress) {
+            // Запоминаем время отрыва пальца, чтобы надёжно заблокировать последующий синтетический click
+            lastLongPressTime = Date.now();
             e.preventDefault();
             e.stopPropagation();
           }
+
+          // Сбрасываем флаг тача с небольшой задержкой для фильтрации мышиных эмуляций
+          setTimeout(() => { isTouchAction = false; }, 400);
         }, { passive: false });
 
         btnTheme.addEventListener('touchcancel', () => {
           clearTimeout(themeHoldTimer);
           themeTouchStartPt = null;
           isThemeLongPress = false;
+          isTouchAction = false;
         });
 
-        // Долгое удержание левой кнопки мыши на ПК
+        // 2. ПК: Долгое удержание левой кнопки мыши
         let mouseHoldTimer = null;
         let mouseIsLong = false;
+
         btnTheme.addEventListener('mousedown', (e) => {
-          if (e.button !== 0) return;
+          if (isTouchAction || e.button !== 0) return;
           mouseIsLong = false;
           clearTimeout(mouseHoldTimer);
           mouseHoldTimer = setTimeout(() => {
             mouseIsLong = true;
-            lastThemeLongPressTime = Date.now();
+            lastLongPressTime = Date.now();
             toggleNightVision();
           }, 450);
         });
+
         btnTheme.addEventListener('mouseup', () => clearTimeout(mouseHoldTimer));
         btnTheme.addEventListener('mouseleave', () => clearTimeout(mouseHoldTimer));
 
-        // Обычный короткий клик
+        // 3. Обычный короткий клик
         btnTheme.onclick = (e) => {
-          // Блокируем клик, если только что отработал долгий тап
-          if (isThemeLongPress || mouseIsLong || (Date.now() - lastThemeLongPressTime < 800)) {
-            mouseIsLong = false;
+          // Если только что сработал долгий тап или удержание — блокируем клик
+          if (isThemeLongPress || mouseIsLong || (Date.now() - lastLongPressTime < 650)) {
             isThemeLongPress = false;
+            mouseIsLong = false;
             e.preventDefault();
             e.stopPropagation();
             return;
