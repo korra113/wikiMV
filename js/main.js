@@ -1728,57 +1728,119 @@
     };
     el.hidden = false;
   }
+// =========================================================================
+  // СГЛАЖИВАНИЕ И ТЯГУЧАЯ ФИЛЬТРАЦИЯ КУРСА ДВИЖЕНИЯ (COG)
+  // =========================================================================
+  // =========================================================================
+  // СГЛАЖИВАНИЕ И ТЯГУЧАЯ ФИЛЬТРАЦИЯ КУРСА ДВИЖЕНИЯ (COG)
+  // =========================================================================
+  let smoothedMotionCourse = null;
+  let lastCourseUpdateTime = 0;
 
- // Определение умного курса: 
-  // 1-й приоритет: реальные точки движения (COG) на ходу/в авто
-  // 2-й приоритет: магнитный компас устройства при стоянке на месте
-  function getEstimatedMotionCourse() {
-    const now = Date.now();
+  // 1. Извлечение «сырого» курса
+  function calculateRawMotionCourse(now) {
     const speed = (WM.gpsState && WM.gpsState.speed != null) ? WM.gpsState.speed : 0;
-    
-    // -----------------------------------------------------------------------
-    // 1. ВЫСШИЙ ПРИОРИТЕТ: ВЕКТОР ПЕРЕМЕЩЕНИЯ ПО ТОЧКАМ (Course Over Ground)
-    // -----------------------------------------------------------------------
-    if (motionHistory.length >= 2) {
-      // Берём окно точек за последние 8-10 секунд
-      const recent = motionHistory.filter(p => now - p.time <= 10000);
-      if (recent.length >= 2) {
-        const pOld = recent[0];
-        const pNew = recent[recent.length - 1];
-        const dist = pOld.latlng.distanceTo(pNew.latlng);
-        const dt = (pNew.time - pOld.time) / 1000;
-        const speedFromPoints = dt > 0 ? (dist / dt) : 0;
 
-        // Если есть физическое смещение >= 3.5 м и скорость >= 0.65 м/с (~2.3 км/ч — уверенный шаг)
-        if (dist >= 3.5 && (speed >= 0.65 || speedFromPoints >= 0.65)) {
-          return computeBearing(pOld.latlng, pNew.latlng);
+    // А. Аппаратный курс чипа GPS при любом уверенном движении (от ~2.5 км/ч)
+    if (WM.gpsState && WM.gpsState.heading != null && !isNaN(WM.gpsState.heading) && WM.gpsState.heading >= 0 && speed >= 0.7) {
+      return WM.gpsState.heading;
+    }
+
+    // Б. Расчёт по истории перемещения точек
+    if (motionHistory.length >= 2) {
+      const recent = motionHistory.filter(p => now - p.time <= 10000);
+
+      if (recent.length >= 2) {
+        const pOld = recent[0].latlng;
+        const pNew = recent[recent.length - 1].latlng;
+        const dist = pOld.distanceTo(pNew);
+        const dt = (recent[recent.length - 1].time - recent[0].time) / 1000;
+        const impliedSpeed = dt > 0 ? (dist / dt) : 0;
+        const effectiveSpeed = Math.max(speed, impliedSpeed);
+
+        // Для пешехода достаточно чистого смещения от 2.0 м
+        if (dist >= 2.0 && effectiveSpeed >= 0.35) {
+          return computeBearing(pOld, pNew);
         }
       }
     }
 
-    // Дополнительный аппаратный курс чипа GPS при скорости > 3 км/ч
-    if (WM.gpsState && WM.gpsState.heading != null && !isNaN(WM.gpsState.heading) && speed >= 0.85) {
-      return WM.gpsState.heading;
-    }
-
-    // -----------------------------------------------------------------------
-    // 2. РЕЖИМ СТОЯНКИ / МЕДЛЕННОГО ОСМОТРА: Датчики ориентации (Компас)
-    // -----------------------------------------------------------------------
-    // Срабатывает только когда пользователь стоит на месте или движется медленнее 2 км/ч
-    if (currentHeading !== null) {
+    // В. Остановка / топтание на месте: используем компас устройства (направление взгляда)
+    if (speed < 0.5 && currentHeading !== null) {
       return currentHeading;
     }
 
-    // 3. Fallback: если стоим и компас не откалиброван, сохраняем последний курс движения
-    if (motionHistory.length >= 2) {
-      const pOld = motionHistory[0];
-      const pNew = motionHistory[motionHistory.length - 1];
-      if (pOld.latlng.distanceTo(pNew.latlng) >= 2.5) {
-        return computeBearing(pOld.latlng, pNew.latlng);
-      }
+    return null;
+  }
+
+  // 2. Инерционный фильтр (Low-Pass Filter)
+  function updateSmoothedCourse(timestamp) {
+    const now = timestamp || Date.now();
+    const speed = (WM.gpsState && WM.gpsState.speed != null) ? WM.gpsState.speed : 0;
+    const raw = calculateRawMotionCourse(now);
+
+    if (raw === null) return;
+
+    if (smoothedMotionCourse === null) {
+      smoothedMotionCourse = raw;
+      lastCourseUpdateTime = now;
+      return;
     }
 
-    return null;
+    const dt = Math.min(2.0, Math.max(0.05, (now - lastCourseUpdateTime) / 1000));
+    lastCourseUpdateTime = now;
+
+    // Кратчайшая разность углов в диапазоне [-180, 180]
+    let diff = ((raw - smoothedMotionCourse + 540) % 360) - 180;
+    const absDiff = Math.abs(diff);
+
+    // Зона нечувствительности для фильтрации микро-дрожания рук (1.2° вместо 3.5°)
+    if (absDiff < 1.2) {
+      return;
+    }
+
+    // Параметры тягучести:
+    let alpha;
+    let maxTurnDegPerSec;
+
+    if (speed < 2.0) {
+      // Пешеход: плавно сглаживает огибание кочек (до 30°/сек),
+      // но при реальном повороте на тропу (absDiff > 35°) поворачивает бодрее
+      alpha = 0.35;
+      maxTurnDegPerSec = 35;
+
+      if (absDiff > 35) {
+        alpha = 0.60;
+        maxTurnDegPerSec = 70;
+      }
+      if (absDiff > 90) {
+        alpha = 0.85;
+        maxTurnDegPerSec = 140;
+      }
+    } else if (speed < 7.0) {
+      // Велосипед / бег
+      alpha = 0.50;
+      maxTurnDegPerSec = 60;
+    } else {
+      // Автомобиль
+      alpha = 0.70;
+      maxTurnDegPerSec = 100;
+    }
+
+    let step = diff * (1 - Math.pow(1 - alpha, dt));
+    const maxStep = maxTurnDegPerSec * dt;
+
+    if (Math.abs(step) > maxStep) {
+      step = Math.sign(step) * maxStep;
+    }
+
+    smoothedMotionCourse = (smoothedMotionCourse + step + 360) % 360;
+  }
+
+  // 3. Выдача курса (всегда обновляет фильтр, а не возвращает кэш)
+  function getEstimatedMotionCourse() {
+    updateSmoothedCourse();
+    return smoothedMotionCourse !== null ? Math.round(smoothedMotionCourse * 10) / 10 : null;
   }
 
   // Быстрый математический расчёт пересечения бесконечного луча курса с экраном
@@ -2434,14 +2496,16 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
       // Сброс буфера при скачке (телепортация или пауза более 45 сек)
       if (dt > 45 || (dist > 350 && (dist / Math.max(0.1, dt)) > 55)) {
         motionHistory.length = 0;
+        smoothedMotionCourse = null;
+        stationarySince = 0;
       }
     }
 
     motionHistory.push({ latlng: newLL, time: now, accuracy });
 
-    // Храним точки за последние 12 секунд (до 15 записей)
-    const cutoff = now - 12000;
-    while (motionHistory.length > 0 && (motionHistory[0].time < cutoff || motionHistory.length > 15)) {
+    // Храним точки за последние 14 секунд (до 20 записей) для стабильного центроидного анализа
+    const cutoff = now - 14000;
+    while (motionHistory.length > 0 && (motionHistory[0].time < cutoff || motionHistory.length > 20)) {
       motionHistory.shift();
     }
   }
@@ -2458,8 +2522,11 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
       }).addTo(map);
     }
 
-    // Всегда обновляем буфер перемещения независимо от визуального хвоста
+    // 1. Записываем точку в буфер
     updateMotionHistory(ll, coords, timestamp);
+
+    // 2. ДОБАВИТЬ ЭТУ СТРОКУ: принудительно обновляем сглаженный курс
+    updateSmoothedCourse(timestamp);
 
     if (WM.motionTail) {
       WM.motionTail.addPoint(ll, coords, timestamp);
