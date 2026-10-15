@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v46'; // обновляем версию
+const SHELL_CACHE = 'wm-shell-v44'; // обновляем версию
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -148,27 +148,6 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = req.url;
 
-  const isFallbackTile = url.includes('tile.openstreetmap.fr/osmfr');
-
-  if (isFallbackTile) {
-    event.respondWith(
-      caches.open(FALLBACK_CACHE).then(async (cache) => {
-        const cached = await cache.match(req);
-        if (cached) return cached;
-        try {
-          const res = await fetch(req);
-          if (res && (res.status === 200 || res.type === 'opaque')) {
-            cache.put(req, res.clone());
-          }
-          return res;
-        } catch (e) {
-          return emptyTileResponse();
-        }
-      })
-    );
-    return;
-  }
-
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).catch(async () => {
@@ -183,21 +162,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Очищены url от удалённых карт: openrailwaymap, opensnowmap, strava
   const isTile =
     url.includes('arcgisonline.com') ||
-    url.includes('arcgis.com') ||                 // Esri Clarity
-    url.includes('etomesto.com') ||               // <-- ДОБАВИТЬ ЭТУ СТРОКУ
-    url.includes('etomesto.ru') ||                // <-- ДОБАВИТЬ ЭТУ СТРОКУ
+    url.includes('arcgis.com') ||
+    url.includes('etomesto.com') ||
+    url.includes('etomesto.ru') ||
     url.includes('google.com/vt') ||
-    url.includes('openstreetmap.fr') ||          // Покроет и osmfr, и tile-cyclosm
+    url.includes('openstreetmap.fr') ||
     url.includes('opentopomap.org') ||
     url.includes('tiles.nakarte.me') ||
     url.includes('tile.thunderforest.com') ||
     url.includes('russia3d.ru/maps') ||
     url.includes('maps-for-free.com') ||
-    url.includes('virtualearth.net') ||           // Bing Maps
-    url.includes('yandex.net') ||                 // Яндекс Спутник, Схема и Народная
+    url.includes('virtualearth.net') ||
+    url.includes('yandex.net') ||
     url.includes('wikimapia.org/?x=') ||
     url.includes('wikimapia.org/x=');
 
@@ -216,6 +194,7 @@ self.addEventListener('fetch', (event) => {
           }
           return res;
         } catch (e) {
+          // Возвращаем реальную 504 ошибку, чтобы Leaflet знал о сбое и мог повторить попытку
           return new Response(null, { status: 504, statusText: 'Tile Fetch Failed' });
         }
       })()
