@@ -64,16 +64,20 @@
     onAdd: function (map) {
       this._map = map;
       const targetPane = this.getPane();
-      // leaflet-zoom-animated обязателен для аппаратного скейлинга при жестах
+      
+      // Контейнер обязательно должен иметь leaflet-zoom-animated для аппаратного скейлинга
       this._container = L.DomUtil.create('div', 'leaflet-layer leaflet-zoom-animated wm-kml-tiles-container');
       this._container.style.position = 'absolute';
       this._container.style.pointerEvents = 'none';
       this._container.style.opacity = this.options.opacity;
-      this._container.style.mixBlendMode = this.options.blendMode || 'normal';
+      if (this.options.blendMode && this.options.blendMode !== 'normal') {
+        this._container.style.mixBlendMode = this.options.blendMode;
+      }
       this._container.style.transformOrigin = '0 0';
 
       targetPane.appendChild(this._container);
 
+      // Обновляем тайлы ТОЛЬКО по окончании движения/зума, не мешая плавному щипку пальцев
       map.on('moveend zoomend', this._scheduleUpdate, this);
       this._update();
     },
@@ -92,30 +96,13 @@
     },
 
     getEvents: function () {
-      const events = {
-        viewreset: this._reset
+      return {
+        zoomanim: this._animateZoom, // Плавный зум кнопками и дабл-тапом
+        viewreset: this._onViewReset
       };
-
-      if (this._map && this._map.options.zoomAnimation) {
-        this._zoomAnimated = true;
-        events.zoomanim = this._animateZoom;
-      } else {
-        // Вызываем пересчет геометрии только по окончании зума, а не на каждый тик
-        events.zoomend = this._reset;
-      }
-
-      return events;
-    },
-    // Плавное непрерывное масштабирование всего контейнера тайлов на GPU при щипке
-    _onZoom: function () {
-      if (!this._container || !this._map || !this._origin || this._tileZoom === undefined) return;
-      const currentZoom = this._map.getZoom();
-      const scale = this._map.getZoomScale(currentZoom, this._tileZoom);
-      const offset = this._map.latLngToLayerPoint(this._totalBounds.getNorthWest());
-      L.DomUtil.setTransform(this._container, offset, scale);
     },
 
-    // Масштабирование при анимации Leaflet
+    // Плавная анимация при программном зуме
     _animateZoom: function (e) {
       if (!this._container || !this._map || !this._origin || this._tileZoom === undefined) return;
       const scale = this._map.getZoomScale(e.zoom, this._tileZoom);
@@ -361,10 +348,14 @@
     let pane = map.getPane(paneName);
     if (!pane) {
       pane = map.createPane(paneName);
-      L.DomUtil.addClass(pane, 'leaflet-zoom-animated');
     }
     pane.style.zIndex = 390;
-    pane.style.mixBlendMode = item.blendMode || 'normal';
+    // Назначаем mixBlendMode ТОЛЬКО если выбран спец-режим (multiply/screen)
+    if (item.blendMode && item.blendMode !== 'normal') {
+      pane.style.mixBlendMode = item.blendMode;
+    } else {
+      pane.style.mixBlendMode = '';
+    }
     pane.style.display = item.visible !== false ? '' : 'none';
     return paneName;
   }
@@ -385,19 +376,12 @@
     },
 
     getEvents: function () {
-      const events = {
-        zoom: this._reset,
-        viewreset: this._reset
+      return {
+        zoomanim: this._animateZoom,
+        viewreset: this._reset,
+        zoomend: this._reset
       };
-
-      if (this._map && this._map.options.zoomAnimation) {
-        this._zoomAnimated = true;
-        events.zoomanim = this._animateZoom;
-      }
-
-      return events;
-    },
-
+    }, 
     onAdd: function () {
       if (!this._container) {
         this._initImage();
@@ -464,9 +448,9 @@
     },
 
     _animateZoom: function (e) {
-      if (!this._container) return;
+      if (!this._container || !this._map) return;
       const scale = this._map.getZoomScale(e.zoom);
-      const offset = this._map._latLngBoundsToNewLayerBounds(this._bounds, e.zoom, e.center).min;
+      const offset = this._map._latLngToNewLayerPoint(this._bounds.getNorthWest(), e.zoom, e.center);
       L.DomUtil.setTransform(this._container, offset, scale);
     },
 
