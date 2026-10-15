@@ -84,13 +84,16 @@
   // Базовые параметры экономии трафика для ВСЕХ слоев тайлов
 const isMobile = L.Browser.mobile;
 
+
   const COMMON_TILE_OPTIONS = {
-    keepBuffer: isMobile ? 1 : 2,            // 1 вместо 3: в 3 раза меньше тайлов в DOM на смартфонах
-    updateWhenIdle: isMobile,               // Загрузка только в паузах скролла
-    updateWhenZooming: !isMobile,           // ВЫКЛЮЧЕНО для мобильных: устраняет лаги при pinch-to-zoom!
+    keepBuffer: isMobile ? 1 : 2,
+    updateWhenIdle: isMobile,
+    updateWhenZooming: !isMobile, // Отлично для базовых тайлов: не шлёт лишних HTTP-запросов во время щипка
     updateInterval: isMobile ? 150 : 100,
     errorTileUrl: EMPTY_TILE
   };
+
+
 
 
 
