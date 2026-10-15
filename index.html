@@ -1108,6 +1108,17 @@
                     </div>
                   </div>
                 </div>
+
+
+                <hr class="style-divider" style="margin: 6px 0;">
+                <label class="toggle-item" style="margin-top: 8px;">
+                  <div>
+                    <span style="font-weight:600; display:block;">Монитор производительности (FPS/RAM/Тайлы)</span>
+                    <small class="hint-text">Отображает реальную нагрузку на систему и узкие места</small>
+                  </div>
+                  <input type="checkbox" id="toggle-perf-hud">
+                  <span class="toggle-switch"></span>
+                </label>
               </div>
             </details>
 
@@ -1873,6 +1884,21 @@
       <button id="btn-sw-debug-copy" class="btn btn-secondary">📋 Скопировать отчёт</button>
       <button id="btn-sw-debug-rerun" class="btn btn-primary">🔄 Запустить тест</button>
     </div>
+  </div>
+</div>
+<!-- Окно диагностики производительности -->
+<div id="perf-hud" class="perf-hud" hidden>
+  <div class="perf-hud-header">
+    <span>⚡ Диагностика системы</span>
+    <button id="perf-hud-close" class="perf-close-btn">✕</button>
+  </div>
+  <div class="perf-hud-grid">
+    <div class="perf-item"><span class="perf-lbl">FPS:</span><b id="perf-fps">--</b></div>
+    <div class="perf-item"><span class="perf-lbl">RAM (Heap):</span><b id="perf-ram">--</b></div>
+    <div class="perf-item"><span class="perf-lbl">Тайлы (загрузка):</span><b id="perf-tiles-loading">0</b></div>
+    <div class="perf-item"><span class="perf-lbl">Тайлы (ошибки):</span><b id="perf-tiles-err">0</b></div>
+    <div class="perf-item"><span class="perf-lbl">DOM-узлов:</span><b id="perf-dom">0</b></div>
+    <div class="perf-item"><span class="perf-lbl">Полигонов Canvas:</span><b id="perf-polys">0</b></div>
   </div>
 </div>
 </body>
