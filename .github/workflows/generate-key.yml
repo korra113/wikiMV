@@ -11,7 +11,7 @@ jobs:
         run: |
           # Генерируем ключ (замените пароли MySecretPass123 на свои!)
           keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 \
-            -alias my-alias -storepass MySecretPass123 -keypass MySecretPass123 \
+            -alias sylar113 -storepass tabun112 -keypass tabun112 \
             -dname "CN=WikiMV, OU=Apps, O=Personal, L=City, S=State, C=RU"
 
           echo "================ КЛЮЧ В BASE64 (СКОПИРУЙТЕ ВСЁ НИЖЕ) ================"
