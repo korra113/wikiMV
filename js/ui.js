@@ -4030,28 +4030,24 @@
     const vectorOn = WM.motionVector ? WM.motionVector.isEnabled() : false;
 
     if (tailOn && !vectorOn) {
-      // Режим 1: Только хвост
+      // Состояние 1: Только хвост
       btn.textContent = '🐾';
       btn.classList.add('active');
-      btn.title = 'Режим: Хвост движения (нажмите: хвост + траектория)';
-    } else if (tailOn && vectorOn) {
-      // Режим 2: Хвост + Траектория курса
-      btn.textContent = '🐾↗️';
-      btn.classList.add('active');
-      btn.title = 'Режим: Хвост и траектория (нажмите для выключения)';
-    } else if (!tailOn && vectorOn) {
-      // Резервный случай: если в настройках включили только вектор
+      btn.title = 'Режим: Хвост движения (нажмите для смены на траекторию)';
+    } else if (vectorOn) {
+      // Состояние 2: Только стрелочка (траектория)
       btn.textContent = '↗️';
       btn.classList.add('active');
-      btn.title = 'Режим: Только траектория (нажмите для выключения)';
+      btn.title = 'Режим: Траектория курса (нажмите для выключения)';
     } else {
-      // Режим 3: Всё выключено
+      // Состояние 0: Выключено
       btn.textContent = '🐾';
       btn.classList.remove('active');
       btn.title = 'Хвост и траектория выключены (нажмите для включения хвоста)';
     }
   }
 
+  
   
 
   function setMotionMode(tailOn, vectorOn) {
@@ -4081,15 +4077,15 @@
     const vectorOn = WM.motionVector ? WM.motionVector.isEnabled() : false;
 
     if (tailOn && !vectorOn) {
-      // Из «Только хвост» переключаем в «Хвост + Траектория»
+      // Был только хвост -> переключаем на траекторию
       setMotionMode(true, true);
-      showToast('🐾↗️ Включены хвост и траектория');
-    } else if (vectorOn || tailOn) {
-      // Если включено комбо (или отдельно вектор) — выключаем всё
+      showToast('↗️ Включена траектория движения');
+    } else if (vectorOn) {
+      // Была траектория -> выключаем всё
       setMotionMode(false, false);
       showToast('🛑 Хвост и траектория выключены');
     } else {
-      // Из выключенного состояния включаем хвост
+      // Было выключено -> включаем хвост
       setMotionMode(true, false);
       showToast('🐾 Включён хвост движения');
     }
@@ -4691,43 +4687,44 @@
           void btnForceRefresh.offsetWidth;
           btnForceRefresh.classList.add('spinning');
 
-          // Сброс лимитов API
+          // 1. Сброс лимитов API
           WM.api.resetAllLimits();
           updateLimitHUD();
 
-          // Обновление публичных меток из Firebase
+          // 2. Обновление публичных меток Firebase
           if (WM.sharedMarkers && WM.sharedMarkers.fetchRemoteMarkers) {
             WM.sharedMarkers.fetchRemoteMarkers();
           }
 
-          // 2. Принудительно перезагружаем упавшие растровые тайлы карты (убираем серые/красные дыры)
-          document.querySelectorAll('.leaflet-tile-error, .leaflet-tile-retry').forEach(tile => {
-            tile._retryCount = 0;
-            tile.classList.remove('leaflet-tile-error', 'leaflet-tile-retry');
-            const src = tile.getAttribute('src');
-            if (src && !src.startsWith('data:')) {
-              tile.src = src.split('?')[0] + (src.includes('?') ? '&' : '?') + '_r=' + Date.now();
+          // 3. ПЕРЕЗАГРУЗКА ВСЕХ СБОЙНЫХ/ПУСТЫХ ТАЙЛОВ КАРТЫ
+          document.querySelectorAll('.leaflet-tile').forEach(tile => {
+            const isErr = tile.classList.contains('leaflet-tile-error') || tile.classList.contains('leaflet-tile-retry');
+            const isBroken = !tile.complete || tile.naturalWidth === 0;
+            const src = tile._origTileSrc || tile.getAttribute('src');
+
+            if ((isErr || isBroken) && src && !src.startsWith('data:')) {
+              tile._retryCount = 0;
+              tile.classList.remove('leaflet-tile-error');
+              tile.classList.add('leaflet-tile-retry');
+              const cleanUrl = src.replace(/([?&])_r=\d+/, '');
+              const sep = cleanUrl.includes('?') ? '&' : '?';
+              tile.src = cleanUrl + sep + '_r=' + Date.now();
             }
           });
 
-          // 3. Сбрасываем статус ошибок всех векторных тайлов и форсируем их повтор
-          if (WM.loader && WM.loader.retryNow) {
-            WM.loader.retryNow(true);
+          // 4. Сброс ошибок тайлов и форсированная подгрузка всей области (во всех режимах!)
+          if (WM.loader) {
+            if (WM.loader.retryNow) WM.loader.retryNow(true);
+            if (WM.loader.loadVisibleNow) WM.loader.loadVisibleNow();
           }
 
-          // 4. Догрузка объектов в зависимости от режима прицела/карты
-          const pickerMode = WM.picker.getMode();
-          if (pickerMode === 'cross') {
+          // 5. В режиме перекрестия — дополнительно опрашиваем точку в центре
+          const pickerMode = WM.picker ? WM.picker.getMode() : 'cross';
+          if (pickerMode === 'cross' && WM.picker.fetchAtCrosshair) {
             showToast('🔄 Обновление карты и объектов…', 1400);
             await WM.picker.fetchAtCrosshair();
           } else {
-            const zoom = WM.map ? WM.map.getZoom() : 0;
-            if (zoom >= WM.config.VECTOR_ZOOM) {
-              showToast('🔄 Загрузка недостающих тайлов…', 1400);
-              WM.loader.loadVisibleNow();
-            } else {
-              showToast('🔄 Тайлы перезагружены', 1400);
-            }
+            showToast('🔄 Перезагрузка области карты…', 1400);
           }
         };
       }
