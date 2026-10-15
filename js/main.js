@@ -23,9 +23,14 @@
 
     _tileOnError: function(done, tile, e) {
       const currentSrc = tile.getAttribute('src') || '';
-      if (currentSrc.startsWith('data:')) {
+      if (!currentSrc || currentSrc.startsWith('data:')) {
         origTileOnError.call(this, done, tile, e);
         return;
+      }
+
+      // Сохраняем исходный адрес для гарантированного перезапроса по кнопке
+      if (!tile._origTileSrc) {
+        tile._origTileSrc = currentSrc;
       }
 
       tile._retryCount = (tile._retryCount || 0) + 1;
@@ -38,9 +43,9 @@
         const delay = tile._retryCount * 1400;
         setTimeout(() => {
           if (this._map && tile.parentNode) {
-            const src = tile.getAttribute('src');
+            const src = tile._origTileSrc || tile.getAttribute('src');
             if (src && !src.startsWith('data:')) {
-              tile.src = src;
+              tile.src = src.split('?')[0] + (src.includes('?') ? '&' : '?') + '_retry=' + Date.now();
               return;
             }
           }
@@ -81,16 +86,16 @@
 
   const EMPTY_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
-  // Базовые параметры экономии трафика для ВСЕХ слоев тайлов
-const isMobile = L.Browser.mobile;
 
 
+  const isMobile = L.Browser.mobile;
+
+  // УДАЛЯЕМ errorTileUrl: EMPTY_TILE, чтобы Leaflet не затирал упавший адрес пустышкой
   const COMMON_TILE_OPTIONS = {
     keepBuffer: isMobile ? 1 : 2,
     updateWhenIdle: isMobile,
-    updateWhenZooming: !isMobile, // Отлично для базовых тайлов: не шлёт лишних HTTP-запросов во время щипка
-    updateInterval: isMobile ? 150 : 100,
-    errorTileUrl: EMPTY_TILE
+    updateWhenZooming: !isMobile,
+    updateInterval: isMobile ? 150 : 100
   };
 
 
@@ -1635,6 +1640,95 @@ const isMobile = L.Browser.mobile;
     if (savedVis.motionvector !== undefined) isMotionVectorEnabled = !!savedVis.motionvector;
   } catch (e) {}
 
+  // -------------------------------------------------------------------------
+  // ИНДИКАТОР ТРАЕКТОРИИ ЗА ЭКРАНОМ (ВОКРУГ ПЕРЕКРЕСТИЯ / ЦЕНТРА ЭКРАНА)
+  // -------------------------------------------------------------------------
+  let offscreenIndicatorEl = null;
+
+  function getOffscreenIndicatorEl() {
+    if (!offscreenIndicatorEl && map) {
+      offscreenIndicatorEl = document.getElementById('wm-mv-offscreen-pointer');
+      if (!offscreenIndicatorEl) {
+        offscreenIndicatorEl = document.createElement('div');
+        offscreenIndicatorEl.id = 'wm-mv-offscreen-pointer';
+        offscreenIndicatorEl.className = 'wm-mv-offscreen-pointer';
+        offscreenIndicatorEl.hidden = true;
+        map.getContainer().appendChild(offscreenIndicatorEl);
+      }
+    }
+    return offscreenIndicatorEl;
+  }
+
+  function hideMotionVectorOffscreenIndicator() {
+    const el = getOffscreenIndicatorEl();
+    if (el) el.hidden = true;
+  }
+
+  function showMotionVectorOffscreenIndicator(originLL, course) {
+    if (!map) return;
+    const el = getOffscreenIndicatorEl();
+    if (!el) return;
+
+    const centerLL = map.getCenter();
+    const crs = L.CRS.EPSG3857;
+    const O = crs.project(originLL);
+    const C = crs.project(centerLL);
+
+    const rad = course * Math.PI / 180;
+    const dx = Math.sin(rad);
+    const dy = Math.cos(rad);
+
+    // Вектор от старта траектории к центру экрана
+    const wx = C.x - O.x;
+    const wy = C.y - O.y;
+    // Проекция центра на луч траектории (t >= 0)
+    const t = Math.max(0, wx * dx + wy * dy);
+
+    // Ближайшая к центру точка траектории в метрах
+    const Qx = O.x + t * dx;
+    const Qy = O.y + t * dy;
+
+    // Вектор от центра экрана к ближайшей точке траектории
+    const vx = Qx - C.x;
+    const vy = Qy - C.y;
+
+    let bearing = Math.atan2(vx, vy) * 180 / Math.PI;
+    if (bearing < 0) bearing += 360;
+
+    // 8 осей (4 основные + 4 диагональные)
+    const SECTORS = [
+      { arrow: '↑', dx: 0,      dy: -1 },    // 0: Север / Вверх
+      { arrow: '↗', dx: 0.707,  dy: -0.707 },// 1: Северо-Восток
+      { arrow: '→', dx: 1,      dy: 0 },     // 2: Восток / Вправо
+      { arrow: '↘', dx: 0.707,  dy: 0.707 }, // 3: Юго-Восток
+      { arrow: '↓', dx: 0,      dy: 1 },     // 4: Юг / Вниз
+      { arrow: '↙', dx: -0.707, dy: 0.707 }, // 5: Юго-Запад
+      { arrow: '←', dx: -1,     dy: 0 },     // 6: Запад / Влево
+      { arrow: '↖', dx: -0.707, dy: -0.707 } // 7: Северо-Запад
+    ];
+
+    const sectorIdx = Math.round(bearing / 45) % 8;
+    const sec = SECTORS[sectorIdx];
+    const radius = 48; // Радиус выноса вокруг перекрестия (в пикселях)
+
+    const posX = Math.round(sec.dx * radius);
+    const posY = Math.round(sec.dy * radius);
+    const degText = Math.round(bearing) + '°';
+
+    const distMeters = Math.hypot(vx, vy);
+    const distFmt = distMeters >= 1000 ? (distMeters / 1000).toFixed(1) + ' км' : Math.round(distMeters) + ' м';
+
+    el.innerHTML = `<span class="wm-mv-arrow">${sec.arrow}</span><span class="wm-mv-deg">${degText}</span>`;
+    el.style.transform = `translate(calc(-50% + ${posX}px), calc(-50% + ${posY}px))`;
+    el.title = `Траектория за экраном: ${degText} (~${distFmt}). Нажмите для центрирования на GPS`;
+    el.onclick = (e) => {
+      e.stopPropagation();
+      map.panTo(originLL);
+      if (WM.ui && WM.ui.showToast) WM.ui.showToast('📍 Переход к геопозиции');
+    };
+    el.hidden = false;
+  }
+
  // Определение умного курса: 
   // 1-й приоритет: реальные точки движения (COG) на ходу/в авто
   // 2-й приоритет: магнитный компас устройства при стоянке на месте
@@ -1755,6 +1849,7 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
       motionVectorLayer.clearLayers();
       motionVectorLine = null;
       motionVectorBadge = null;
+      hideMotionVectorOffscreenIndicator();
       return;
     }
 
@@ -1766,20 +1861,26 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
       motionVectorLayer.clearLayers();
       motionVectorLine = null;
       motionVectorBadge = null;
+      hideMotionVectorOffscreenIndicator();
       return;
     }
 
     const originLL = L.latLng(userLatLng[0], userLatLng[1]);
     const bounds = map.getBounds().pad(0.02);
 
-    // Длина луча: запас хода на 8 минут, минимум 1 км, максимум 40 км
+    // Длина луча: проверяем пересечение с экраном
     const clipped = clipRayToBounds(originLL, course, Infinity, bounds);
     if (!clipped) {
       motionVectorLayer.clearLayers();
       motionVectorLine = null;
       motionVectorBadge = null;
+      // Траектория за экраном — отображаем стрелочку вокруг центра
+      showMotionVectorOffscreenIndicator(originLL, course);
       return;
     }
+
+    // Траектория видна на экране — стрелочку у центра скрываем
+    hideMotionVectorOffscreenIndicator();
 
     const { startLL, endLL, isEnteringFromOutside } = clipped;
 
@@ -1797,8 +1898,6 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
       motionVectorLine.setLatLngs([startLL, endLL]);
     }
 
-    // Если GPS находится за экраном, но мы идём в сторону просматриваемой области:
-    // показываем в месте входа луча на экран бейдж-указатель
     if (isEnteringFromOutside) {
       const speedKmh = Math.round(speed * 3.6);
       const infoText = speedKmh > 0 ? `${speedKmh} км/ч` : `${Math.round(course)}°`;
@@ -1837,6 +1936,7 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
         motionVectorLayer.clearLayers();
         motionVectorLine = null;
         motionVectorBadge = null;
+        hideMotionVectorOffscreenIndicator();
       } else {
         updateMotionVectorVisuals();
       }
@@ -2666,6 +2766,77 @@ document.getElementById('btn-sw-debug-copy')?.addEventListener('click', () => {
 
 // =========================================================================
 // МОДУЛЬ ДИАГНОСТИКИ ПРОИЗВОДИТЕЛЬНОСТИ (PERFORMANCE HUD)
+// =========================================================================
+// МОДУЛЬ ДИАГНОСТИКИ ПРОИЗВОДИТЕЛЬНОСТИ (PERFORMANCE HUD)
+// =========================================================================
+
+// 1. Сам симулятор движения GPS
+(function initGpsSimulator() {
+  let simTimer = null;
+  let simActive = false;
+  let simLat = null;
+  let simLng = null;
+  let simAngle = 0;
+  let simStep = 0;
+
+  function toggle() {
+    const btn = document.getElementById('perf-btn-gps-sim');
+    if (simActive) {
+      simActive = false;
+      clearInterval(simTimer);
+      simTimer = null;
+      if (btn) {
+        btn.textContent = '🚶 Тест ходьбы GPS (лес)';
+        btn.classList.remove('active');
+      }
+      if (window.WM && WM.ui && WM.ui.showToast) WM.ui.showToast('🛑 Эмуляция ходьбы остановлена');
+    } else {
+      simActive = true;
+      simStep = 0;
+
+      // Начинаем от текущей позиции GPS либо из центра экрана
+      const curLL = (window.WM && WM.map) ? WM.map.getCenter() : { lat: 55.75124, lng: 37.61842 };
+      simLat = curLL.lat;
+      simLng = curLL.lng;
+      simAngle = Math.random() * Math.PI * 2;
+
+      if (btn) {
+        btn.textContent = '🛑 Стоп GPS-тест (ходьба)';
+        btn.classList.add('active');
+      }
+      if (window.WM && WM.ui && WM.ui.showToast) WM.ui.showToast('🚶 Запущена ходьба по лесу (~4.8 км/ч)');
+
+      simTimer = setInterval(() => {
+        simStep++;
+        const walkSpeed = 1.35 + (Math.sin(simStep * 0.35) * 0.2); // скорость ~4.5 - 5.2 км/ч
+        simAngle += (Math.sin(simStep * 0.12) * 0.08) + ((Math.random() - 0.5) * 0.04);
+
+        const distMeters = walkSpeed * 1.0;
+        const dLat = (distMeters * Math.cos(simAngle)) / 111320;
+        const cosLat = Math.cos(simLat * Math.PI / 180) || 1;
+        const dLng = (distMeters * Math.sin(simAngle)) / (111320 * cosLat);
+
+        const jitterLat = ((Math.random() - 0.5) * 2.0) / 111320;
+        const jitterLng = ((Math.random() - 0.5) * 2.0) / (111320 * cosLat);
+
+        simLat += dLat + jitterLat;
+        simLng += dLng + jitterLng;
+
+        let headingDeg = (simAngle * 180 / Math.PI);
+        headingDeg = (headingDeg % 360 + 360) % 360;
+
+        if (window.WM && typeof WM.setGpsPosition === 'function') {
+          WM.setGpsPosition(simLat, simLng, walkSpeed, Math.round(headingDeg));
+        }
+      }, 1000);
+    }
+  }
+
+  window.WM = window.WM || {};
+  WM.gpsSimulator = { toggle, isRunning: () => simActive };
+})();
+
+// 2. Функция мониторинга
 function initPerfMonitor() {
   const hud = document.getElementById('perf-hud');
   const toggle = document.getElementById('toggle-perf-hud');
@@ -2686,7 +2857,6 @@ function initPerfMonitor() {
   let longTasksCount = 0;
   let rafId = 0;
 
-  // Отслеживание Long Tasks браузера (заморозок главного потока)
   if ('PerformanceObserver' in window) {
     try {
       const observer = new PerformanceObserver((list) => {
@@ -2724,7 +2894,6 @@ function initPerfMonitor() {
     if (delta > maxFrameDelta) maxFrameDelta = delta;
     frameCount++;
 
-    // Обновление показателей каждые 500 мс
     if (now >= lastTime + 500) {
       const fps = Math.round((frameCount * 1000) / (now - lastTime));
       const avgFrameTime = (now - lastTime) / frameCount;
@@ -2744,7 +2913,6 @@ function initPerfMonitor() {
       maxFrameDelta = 0;
 
       if (elDomTiles) {
-        // Подсчёт всех тайлов всех слоев прямо в DOM
         const totalTiles = document.querySelectorAll('.leaflet-tile').length;
         elDomTiles.textContent = totalTiles;
         elDomTiles.style.color = totalTiles > 60 ? '#f59e0b' : '#ffffff';
@@ -2755,16 +2923,20 @@ function initPerfMonitor() {
         elLongTasks.style.color = longTasksCount > 0 ? '#ef4444' : '#ffffff';
       }
 
+      // Обновлённый вывод разрешения
       if (elDpr) {
-        elDpr.textContent = `${window.devicePixelRatio || 1}x (${window.innerWidth}×${window.innerHeight})`;
+        const dpr = window.devicePixelRatio || 1;
+        elDpr.textContent = `${window.innerWidth}×${window.innerHeight} (экран ${Math.round(window.screen.width * dpr)}×${Math.round(window.screen.height * dpr)}, ${dpr}x)`;
       }
 
+      // Обновлённый вывод памяти
       if (elRam) {
         if (performance.memory) {
-          const mb = (performance.memory.usedJSHeapSize / (1024 * 1024)).toFixed(1);
-          elRam.textContent = mb + ' МБ';
+          const used = (performance.memory.usedJSHeapSize / (1024 * 1024)).toFixed(1);
+          const total = (performance.memory.totalJSHeapSize / (1024 * 1024)).toFixed(1);
+          elRam.textContent = `${used} / ${total} МБ`;
         } else {
-          elRam.textContent = 'N/A';
+          elRam.textContent = 'Ограничено браузером';
         }
       }
     }
@@ -2777,6 +2949,20 @@ function initPerfMonitor() {
     toggle.onchange = (e) => updateVisibility(e.target.checked);
   }
   if (closeBtn) closeBtn.onclick = () => updateVisibility(false);
+
+  // ВОТ ЗДЕСЬ ПРИВЯЗЫВАЕТСЯ КНОПКА ТЕСТА И ОБРАБОТЧИК RESIZE:
+  const btnSim = document.getElementById('perf-btn-gps-sim');
+  if (btnSim && window.WM && WM.gpsSimulator) {
+    btnSim.onclick = () => WM.gpsSimulator.toggle();
+  }
+
+  window.addEventListener('resize', () => {
+    if (elDpr) {
+      const dpr = window.devicePixelRatio || 1;
+      elDpr.textContent = `${window.innerWidth}×${window.innerHeight} (экран ${Math.round(window.screen.width * dpr)}×${Math.round(window.screen.height * dpr)}, ${dpr}x)`;
+    }
+  });
+
   if (isEnabled) updateVisibility(true);
 }
 
