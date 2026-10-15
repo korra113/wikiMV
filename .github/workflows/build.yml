@@ -41,7 +41,7 @@ jobs:
       # 2. Инициализация Capacitor и сборка
       - name: Setup Project and Capacitor
         run: |
-          echo '{"name": "wikimapia-app", "version": "1.0.6"}' > package.json
+          echo '{"name": "wikimapia-app", "version": "1.0.7"}' > package.json
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets @capacitor/app
 
           mkdir -p assets
@@ -65,14 +65,14 @@ jobs:
           npx cap add android
           npx capacitor-assets generate --android --iconBackgroundColor "#111827"
 
-          # Прописываем версию 1.0.6 и versionCode 6 в build.gradle
+          # Прописываем версию 1.0.7 и versionCode 7 в build.gradle
           python3 - << 'EOF'
           path = "android/app/build.gradle"
           with open(path, "r", encoding="utf-8") as f:
               content = f.read()
 
-          content = content.replace('versionCode 1', 'versionCode 6')
-          content = content.replace('versionName "1.0"', 'versionName "1.0.6"')
+          content = content.replace('versionCode 1', 'versionCode 7')
+          content = content.replace('versionName "1.0"', 'versionName "1.0.7"')
 
           with open(path, "w", encoding="utf-8") as f:
               f.write(content)
@@ -184,24 +184,43 @@ jobs:
 
           npx cap sync android
 
-      # 3. Компиляция стабильного Debug APK
-      - name: Build Debug APK
+      # 3. Извлекаем постоянный ключ из GitHub Secrets
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.jks
+
+      # 4. Сборка Release APK и подпись постоянным ключом
+      - name: Build and Sign Release APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/wikiMV_1.0.6.apk
+          ./gradlew assembleRelease
 
-      # 4. Проверка манифеста прямо в логах GitHub
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
+
+          # Выравнивание APK (zipalign)
+          $BUILD_TOOLS/zipalign -v -p 4 \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            app/build/outputs/apk/release/aligned.apk
+
+          # Подпись постоянным ключом с помощью apksigner
+          $BUILD_TOOLS/apksigner sign --ks ../release.jks \
+            --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
+            --key-pass pass:${{ secrets.KEY_PASSWORD }} \
+            --ks-key-alias ${{ secrets.KEY_ALIAS }} \
+            --out app/build/outputs/apk/release/wikiMV_1.0.7.apk \
+            app/build/outputs/apk/release/aligned.apk
+
+      # 5. Проверка манифеста и версии прямо в логах GitHub
       - name: Check Manifest Info
         run: |
           cd android
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
-          $BUILD_TOOLS/aapt dump badging app/build/outputs/apk/debug/wikiMV_1.0.6.apk | grep -E "package: name|sdkVersion"
+          $BUILD_TOOLS/aapt dump badging app/build/outputs/apk/release/wikiMV_1.0.7.apk | grep -E "package: name|sdkVersion"
 
-      # 5. Выгрузка готового APK
+      # 6. Выгрузка готового APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: WikiMV_1.0.6
-          path: android/app/build/outputs/apk/debug/wikiMV_1.0.6.apk
+          name: WikiMV_1.0.7
+          path: android/app/build/outputs/apk/release/wikiMV_1.0.7.apk
