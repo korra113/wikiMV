@@ -85,10 +85,10 @@
 const isMobile = L.Browser.mobile;
 
   const COMMON_TILE_OPTIONS = {
-    keepBuffer: 3,                 // Держим чуть больший запас тайлов вокруг экрана, чтобы они не удалялись на границе
-    updateWhenIdle: isMobile,      // На смартфонах обновляем тайлы только в паузах скролла — устраняет дёрганье!
-    updateWhenZooming: true,       // Разрешаем Leaflet плавно масштабировать тайлы во время зума
-    updateInterval: isMobile ? 200 : 100,
+    keepBuffer: isMobile ? 1 : 2,            // 1 вместо 3: в 3 раза меньше тайлов в DOM на смартфонах
+    updateWhenIdle: isMobile,               // Загрузка только в паузах скролла
+    updateWhenZooming: !isMobile,           // ВЫКЛЮЧЕНО для мобильных: устраняет лаги при pinch-to-zoom!
+    updateInterval: isMobile ? 150 : 100,
     errorTileUrl: EMPTY_TILE
   };
 
@@ -1160,6 +1160,18 @@ const isMobile = L.Browser.mobile;
   };
 
   WM.loader.init(map, { onChange: scheduleRender, onStatus: refreshStatus });
+
+  map.getContainer().addEventListener('touchstart', (e) => {
+    if (e.touches.length > 1) {
+      document.body.classList.add('leaflet-touching');
+    }
+  }, { passive: true });
+
+  map.getContainer().addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) {
+      document.body.classList.remove('leaflet-touching');
+    }
+  }, { passive: true });
 
   map.on('movestart zoomstart', () => {
     // Отключаем тяжелые фильтры во время любого движения/зума
@@ -2651,24 +2663,37 @@ document.getElementById('btn-sw-debug-copy')?.addEventListener('click', () => {
 
 // =========================================================================
 // МОДУЛЬ ДИАГНОСТИКИ ПРОИЗВОДИТЕЛЬНОСТИ (PERFORMANCE HUD)
-// =========================================================================
 function initPerfMonitor() {
   const hud = document.getElementById('perf-hud');
   const toggle = document.getElementById('toggle-perf-hud');
   const closeBtn = document.getElementById('perf-hud-close');
 
   const elFps = document.getElementById('perf-fps');
+  const elFtime = document.getElementById('perf-ftime');
+  const elDomTiles = document.getElementById('perf-dom-tiles');
+  const elLongTasks = document.getElementById('perf-long-tasks');
+  const elDpr = document.getElementById('perf-dpr');
   const elRam = document.getElementById('perf-ram');
-  const elLoading = document.getElementById('perf-tiles-loading');
-  const elErr = document.getElementById('perf-tiles-err');
-  const elDom = document.getElementById('perf-dom');
-  const elPolys = document.getElementById('perf-polys');
 
   let isEnabled = localStorage.getItem('wm_perf_hud') === 'true';
   let frameCount = 0;
   let lastTime = performance.now();
-  let fps = 60;
+  let lastFrameTime = performance.now();
+  let maxFrameDelta = 0;
+  let longTasksCount = 0;
   let rafId = 0;
+
+  // Отслеживание Long Tasks браузера (заморозок главного потока)
+  if ('PerformanceObserver' in window) {
+    try {
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (entry.duration > 50) longTasksCount++;
+        }
+      });
+      observer.observe({ entryTypes: ['longtask'] });
+    } catch (e) {}
+  }
 
   function updateVisibility(show) {
     isEnabled = show;
@@ -2677,7 +2702,9 @@ function initPerfMonitor() {
     if (toggle) toggle.checked = show;
     if (show) {
       lastTime = performance.now();
+      lastFrameTime = performance.now();
       frameCount = 0;
+      maxFrameDelta = 0;
       loop();
     } else if (rafId) {
       cancelAnimationFrame(rafId);
@@ -2687,17 +2714,46 @@ function initPerfMonitor() {
 
   function loop() {
     if (!isEnabled) return;
-    frameCount++;
     const now = performance.now();
+    const delta = now - lastFrameTime;
+    lastFrameTime = now;
 
+    if (delta > maxFrameDelta) maxFrameDelta = delta;
+    frameCount++;
+
+    // Обновление показателей каждые 500 мс
     if (now >= lastTime + 500) {
-      fps = Math.round((frameCount * 1000) / (now - lastTime));
+      const fps = Math.round((frameCount * 1000) / (now - lastTime));
+      const avgFrameTime = (now - lastTime) / frameCount;
+
       frameCount = 0;
       lastTime = now;
 
       if (elFps) {
         elFps.textContent = fps + ' fps';
         elFps.className = fps >= 50 ? 'good' : (fps >= 30 ? 'warn' : 'bad');
+      }
+
+      if (elFtime) {
+        elFtime.textContent = `${avgFrameTime.toFixed(1)} мс (пик ${maxFrameDelta.toFixed(0)} мс)`;
+        elFtime.style.color = maxFrameDelta > 33 ? '#ef4444' : '#22c55e';
+      }
+      maxFrameDelta = 0;
+
+      if (elDomTiles) {
+        // Подсчёт всех тайлов всех слоев прямо в DOM
+        const totalTiles = document.querySelectorAll('.leaflet-tile').length;
+        elDomTiles.textContent = totalTiles;
+        elDomTiles.style.color = totalTiles > 60 ? '#f59e0b' : '#ffffff';
+      }
+
+      if (elLongTasks) {
+        elLongTasks.textContent = longTasksCount;
+        elLongTasks.style.color = longTasksCount > 0 ? '#ef4444' : '#ffffff';
+      }
+
+      if (elDpr) {
+        elDpr.textContent = `${window.devicePixelRatio || 1}x (${window.innerWidth}×${window.innerHeight})`;
       }
 
       if (elRam) {
@@ -2708,26 +2764,6 @@ function initPerfMonitor() {
           elRam.textContent = 'N/A';
         }
       }
-
-      if (elDom) {
-        elDom.textContent = document.getElementsByTagName('*').length;
-      }
-
-      if (elLoading) {
-        const loadingCount = document.querySelectorAll('.leaflet-tile:not(.leaflet-tile-loaded)').length;
-        elLoading.textContent = loadingCount;
-        elLoading.style.color = loadingCount > 10 ? '#f59e0b' : '#ffffff';
-      }
-
-      if (elErr) {
-        const errCount = document.querySelectorAll('.leaflet-tile-error').length;
-        elErr.textContent = errCount;
-        elErr.style.color = errCount > 0 ? '#ef4444' : '#ffffff';
-      }
-
-      if (elPolys && window.WM && WM.view) {
-        elPolys.textContent = WM.view.count ? WM.view.count() : 0;
-      }
     }
 
     rafId = requestAnimationFrame(loop);
@@ -2737,13 +2773,8 @@ function initPerfMonitor() {
     toggle.checked = isEnabled;
     toggle.onchange = (e) => updateVisibility(e.target.checked);
   }
-  if (closeBtn) {
-    closeBtn.onclick = () => updateVisibility(false);
-  }
-
-  if (isEnabled) {
-    updateVisibility(true);
-  }
+  if (closeBtn) closeBtn.onclick = () => updateVisibility(false);
+  if (isEnabled) updateVisibility(true);
 }
 
 // Запуск строго после полной загрузки дерева DOM:
