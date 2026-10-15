@@ -1162,13 +1162,19 @@ const isMobile = L.Browser.mobile;
   WM.loader.init(map, { onChange: scheduleRender, onStatus: refreshStatus });
 
   map.on('movestart zoomstart', () => {
+    // Отключаем тяжелые фильтры во время любого движения/зума
+    document.body.classList.add('map-is-moving');
+
     if (WM.loader && WM.loader.stopDetailsQueue) {
       WM.loader.stopDetailsQueue();
     }
   });
 
   let moveTimer = 0;
-  map.on('moveend', () => {
+  map.on('moveend zoomend', () => {
+    // Возвращаем фильтры, как только карта остановилась
+    document.body.classList.remove('map-is-moving');
+
     // scheduleRender() использует requestAnimationFrame с флагом-стражем,
     // исключая повторный синхронный рендер, если зум только что завершился
     scheduleRender();
@@ -1180,6 +1186,8 @@ const isMobile = L.Browser.mobile;
       localStorage.setItem('wm_view', JSON.stringify({ c: [c.lat, c.lng], z: map.getZoom() }));
     } catch (e) {}
   });
+
+
 
   window.addEventListener('online', () => WM.loader.retryNow());
   document.addEventListener('visibilitychange', () => { if (!document.hidden) WM.loader.retryNow(); });
@@ -2278,17 +2286,17 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
   };
 
   // Обновление при движении карты
-  let moveAnimFrame = 0;
-  map.on('move', () => {
-    if (moveAnimFrame) return;
-    moveAnimFrame = requestAnimationFrame(() => {
-      moveAnimFrame = 0;
+  let lastMoveCalc = 0;
+    map.on('move', () => {
+      const now = performance.now();
+      if (now - lastMoveCalc < 33) return; // максимум 30 раз в секунду вместо 120
+      lastMoveCalc = now;
+
       if (isGpsDistEnabled) updateGpsDistVisuals();
       if (activeNavTarget) updateNavTargetVisuals();
       if (isMotionVectorEnabled) updateMotionVectorVisuals();
       if (WM.ui && WM.ui.updateRays) WM.ui.updateRays();
     });
-  });
 
   // =========================================================================
   // НЕЗАВИСИМЫЙ БУФЕР ИСТОРИИ ПЕРЕМЕЩЕНИЙ ДЛЯ ВЫЧИСЛЕНИЯ КУРСА (COG)
@@ -2640,3 +2648,107 @@ document.getElementById('btn-sw-debug-copy')?.addEventListener('click', () => {
   });
 });
 })();
+
+// =========================================================================
+// МОДУЛЬ ДИАГНОСТИКИ ПРОИЗВОДИТЕЛЬНОСТИ (PERFORMANCE HUD)
+// =========================================================================
+function initPerfMonitor() {
+  const hud = document.getElementById('perf-hud');
+  const toggle = document.getElementById('toggle-perf-hud');
+  const closeBtn = document.getElementById('perf-hud-close');
+
+  const elFps = document.getElementById('perf-fps');
+  const elRam = document.getElementById('perf-ram');
+  const elLoading = document.getElementById('perf-tiles-loading');
+  const elErr = document.getElementById('perf-tiles-err');
+  const elDom = document.getElementById('perf-dom');
+  const elPolys = document.getElementById('perf-polys');
+
+  let isEnabled = localStorage.getItem('wm_perf_hud') === 'true';
+  let frameCount = 0;
+  let lastTime = performance.now();
+  let fps = 60;
+  let rafId = 0;
+
+  function updateVisibility(show) {
+    isEnabled = show;
+    localStorage.setItem('wm_perf_hud', show ? 'true' : 'false');
+    if (hud) hud.hidden = !show;
+    if (toggle) toggle.checked = show;
+    if (show) {
+      lastTime = performance.now();
+      frameCount = 0;
+      loop();
+    } else if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+  }
+
+  function loop() {
+    if (!isEnabled) return;
+    frameCount++;
+    const now = performance.now();
+
+    if (now >= lastTime + 500) {
+      fps = Math.round((frameCount * 1000) / (now - lastTime));
+      frameCount = 0;
+      lastTime = now;
+
+      if (elFps) {
+        elFps.textContent = fps + ' fps';
+        elFps.className = fps >= 50 ? 'good' : (fps >= 30 ? 'warn' : 'bad');
+      }
+
+      if (elRam) {
+        if (performance.memory) {
+          const mb = (performance.memory.usedJSHeapSize / (1024 * 1024)).toFixed(1);
+          elRam.textContent = mb + ' МБ';
+        } else {
+          elRam.textContent = 'N/A';
+        }
+      }
+
+      if (elDom) {
+        elDom.textContent = document.getElementsByTagName('*').length;
+      }
+
+      if (elLoading) {
+        const loadingCount = document.querySelectorAll('.leaflet-tile:not(.leaflet-tile-loaded)').length;
+        elLoading.textContent = loadingCount;
+        elLoading.style.color = loadingCount > 10 ? '#f59e0b' : '#ffffff';
+      }
+
+      if (elErr) {
+        const errCount = document.querySelectorAll('.leaflet-tile-error').length;
+        elErr.textContent = errCount;
+        elErr.style.color = errCount > 0 ? '#ef4444' : '#ffffff';
+      }
+
+      if (elPolys && window.WM && WM.view) {
+        elPolys.textContent = WM.view.count ? WM.view.count() : 0;
+      }
+    }
+
+    rafId = requestAnimationFrame(loop);
+  }
+
+  if (toggle) {
+    toggle.checked = isEnabled;
+    toggle.onchange = (e) => updateVisibility(e.target.checked);
+  }
+  if (closeBtn) {
+    closeBtn.onclick = () => updateVisibility(false);
+  }
+
+  if (isEnabled) {
+    updateVisibility(true);
+  }
+}
+
+// Запуск строго после полной загрузки дерева DOM:
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initPerfMonitor);
+} else {
+  initPerfMonitor();
+}
