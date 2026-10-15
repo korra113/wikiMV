@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v43'; // обновляем версию
+const SHELL_CACHE = 'wm-shell-v44'; // обновляем версию
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
