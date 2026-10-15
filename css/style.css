@@ -2278,7 +2278,125 @@ body.sheet-open .overlay-hud {
 #lb-img.loading {
   opacity: 0 !important;
 }
+/* Контурная рамка без сплошной заливки для кнопки хвоста/траектории */
+#btn-motion-toggle.active {
+  background: var(--bg-glass-strong) !important;
+  border: 2px solid var(--accent) !important;
+  color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--accent-bg), var(--shadow-float) !important;
+}
 
+[data-theme="dark"] #btn-motion-toggle.active {
+  background: var(--bg-glass-strong) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25), var(--shadow-float) !important;
+}
+
+[data-theme="night-vision"] #btn-motion-toggle.active {
+  background: rgba(18, 3, 3, 0.94) !important;
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3), var(--shadow-float) !important;
+}
+
+/* Кнопка симулятора ходьбы в окне диагностики */
+.perf-sim-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 6px;
+  color: #38bdf8;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+}
+
+.perf-sim-btn:hover {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: #38bdf8;
+}
+
+.perf-sim-btn.active {
+  background: rgba(239, 68, 68, 0.2) !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+/* =========================================================================
+   ИНДИКАТОР НАПРАВЛЕНИЯ ТРАЕКТОРИИ ЗА ЭКРАНОМ
+   ========================================================================= */
+.wm-mv-offscreen-pointer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 950;
+  pointer-events: auto;
+  user-select: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1.5px solid var(--accent, #0284c7);
+  border-radius: 12px;
+  padding: 3px 7px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--accent, #0284c7);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  animation: mvPointerPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.14s ease-out;
+}
+
+.wm-mv-offscreen-pointer:hover {
+  transform: scale(1.1);
+  background: var(--accent-bg);
+}
+
+.wm-mv-offscreen-pointer .wm-mv-arrow {
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.wm-mv-offscreen-pointer .wm-mv-deg {
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+}
+
+@keyframes mvPointerPop {
+  from { opacity: 0; transform: scale(0.7); }
+  to   { opacity: 1; }
+}
+
+[data-theme="dark"] .wm-mv-offscreen-pointer {
+  border-color: var(--accent, #38bdf8);
+  color: var(--accent, #38bdf8);
+}
+
+[data-theme="night-vision"] .wm-mv-offscreen-pointer {
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+  background: rgba(18, 3, 3, 0.94) !important;
+}
+
+body.sheet-open .wm-mv-offscreen-pointer {
+  display: none !important;
+}
 /* Стилизация для темы ночного зрения */
 [data-theme="night-vision"] .wm-kml-placeholder {
   background: rgba(18, 3, 3, 0.94);
