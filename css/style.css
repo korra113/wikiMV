@@ -3950,6 +3950,18 @@ body.sheet-open .hover-pill {
   color: #ffffff;
 }
 
+/* Аппаратное ускорение контейнеров карты на мобильных GPU */
+.leaflet-tile-container {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* При щипковом зуме двух пальцев временно изолируем фильтры от пересчёта */
+.leaflet-touching .leaflet-wm-raster-pane-pane,
+.leaflet-touching .leaflet-wm-hillshade-pane-pane {
+  will-change: transform;
+}
+
 #perf-fps.warn { color: #f59e0b; }
 #perf-fps.bad  { color: #ef4444; }
 #perf-fps.good { color: #22c55e; }
