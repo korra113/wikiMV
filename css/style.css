@@ -101,10 +101,8 @@ body.capacitor-app .leaflet-control-layers-expanded {
 
 /* Отключение тяжелых фильтров во время зума и перемещения карты */
 .leaflet-zoom-animating .leaflet-wm-raster-pane-pane,
-.map-is-moving .leaflet-wm-raster-pane-pane,
-.map-is-moving .leaflet-wm-hillshade-pane-pane {
+.map-is-moving .leaflet-wm-raster-pane-pane {
   filter: none !important;
-  mix-blend-mode: normal !important;
 }
 /* =========================================================================
    ФОНОВАЯ ОБЗОРНАЯ КАРТА (Аварийная оффлайн-подложка)
@@ -2234,12 +2232,10 @@ body.sheet-open .overlay-hud {
   margin-top: 2px;
 }
 
+/* СТАЛО: убираем contain, разрешая аппаратному зуму масштабировать контейнер */
 .wm-kml-tiles-container {
-  will-change: transform;
   transform-origin: 0 0;
-  contain: layout style;
 }
-
 /* Индикатор и спиннер загрузки фото в лайтбоксе */
 .lb-loader {
   position: absolute;
