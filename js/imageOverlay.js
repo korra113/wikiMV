@@ -92,13 +92,20 @@
     },
 
     getEvents: function () {
-      return {
-        zoom: this._onZoom,         // Плавный щипковый зум пальцами (pinch-to-zoom)
-        zoomanim: this._animateZoom, // Анимация программного зума (+/- и double tap)
-        viewreset: this._onViewReset
+      const events = {
+        viewreset: this._reset
       };
-    },
 
+      if (this._map && this._map.options.zoomAnimation) {
+        this._zoomAnimated = true;
+        events.zoomanim = this._animateZoom;
+      } else {
+        // Вызываем пересчет геометрии только по окончании зума, а не на каждый тик
+        events.zoomend = this._reset;
+      }
+
+      return events;
+    },
     // Плавное непрерывное масштабирование всего контейнера тайлов на GPU при щипке
     _onZoom: function () {
       if (!this._container || !this._map || !this._origin || this._tileZoom === undefined) return;
