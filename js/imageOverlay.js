@@ -97,9 +97,18 @@
 
     getEvents: function () {
       return {
+        zoom: this._onPinchZoom,     // <-- ДОБАВИТЬ: аппаратное масштабирование при щипке
         zoomanim: this._animateZoom, // Плавный зум кнопками и дабл-тапом
         viewreset: this._onViewReset
       };
+    },
+
+    // <-- ДОБАВИТЬ ЭТОТ МЕТОД: работает на GPU со скоростью 60-120 FPS без нагрузки на DOM
+    _onPinchZoom: function () {
+      if (!this._container || !this._map || !this._origin || this._tileZoom === undefined) return;
+      const scale = this._map.getZoomScale(this._map.getZoom(), this._tileZoom);
+      const offset = this._map.latLngToLayerPoint(this._totalBounds.getNorthWest());
+      L.DomUtil.setTransform(this._container, offset, scale);
     },
 
     // Плавная анимация при программном зуме
@@ -377,11 +386,12 @@
 
     getEvents: function () {
       return {
+        zoom: this._reset,           // <-- ДОБАВИТЬ: мгновенно следует за пальцами
         zoomanim: this._animateZoom,
         viewreset: this._reset,
         zoomend: this._reset
       };
-    }, 
+    },
     onAdd: function () {
       if (!this._container) {
         this._initImage();
