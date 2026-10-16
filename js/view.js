@@ -169,22 +169,37 @@
   function computeStyleForObject(o, mapSize, degPerPx, cosLat) {
     const isTagMatched = activeTag && objectMatchesTag(o, activeTag);
 
-    // На зумах 18+ полностью отключаем упрощение (0), на обзорных зумах оставляем сглаживание (1.5)
+    // На зумах 18+ отключаем упрощение геометрии, на обзорных оставляем сглаживание
     const smoothFactor = (map && map.getZoom() >= 18) ? 0 : 1.5;
 
     if (isTagMatched) {
       return { ...TAG_HL_STYLE, interactive: false, smoothFactor, _k: 'tag' };
     }
 
+    // Экранный размер полигона относительно окна просмотра
     const wpx = (o.bbox.e - o.bbox.w) / degPerPx;
     const hpx = (o.bbox.n - o.bbox.s) / cosLat / degPerPx;
     const maxRatio = Math.max(wpx / mapSize.x, hpx / mapSize.y);
+    const sizeCat = getObjectSizeCategory(o);
 
+    // 1. Рассчитываем коэффициент прозрачности в зависимости от размера
+    // Чем больше полигон на экране или по площади — тем прозрачнее фон
+    let opacityFactor = 1.0;
+    if (maxRatio > 1.2 || o.is_region || sizeCat === 'large') {
+      opacityFactor = 0.15; // Ровно 15% от максимальной заливки для огромных полигонов
+    } else if (maxRatio > 0.6) {
+      opacityFactor = 0.35;
+    } else if (maxRatio > 0.3) {
+      opacityFactor = 0.65;
+    }
+
+    const isVisited = !!o.isVisited;
+    const visitedFactor = isVisited ? 0.85 : 1.0;
+
+    // 2. Обработка пользовательского цвета
     if (o.customColor) {
-      let fillOpacity = 0.35;
-      if (maxRatio > 1.2) fillOpacity = 0.05;
-      else if (maxRatio > 0.6) fillOpacity = 0.12;
-      else if (maxRatio > 0.35) fillOpacity = 0.22;
+      const baseOpacity = 0.35;
+      const fillOpacity = Math.round(baseOpacity * opacityFactor * visitedFactor * 1000) / 1000;
 
       return {
         color: o.customColor,
@@ -192,29 +207,29 @@
         fillColor: o.customColor,
         fillOpacity,
         interactive: false,
-        smoothFactor, // <-- подставляем динамический smoothFactor
-        _k: `c_${o.customColor}_${fillOpacity}`
+        smoothFactor,
+        _k: `c_${o.customColor}_${fillOpacity}_${smoothFactor}`
       };
     }
 
-    // Фиксируем дискретные уровни прозрачности вместо постоянных расчётов fillOpacity.toFixed(3)
-    const isVisited = !!o.isVisited;
+    // 3. Стандартные цвета Wikimapia
     const baseColor = isVisited ? desaturateColor(STYLE.color, 0.55) : STYLE.color;
     const baseFillColor = isVisited ? desaturateColor(STYLE.fillColor, 0.4) : STYLE.fillColor;
     const baseWeight = isVisited ? Math.max(1, STYLE.weight * 0.9) : STYLE.weight;
 
-    // Ключ стиля теперь стабилен и зависит ТОЛЬКО от состояния объекта, а не от зума карты!
-    const styleKey = o.customColor 
-      ? `c_${o.customColor}` 
-      : `s_${isVisited}_${baseColor}_${baseFillColor}_${baseWeight}`;
+    // Итоговая прозрачность с учетом коэффициента размера полигона
+    const fillOpacity = Math.round(STYLE.fillOpacity * opacityFactor * visitedFactor * 1000) / 1000;
+
+    // Включаем дискретный fillOpacity в ключ кэша, чтобы Leaflet динамически менял прозрачность при зуме
+    const styleKey = `s_${isVisited}_${baseColor}_${baseFillColor}_${baseWeight}_${fillOpacity}_${smoothFactor}`;
 
     return {
-      color: o.customColor || baseColor,
-      weight: o.customColor ? Math.max(2, STYLE.weight) : baseWeight,
-      fillColor: o.customColor || baseFillColor,
-      fillOpacity: isVisited ? STYLE.fillOpacity * 0.85 : STYLE.fillOpacity,
+      color: baseColor,
+      weight: baseWeight,
+      fillColor: baseFillColor,
+      fillOpacity,
       interactive: false,
-      smoothFactor, // <-- подставляем динамический smoothFactor
+      smoothFactor,
       _k: styleKey
     };
   }
@@ -388,8 +403,10 @@
       if (WM.ui && WM.ui.updateTagFilterHUD) WM.ui.updateTagFilterHUD(null);
       this.render();
     },
+    matchesTag: objectMatchesTag, // <-- ДОБАВЛЕНО: экспорт проверки тега для UI
     shownObjects() { return [...shown.values()].map(s => s.obj); },
     count() { return shown.size; },
+
     setHover: o => setHl('hover', o),
     setSelected: o => setHl('selected', o),
     applyVectorStyle(cfg) {
