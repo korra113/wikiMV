@@ -1127,12 +1127,22 @@
 
   WM.map = map;
 
-  await WM.cache.init();
-
+  // 1. СРАЗУ инициализируем модули отображения и интерфейса (0 мс, синхронно из localStorage)
   WM.view.init(map);
   WM.view.setVisible(isVectorsEnabled);
   WM.picker.init(map);
   if (WM.ui && WM.ui.init) WM.ui.init();
+  
+  // 2. СРАЗУ выставляем сохранённый режим кнопок (до тяжёлых асинхронных операций!)
+  const savedMode = (WM.api && WM.api.store) ? (WM.api.store.get('wm_mode') || 'cross') : 'cross';
+  WM.picker.setMode(savedMode);
+
+  if (WM.ui && WM.ui.updateMotionBtnState) WM.ui.updateMotionBtnState();
+  if (WM.ui && WM.ui.updateManualPdrBtnState) WM.ui.updateManualPdrBtnState();
+
+  // 3. И только теперь запускаем тяжёлое чтение IndexedDB в фоне
+  await WM.cache.init();
+
   if (WM.markers) WM.markers.init();
   if (WM.sharedMarkers) WM.sharedMarkers.init(map);
   if (WM.measure) WM.measure.init();
@@ -1144,7 +1154,6 @@
     if (isGeocachingEnabled) WM.geocaching.enable();
   }
 
-  // === ВОТ СЮДА ВСТАВЛЯЕТСЯ ИНИЦИАЛИЗАЦИЯ НАЛОЖЕННЫХ КАРТ ===
   if (WM.imageOverlay) {
     await WM.imageOverlay.init(map);
   }
@@ -3254,9 +3263,6 @@
       (e) => alert('Ошибка геопозиции: ' + e.message)
     );
   };
-
-  const savedMode = WM.api.store.get('wm_mode') || 'cross';
-  WM.picker.setMode(savedMode);
 
   WM.view.render();
   WM.loader.update();
