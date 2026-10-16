@@ -1450,18 +1450,21 @@
 
         if (anchor) {
           const distMeters = anchor.distanceTo(freshLL);
-          // Если точка по-прежнему улетает на 1.5+ км от зафиксированной безопасной позиции
-          if (distMeters > 1500) {
+          const dtSec = Math.max(1, (Date.now() - (lastGoodGpsFix ? lastGoodGpsFix.time : Date.now())) / 1000);
+          const impliedSpeedKmh = (distMeters / dtSec) * 3.6;
+
+          // Если телепортация быстрее 180 км/ч (или скачок > 2 км за пару секунд)
+          if ((distMeters > 2000 && impliedSpeedKmh > 180) || (p.coords.speed && p.coords.speed > 80)) {
             const distKm = (distMeters / 1000).toFixed(1);
             if (spoofReasonEl) spoofReasonEl.textContent = `Смещение ${distKm} км`;
             if (WM.ui && WM.ui.showToast) {
-              WM.ui.showToast(`❌ Глушение продолжается (скачок на ${distKm} км от вас)`, 3000);
+              WM.ui.showToast(`❌ Глушение продолжается (скачок на ${distKm} км)`, 3000);
             }
             return;
           }
         }
 
-        // Если смещение адекватное — сигнал чист!
+        // Сигнал чист: снимаем тревогу
         setSpoofState(false);
         lastGoodGpsFix = { ll: freshLL, time: p.timestamp, alt: p.coords.altitude, speed: p.coords.speed || 0 };
         setGpsCoords([freshLL.lat, freshLL.lng], p.coords, p.timestamp, true);
@@ -1545,8 +1548,8 @@
     const altitude = (rawCoords && rawCoords.altitude != null) ? rawCoords.altitude : null;
     const accuracy = (rawCoords && rawCoords.accuracy) ? rawCoords.accuracy : 10;
 
-    // Слишком большая погрешность не считается спуфингом, просто плохой прием
-    if (accuracy > 120) return false;
+    // Первичный приём (по сотовым вышкам / Wi-Fi) может иметь точность до 500м, не считаем это спуфингом
+    if (accuracy > 500) return false;
 
     // Первоначальная точка
     if (!lastGoodGpsFix) {
@@ -1562,25 +1565,30 @@
     const dist = lastGoodGpsFix.ll.distanceTo(newLL);
     const impliedSpeed = dist / dt; // м/с
 
+    // Если прошло более 40 секунд (экран был заблокирован, пауза в приложении),
+    // не считаем перемещение мгновенной телепортацией
+    if (dt > 40) {
+      lastGoodGpsFix = { ll: newLL, time: now, alt: altitude, speed };
+      return true;
+    }
+
     // Записываем в скользящий буфер для анализа геометрии трека
     rawGpsPointsBuffer.push({ ll: newLL, time: now, heading: rawCoords.heading });
     if (rawGpsPointsBuffer.length > 8) rawGpsPointsBuffer.shift();
 
-    // 1. ПРОВЕРКА НА ТЕЛЕПОРТАЦИЮ (с учетом выключенного экрана)
-    // Если прошло меньше 12 секунд, а смещение > 700 метров (скорость > 210 км/ч)
+    // 1. Проверка на телепортацию
     if (dt < 12 && dist > 700 && impliedSpeed > 60) {
       setSpoofState(true, 'скачок >200 км/ч');
       return false;
     }
 
-    // 2. ПРОВЕРКА НА СВЕРХСКОРОСТЬ (даже если телефон был заблокирован 20-30 сек)
-    // Предел 300 км/ч (83 м/с) — исключает самолетные скорости для пешехода/авто
+    // 2. Проверка на сверхскорость
     if (impliedSpeed > 85) {
       setSpoofState(true, 'сверхскорость');
       return false;
     }
 
-    // 3. ПРОВЕРКА НА АНОМАЛЬНУЮ ВЫСОТУ
+    // 3. Проверка на аномальную высоту
     if (altitude !== null) {
       if (altitude > 8000) {
         setSpoofState(true, 'высота >8000м');
@@ -1592,15 +1600,13 @@
       }
     }
 
-    // 4. ПРОВЕРКА НА БЕГ ПО КРУГУ (аэропортовый спуфер)
+    // 4. Проверка на круговой спуфинг
     if (speed > 18 && isRunningInSpoofCircles(rawGpsPointsBuffer)) {
       setSpoofState(true, 'круговой спуфинг');
       return false;
     }
 
-    // 5. ВЫХОД ИЗ СПУФИНГА (РЕКУПЕРАЦИЯ):
-    // Если система была в режиме тревоги, она не выходит сразу по одной точке.
-    // Требуется серия из 4 точек подряд со спокойной скоростью (< 25 м/с)
+    // 5. Выход из спуфинга при стабилизации сигнала
     if (isSpoofed) {
       if (impliedSpeed < 25 && speed < 25) {
         cleanGpsSamplesCount++;
@@ -1615,7 +1621,6 @@
       return false;
     }
 
-    // Точка полностью валидна
     lastGoodGpsFix = { ll: newLL, time: now, alt: altitude, speed };
     return true;
   }
@@ -1686,15 +1691,7 @@
     };
   }
 
-  if (spoofBadgeEl) {
-    spoofBadgeEl.onclick = () => {
-      setSpoofState(false);
-      rawGpsPointsBuffer = [];
-      cleanGpsSamplesCount = 0;
-      if (WM.loader && WM.loader.retryNow) WM.loader.retryNow(true);
-      if (WM.ui && WM.ui.showToast) WM.ui.showToast('🔄 Сброс проверки глушения GPS');
-    };
-  }
+
 
   WM.antiSpoof = {
     isEnabled: () => isAntiSpoofEnabled,
@@ -1707,6 +1704,7 @@
     isSpoofed: () => isSpoofed,
     reset: () => {
       setSpoofState(false);
+      lastGoodGpsFix = null; // Сбрасываем принудительную точку, чтобы не провоцировать ложный скачок
       rawGpsPointsBuffer = [];
       cleanGpsSamplesCount = 0;
     }
@@ -1715,21 +1713,25 @@
   WM.manualPdr = {
     isActive: () => isManualPdrActive,
     toggle() {
-      isManualPdrActive = !isManualPdrActive;
-      if (isManualPdrActive) {
+      // Если включен режим датчиков ИЛИ активно глушение — отжимаем кнопку и выходим в чистый GPS
+      if (isManualPdrActive || isSpoofed) {
+        isManualPdrActive = false;
+        setSpoofState(false);
+        lastGoodGpsFix = null; // Сброс якоря, чтобы следующий реальный GPS не посчитали спуфингом
+        rawGpsPointsBuffer = [];
+        cleanGpsSamplesCount = 0;
+        stopStepDetection();
+        if (WM.ui && WM.ui.showToast) WM.ui.showToast('🛰️ Режим глушилки снят вручную (возврат к GPS)');
+      } else {
+        // Включение привязки к перекрестию
+        isManualPdrActive = true;
         const c = map.getCenter();
         const ll = [c.lat, c.lng];
         lastGoodGpsFix = { ll: L.latLng(ll[0], ll[1]), time: Date.now(), alt: null, speed: 0 };
-        // Принудительно устанавливаем точку в центр
         setGpsCoords(ll, { latitude: ll[0], longitude: ll[1], accuracy: 5, speed: 0, heading: currentHeading }, Date.now(), true);
         startStepDetection();
         if (WM.compass && WM.compass.start) WM.compass.start();
         if (WM.ui && WM.ui.showToast) WM.ui.showToast('🧲 Позиция привязана к центру. Включён шагомер');
-      } else {
-        if (!(isSpoofed && isDeadReckonEnabled)) {
-          stopStepDetection();
-        }
-        if (WM.ui && WM.ui.showToast) WM.ui.showToast('🛰️ Ручной режим датчиков отключен (возврат к GPS)');
       }
       if (WM.ui && WM.ui.updateManualPdrBtnState) {
         WM.ui.updateManualPdrBtnState();
@@ -1780,7 +1782,7 @@
 
   function onDeviceOrientation(e) {
     let heading = null;
-    window._wmSensorEventsCount++;
+    window._wmSensorEventsCount = (window._wmSensorEventsCount || 0) + 1;
 
     if (typeof e.webkitCompassHeading === 'number') {
       heading = e.webkitCompassHeading;
@@ -3081,33 +3083,93 @@
 
 
 
+  let isAcquiringLocation = false;
+  function updateLocationBtnSearching(isSearching) {
+    const btnLoc = document.getElementById('btn-location');
+    if (btnLoc) {
+      btnLoc.classList.toggle('searching', !!isSearching);
+    }
+  }
+
   function acquireLocation(onSuccess, onError) {
     if (!navigator.geolocation) {
       if (onError) onError(new Error('Геолокация не поддерживается устройством'));
       return;
     }
-    startGpsWatch(); // Запускаем слежение при первом запросе локации
+    startGpsWatch();
+    updateLocationBtnSearching(true);
+
     navigator.geolocation.getCurrentPosition(
       (p) => {
-        const ll = [p.coords.latitude, p.coords.longitude];
-        setGpsCoords(ll, p.coords, p.timestamp);
-        WM.gpsState = {
-          lat: p.coords.latitude,
-          lng: p.coords.longitude,
-          accuracy: p.coords.accuracy,
-          altitude: p.coords.altitude,
-          speed: p.coords.speed,
-          heading: p.coords.heading,
-          timestamp: p.timestamp
-        };
-        if (onSuccess) onSuccess(ll);
+        updateLocationBtnSearching(false);
+        const targetLL = L.latLng(p.coords.latitude, p.coords.longitude);
+        const isValid = validateGpsPoint(targetLL, p.coords, p.timestamp);
+        
+        if (isValid) {
+          const ll = [p.coords.latitude, p.coords.longitude];
+          setGpsCoords(ll, p.coords, p.timestamp);
+          WM.gpsState = {
+            lat: p.coords.latitude,
+            lng: p.coords.longitude,
+            accuracy: p.coords.accuracy,
+            altitude: p.coords.altitude,
+            speed: p.coords.speed,
+            heading: p.coords.heading,
+            timestamp: p.timestamp
+          };
+          if (onSuccess) onSuccess(ll);
+        } else {
+          // Если глушение поймано прямо в момент запроса — центрируемся на безопасной точке
+          if (userLatLng && onSuccess) {
+            onSuccess(userLatLng);
+          }
+        }
       },
       (e) => {
+        updateLocationBtnSearching(false);
         if (onError) onError(e);
       },
-      { enableHighAccuracy: true, timeout: 15000 }
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 12000 }
     );
   }
+
+  document.getElementById('btn-location').onclick = () => {
+    if (WM.compass && WM.compass.start) {
+      WM.compass.start();
+    }
+
+    // ЗАЩИТА: Если активно глушение — НЕ переносим карту в координаты глушилки!
+    if (isSpoofed) {
+      if (userLatLng) {
+        map.setView(userLatLng, Math.max(map.getZoom(), 16));
+        if (WM.ui && WM.ui.showToast) {
+          WM.ui.showToast('⚠️ Показана безопасная точка (глушение активно)');
+        }
+      } else {
+        if (WM.ui && WM.ui.showToast) {
+          WM.ui.showToast('⚠️ GPS заглушен! Наведите прицел и нажмите «Я тут»');
+        }
+      }
+      return;
+    }
+
+    // Если координаты уже известны и сигнала не заглушен — переносим МГНОВЕННО, не дожидаясь ответа спутников
+    if (userLatLng) {
+      map.setView(userLatLng, Math.max(map.getZoom(), 16));
+    }
+
+    // Параллельно запускаем опрос для уточнения координат и включаем анимацию контура
+    acquireLocation(
+      (ll) => {
+        map.setView(ll, Math.max(map.getZoom(), 16));
+      },
+      (e) => {
+        if (!userLatLng && WM.ui && WM.ui.showToast) {
+          WM.ui.showToast('Ошибка геопозиции: ' + e.message);
+        }
+      }
+    );
+  };
 
   WM.setGpsPosition = function(lat, lng, speed = 5, heading = 0) {
     const pCoords = {
