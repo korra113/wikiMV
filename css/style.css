@@ -3701,63 +3701,159 @@ body.sheet-open .hover-pill {
    АНТИ-СПУФИНГ И ШАГОМЕР (DEAD RECKONING)
    ========================================================================= */
 
-/* Плашка предупреждения о глушении вверху */
-.spoof-warning-badge {
+/* =========================================================================
+   АНТИ-СПУФИНГ И ПАНЕЛЬ ТРЕВОГИ ГЛУШЕНИЯ GPS
+   ========================================================================= */
+
+.spoof-alert-panel {
   pointer-events: auto;
-  background: #dc2626;
-  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1.5px solid #ef4444;
+  box-shadow: 0 4px 18px rgba(239, 68, 68, 0.35), var(--shadow);
+  border-radius: var(--radius-md);
+  padding: 5px 8px 5px 10px;
+  width: 100%;
+  max-width: 420px;
+  animation: toastFade 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.spoof-alert-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.spoof-alert-icon {
+  font-size: 17px;
+  line-height: 1;
+  animation: spoofIconPulse 1.4s infinite ease-in-out;
+  flex-shrink: 0;
+}
+
+@keyframes spoofIconPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.22); }
+}
+
+.spoof-alert-texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.spoof-alert-title {
   font-size: 11.5px;
   font-weight: 800;
-  padding: 5px 14px;
-  border-radius: 20px;
-  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.5);
-  border: 1.5px solid #fecaca;
-  letter-spacing: 0.2px;
-  cursor: pointer;
-  animation: spoofPulse 1.6s infinite ease-in-out;
-  text-align: center;
-  user-select: none;
+  color: #ef4444;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
-.spoof-warning-badge:hover {
-  background: #b91c1c;
+.spoof-alert-sub {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
 }
 
-@keyframes spoofPulse {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 0 4px 14px rgba(220, 38, 38, 0.45);
-  }
-  50% {
-    transform: scale(1.04);
-    box-shadow: 0 6px 20px rgba(220, 38, 38, 0.85);
-  }
+.spoof-alert-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
-/* Кнопка «Я тут» над перекрестием */
-.btn-i-am-here {
-  position: absolute;
-  left: 50%;
-  top: calc(50% - 48px);
-  transform: translateX(-50%);
-  z-index: 1001;
-  background: var(--bg-glass-strong);
-  border: 1.5px solid var(--accent);
-  color: var(--text-main);
-  font-size: 12.5px;
-  font-weight: 800;
-  padding: 6px 14px;
-  border-radius: 20px;
-  box-shadow: var(--shadow-float);
+.spoof-action-btn {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  transition: transform 0.15s ease, background 0.15s ease;
+  justify-content: center;
+  gap: 3px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-main);
   user-select: none;
-  animation: toastFade 0.2s ease-out;
+}
+
+.spoof-action-btn:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.spoof-action-btn:active {
+  transform: scale(0.93);
+}
+
+.spoof-action-btn.pin {
+  background: rgba(2, 132, 199, 0.1);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.spoof-action-btn.pin:hover {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.spoof-action-btn.probe.loading {
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.spoof-action-btn.close {
+  padding: 0 7px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.spoof-action-btn.close:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* Стилизация для темы ночного видения */
+[data-theme="night-vision"] .spoof-alert-panel {
+  background: rgba(20, 3, 3, 0.95);
+  border-color: #ff3333;
+  box-shadow: 0 0 16px rgba(255, 0, 0, 0.45);
+}
+
+[data-theme="night-vision"] .spoof-alert-title {
+  color: #ff4444;
+}
+
+[data-theme="night-vision"] .spoof-action-btn {
+  background: #2b0505;
+  border-color: #5c0f0f;
+  color: #f87171;
+}
+
+[data-theme="night-vision"] .spoof-action-btn.pin {
+  border-color: #ef4444;
+  color: #ff5555;
 }
 
 .btn-i-am-here:hover {
