@@ -1384,46 +1384,135 @@
   let isAntiSpoofEnabled = localStorage.getItem('wm_gps_anti_spoof') !== 'false';
   let isDeadReckonEnabled = localStorage.getItem('wm_gps_dead_reckon') === 'true';
 
-  let isManualPdrActive = false; // <-- Флаг принудительного режима ведения по датчикам
+  let isManualPdrActive = false;
   let isSpoofed = false;
   let lastGoodGpsFix = null;
-  let cleanGpsSamplesCount = 0;   // Счетчик стабильных точек для выхода из спуфинга
-  let rawGpsPointsBuffer = [];    // Буфер последних сырых точек для выявления кругового бега
+  let cleanGpsSamplesCount = 0;
+  let rawGpsPointsBuffer = [];
+  let isProbingGps = false;
 
   // Логика шагомера (акселерометр)
   let isMotionListening = false;
   let lastStepTime = 0;
   let accelMagnitudePrev = 9.8;
-  const STEP_THRESHOLD = 2.4;     // Порог всплеска ускорения (ходьба)
-  const MIN_STEP_INTERVAL = 330;  // Минимальное время между шагами (мс)
-  const STEP_LENGTH_METERS = 0.72; // Средняя длина шага
+  const STEP_THRESHOLD = 2.4;
+  const MIN_STEP_INTERVAL = 330;
+  const STEP_LENGTH_METERS = 0.72;
 
-  const spoofBadgeEl = document.getElementById('spoof-warning-badge');
+  const spoofPanelEl = document.getElementById('spoof-alert-panel');
+  const spoofReasonEl = document.getElementById('spoof-alert-reason');
+  const limitRowEl = document.getElementById('limit-row');
+  const btnSpoofProbe = document.getElementById('btn-spoof-probe');
+  const btnSpoofDismiss = document.getElementById('btn-spoof-dismiss');
   const btnIAmHere = document.getElementById('btn-i-am-here');
 
   function setSpoofState(spoofed, reason = '') {
-    if (isSpoofed === spoofed) return;
     isSpoofed = spoofed;
 
     if (isSpoofed) {
-      if (spoofBadgeEl) {
-        spoofBadgeEl.hidden = false;
-        spoofBadgeEl.textContent = `⚠️ Глушение GPS (${reason || 'аномалия'}) ↺`;
-      }
-      if (btnIAmHere) btnIAmHere.hidden = false;
-      if (WM.ui && WM.ui.showToast) {
-        WM.ui.showToast(`⚠️ Обнаружена аномалия GPS (${reason})! Позиция заморожена`);
-      }
+      if (limitRowEl) limitRowEl.style.display = 'none'; // Скрываем лимиты ключей
+      if (spoofPanelEl) spoofPanelEl.hidden = false;
+      if (spoofReasonEl) spoofReasonEl.textContent = reason || 'Аномалия координат';
+
       cleanGpsSamplesCount = 0;
       if (isDeadReckonEnabled) startStepDetection();
     } else {
-      if (spoofBadgeEl) spoofBadgeEl.hidden = true;
-      if (btnIAmHere) btnIAmHere.hidden = true;
-      if (WM.ui && WM.ui.showToast) {
-        WM.ui.showToast('✅ Сигнал GPS нормализовался!');
+      if (spoofPanelEl) spoofPanelEl.hidden = true;
+      if (limitRowEl && (WM.ui && WM.ui.uiVis ? WM.ui.uiVis.limit !== false : true)) {
+        limitRowEl.style.display = ''; // Возвращаем лимиты
       }
-      stopStepDetection();
+      cleanGpsSamplesCount = 0;
+      if (!isManualPdrActive) stopStepDetection();
     }
+  }
+
+  // Принудительный ручной тест сигнала спутников по кнопке «🔄 Проверить»
+  async function probeGpsNow() {
+    if (isProbingGps || !navigator.geolocation) return;
+    isProbingGps = true;
+
+    if (btnSpoofProbe) {
+      btnSpoofProbe.classList.add('loading');
+      btnSpoofProbe.textContent = '⏳ Тест…';
+    }
+    if (WM.ui && WM.ui.showToast) WM.ui.showToast('🛰️ Опрос спутников GPS без кэша…', 1500);
+
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        isProbingGps = false;
+        if (btnSpoofProbe) {
+          btnSpoofProbe.classList.remove('loading');
+          btnSpoofProbe.textContent = '🔄 Проверить';
+        }
+
+        const freshLL = L.latLng(p.coords.latitude, p.coords.longitude);
+        const anchor = lastGoodGpsFix ? lastGoodGpsFix.ll : (userLatLng ? L.latLng(userLatLng[0], userLatLng[1]) : null);
+
+        if (anchor) {
+          const distMeters = anchor.distanceTo(freshLL);
+          // Если точка по-прежнему улетает на 1.5+ км от зафиксированной безопасной позиции
+          if (distMeters > 1500) {
+            const distKm = (distMeters / 1000).toFixed(1);
+            if (spoofReasonEl) spoofReasonEl.textContent = `Смещение ${distKm} км`;
+            if (WM.ui && WM.ui.showToast) {
+              WM.ui.showToast(`❌ Глушение продолжается (скачок на ${distKm} км от вас)`, 3000);
+            }
+            return;
+          }
+        }
+
+        // Если смещение адекватное — сигнал чист!
+        setSpoofState(false);
+        lastGoodGpsFix = { ll: freshLL, time: p.timestamp, alt: p.coords.altitude, speed: p.coords.speed || 0 };
+        setGpsCoords([freshLL.lat, freshLL.lng], p.coords, p.timestamp, true);
+        map.setView(freshLL, Math.max(map.getZoom(), 16));
+
+        if (WM.ui && WM.ui.showToast) {
+          WM.ui.showToast('✅ Сигнал GPS нормализовался!', 2500);
+        }
+      },
+      (err) => {
+        isProbingGps = false;
+        if (btnSpoofProbe) {
+          btnSpoofProbe.classList.remove('loading');
+          btnSpoofProbe.textContent = '🔄 Проверить';
+        }
+        if (WM.ui && WM.ui.showToast) {
+          WM.ui.showToast('⚠️ Нет ответа от GPS: ' + err.message, 2500);
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+    );
+  }
+
+  // Привязка обработчиков панели
+  if (btnSpoofProbe) btnSpoofProbe.onclick = probeGpsNow;
+
+  if (btnSpoofDismiss) {
+    btnSpoofDismiss.onclick = () => {
+      setSpoofState(false);
+      rawGpsPointsBuffer = [];
+      cleanGpsSamplesCount = 0;
+      if (WM.ui && WM.ui.showToast) {
+        WM.ui.showToast('🛑 Защита от глушения временно снята вручную');
+      }
+    };
+  }
+
+  if (btnIAmHere) {
+    btnIAmHere.onclick = () => {
+      const c = map.getCenter();
+      const ll = [c.lat, c.lng];
+      lastGoodGpsFix = { ll: L.latLng(ll[0], ll[1]), time: Date.now(), alt: null, speed: 0 };
+      setGpsCoords(ll, { latitude: ll[0], longitude: ll[1], accuracy: 5, speed: 0, heading: currentHeading }, Date.now(), true);
+      
+      if (isDeadReckonEnabled || isManualPdrActive) {
+        startStepDetection();
+      }
+      if (WM.ui && WM.ui.showToast) {
+        WM.ui.showToast('🧲 Местоположение привязано к перекрестию карты');
+      }
+    };
   }
 
   // Анализ кругового движения (характерного для глушилок у важных объектов)
@@ -3079,6 +3168,23 @@
     if (WM.compass && WM.compass.start) {
       WM.compass.start();
     }
+
+    // ЗАЩИТА: Если активно глушение — НЕ переносим карту в координаты глушилки!
+    if (isSpoofed) {
+      if (userLatLng) {
+        map.setView(userLatLng, Math.max(map.getZoom(), 16));
+        if (WM.ui && WM.ui.showToast) {
+          WM.ui.showToast('⚠️ Показана безопасная точка (глушение активно)');
+        }
+      } else {
+        if (WM.ui && WM.ui.showToast) {
+          WM.ui.showToast('⚠️ GPS заглушен! Наведите прицел и нажмите «Я тут»');
+        }
+      }
+      return;
+    }
+
+    // Стандартный опрос при нормальном сигнале
     acquireLocation(
       (ll) => {
         map.setView(ll, Math.max(map.getZoom(), 16));
