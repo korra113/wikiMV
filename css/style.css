@@ -2279,27 +2279,29 @@ body.sheet-open .overlay-hud {
   opacity: 0 !important;
 }
 /* Контурная рамка без сплошной заливки для кнопки хвоста/траектории */
-#btn-motion-toggle.active {
+#btn-motion-toggle.active,
+#btn-manual-pdr.active {
   background: var(--bg-glass-strong) !important;
   border: 2px solid var(--accent) !important;
   color: var(--accent) !important;
   box-shadow: 0 0 0 2px var(--accent-bg), var(--shadow-float) !important;
 }
 
-[data-theme="dark"] #btn-motion-toggle.active {
+[data-theme="dark"] #btn-motion-toggle.active,
+[data-theme="dark"] #btn-manual-pdr.active {
   background: var(--bg-glass-strong) !important;
   border-color: var(--accent) !important;
   color: var(--accent) !important;
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25), var(--shadow-float) !important;
 }
 
-[data-theme="night-vision"] #btn-motion-toggle.active {
+[data-theme="night-vision"] #btn-motion-toggle.active,
+[data-theme="night-vision"] #btn-manual-pdr.active {
   background: rgba(18, 3, 3, 0.94) !important;
   border-color: #ef4444 !important;
   color: #ef4444 !important;
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3), var(--shadow-float) !important;
 }
-
 /* Кнопка симулятора ходьбы в окне диагностики */
 .perf-sim-btn {
   width: 100%;
@@ -3586,44 +3588,191 @@ body.sheet-open .hover-pill {
   background: var(--bg-glass-strong);
   border: 1.5px solid #a855f7;
   color: #9333ea;
-  padding: 5px 12px;
+  /* Уменьшаем отступ справа, чтобы кнопки аккуратно прилегали к краю */
+  padding: 4px 6px 4px 12px;
   border-radius: 20px;
   box-shadow: var(--shadow-float);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 12px;
   font-weight: 700;
   pointer-events: auto;
   white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
+
 [data-theme="dark"] .tag-filter-badge {
   color: #c084fc;
   border-color: #c084fc;
 }
 
-.tag-filter-action-btn {
-  background: transparent;
-  border: 0;
-  color: inherit;
-  font-size: 13px;
-  font-weight: bold;
+[data-theme="night-vision"] .tag-filter-badge {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: rgba(18, 3, 3, 0.94);
+}
+
+/* Левая интерактивная часть: сам текст тега */
+#tag-filter-text {
   cursor: pointer;
-  padding: 0 3px;
-  line-height: 1;
+  padding: 3px 6px 3px 0;
+  border-right: 1px solid rgba(168, 85, 247, 0.3);
+  margin-right: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: opacity 0.15s ease;
+}
+
+#tag-filter-text:hover {
+  opacity: 0.8;
+}
+
+#tag-filter-text:active {
+  transform: scale(0.97);
+}
+
+[data-theme="dark"] #tag-filter-text {
+  border-right-color: rgba(192, 132, 252, 0.35);
+}
+
+[data-theme="night-vision"] #tag-filter-text {
+  border-right-color: rgba(239, 68, 68, 0.35);
+}
+
+/* Круглые кнопки действий с увеличенной областью тапа */
+.tag-filter-action-btn {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 50%;
+  background: rgba(168, 85, 247, 0.12);
+  border: none;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s ease, opacity 0.15s ease;
+  line-height: 1;
+  touch-action: manipulation;
+  transition: background 0.15s ease, transform 0.12s ease, color 0.15s ease;
 }
+
+/* Невидимый сенсорный хитбокс (+16px во все стороны) для 100% попадания пальцем */
+.tag-filter-action-btn::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  pointer-events: auto;
+}
+
 .tag-filter-action-btn:hover {
-  opacity: 0.75;
+  background: rgba(168, 85, 247, 0.25);
 }
+
 .tag-filter-action-btn:active {
-  transform: scale(0.9);
+  transform: scale(0.85);
+  background: rgba(168, 85, 247, 0.4);
 }
+
+/* Красный оттенок для кнопки крестика при наведении/нажатии */
+#tag-filter-clear:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+#tag-filter-clear:active {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 .tag-filter-action-btn.spinning {
   animation: spin 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* =========================================================================
+   АНТИ-СПУФИНГ И ШАГОМЕР (DEAD RECKONING)
+   ========================================================================= */
+
+/* Плашка предупреждения о глушении вверху */
+.spoof-warning-badge {
+  pointer-events: auto;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 5px 14px;
+  border-radius: 20px;
+  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.5);
+  border: 1.5px solid #fecaca;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  animation: spoofPulse 1.6s infinite ease-in-out;
+  text-align: center;
+  user-select: none;
+}
+
+.spoof-warning-badge:hover {
+  background: #b91c1c;
+}
+
+@keyframes spoofPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 4px 14px rgba(220, 38, 38, 0.45);
+  }
+  50% {
+    transform: scale(1.04);
+    box-shadow: 0 6px 20px rgba(220, 38, 38, 0.85);
+  }
+}
+
+/* Кнопка «Я тут» над перекрестием */
+.btn-i-am-here {
+  position: absolute;
+  left: 50%;
+  top: calc(50% - 48px);
+  transform: translateX(-50%);
+  z-index: 1001;
+  background: var(--bg-glass-strong);
+  border: 1.5px solid var(--accent);
+  color: var(--text-main);
+  font-size: 12.5px;
+  font-weight: 800;
+  padding: 6px 14px;
+  border-radius: 20px;
+  box-shadow: var(--shadow-float);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: transform 0.15s ease, background 0.15s ease;
+  user-select: none;
+  animation: toastFade 0.2s ease-out;
+}
+
+.btn-i-am-here:hover {
+  background: var(--accent-bg);
+  transform: translateX(-50%) scale(1.05);
+}
+
+.btn-i-am-here:active {
+  transform: translateX(-50%) scale(0.95);
+}
+
+[data-theme="night-vision"] .btn-i-am-here {
+  background: rgba(18, 3, 3, 0.94);
+  border-color: #ef4444;
+  color: #ef4444;
 }
 
 /* Блок пользовательской цветовой метки в карточке объекта */
@@ -4206,6 +4355,118 @@ body.sheet-open .hover-pill {
   color: var(--text-muted);
   margin-top: 6px;
   text-align: center;
+}
+
+
+
+/* =========================================================================
+   ПОЧАСОВОЙ ПРОГНОЗ ПОГОДЫ
+   ========================================================================= */
+.ih-hourly-spoiler {
+  border-bottom: none !important;
+}
+
+.ih-hourly-scroll {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 2px 6px 2px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+}
+
+.ih-hourly-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.ih-hourly-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ih-hourly-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+.ih-hourly-card {
+  flex: 0 0 46px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  user-select: none;
+  transition: transform 0.1s ease, border-color 0.15s ease;
+}
+
+.ih-hourly-card.current {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.ih-hourly-card.past {
+  opacity: 0.55;
+}
+
+.ih-hourly-time {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ih-hourly-card.current .ih-hourly-time {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.ih-hourly-icon {
+  font-size: 15px;
+  line-height: 1.15;
+  margin: 2px 0;
+}
+
+.ih-hourly-temp {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.ih-hourly-precip {
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-top: 1px;
+  white-space: nowrap;
+}
+
+/* Подъём кнопки поиска наверх, если кнопка быстрой смены отключена или перенесена вниз */
+.square-btn-top.search-top-aligned {
+  top: calc(62px + env(safe-area-inset-top, 0px)) !important;
+}
+
+/* Расположение кнопки быстрой смены карты слева внизу */
+.quick-swap-top-btn.pos-bottom-left {
+  top: auto !important;
+  right: auto !important;
+  left: calc(14px + env(safe-area-inset-left, 0px));
+  bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Если в левом нижнем углу активна кнопка быстрого меню, поднимаем кнопку смены карты над ней */
+.quick-swap-top-btn.pos-bottom-left.stacked-above-menu {
+  left: calc(16px + env(safe-area-inset-left, 0px)); /* Центрирование 44px над 48px */
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+}
+
+#modal-quick-swap-select {
+  z-index: 3200 !important;
 }
 
 /* Лайтбокс с панелью управления масштабом */
