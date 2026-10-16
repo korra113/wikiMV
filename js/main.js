@@ -615,9 +615,38 @@
 
   // Обновление состояния кнопки на экране
   function updateQuickSwapUI() {
+    const btnSearch = document.getElementById('btn-search');
+    const btnQuickMenu = document.getElementById('btn-quick-menu');
     if (!btnQuickSwap) return;
+
     const isEnabled = localStorage.getItem('wm_quick_swap_enabled') !== 'false';
+    const swapPos = localStorage.getItem('wm_quick_swap_pos') || 'top-right'; // 'top-right' | 'bottom-left'
+
     btnQuickSwap.hidden = !isEnabled;
+
+    // 1. Позиционирование кнопки смены карты и кнопки поиска
+    if (!isEnabled || swapPos !== 'top-right') {
+      // Кнопки нет справа вверху -> поиск поднимается на её место
+      if (btnSearch) btnSearch.classList.add('search-top-aligned');
+    } else {
+      // Кнопка справа вверху -> поиск остаётся под ней на 114px
+      if (btnSearch) btnSearch.classList.remove('search-top-aligned');
+    }
+
+    if (swapPos === 'bottom-left') {
+      btnQuickSwap.classList.add('pos-bottom-left');
+
+      // Проверяем, отображается ли кнопка быстрого меню слева внизу
+      const isQuickMenuVisible = btnQuickMenu && 
+        !btnQuickMenu.hidden && 
+        btnQuickMenu.style.display !== 'none' && 
+        getComputedStyle(btnQuickMenu).display !== 'none';
+
+      btnQuickSwap.classList.toggle('stacked-above-menu', !!isQuickMenuVisible);
+    } else {
+      btnQuickSwap.classList.remove('pos-bottom-left', 'stacked-above-menu');
+    }
+
     if (!isEnabled) return;
 
     const targetMap = localStorage.getItem('wm_quick_swap_target') || 'Спутник (Esri)';
@@ -626,7 +655,7 @@
     if (targetMap.startsWith('kml:')) {
       const kmlId = targetMap.slice(4);
       const kml = WM.imageOverlay && WM.imageOverlay.getOverlay ? WM.imageOverlay.getOverlay(kmlId) : null;
-      if (kml) {
+      if (kml && WM.imageOverlay.toggleOverlayVisibility) {
         const isVisible = kml.visible !== false;
         btnQuickSwap.classList.toggle('active-target', isVisible);
         btnQuickSwap.title = isVisible 
@@ -701,6 +730,9 @@
         itemBtn.onclick = () => {
           localStorage.setItem('wm_quick_swap_target', kmlKey);
           updateQuickSwapUI();
+          if (WM.ui && WM.ui.updateQuickSwapTargetBtn) {
+            WM.ui.updateQuickSwapTargetBtn();
+          }
           modal.classList.remove('open');
           if (WM.ui && WM.ui.showToast) {
             WM.ui.showToast(`🔀 На кнопку назначена KML-карта: ${kml.name}`);
@@ -743,10 +775,10 @@
 
       itemBtn.onclick = () => {
         localStorage.setItem('wm_quick_swap_target', m.name);
-        const sel = document.getElementById('quick-swap-map-select');
-        if (sel) sel.value = m.name;
-
         updateQuickSwapUI();
+        if (WM.ui && WM.ui.updateQuickSwapTargetBtn) {
+          WM.ui.updateQuickSwapTargetBtn();
+        }
         modal.classList.remove('open');
         if (WM.ui && WM.ui.showToast) {
           WM.ui.showToast(`🔀 Вторая карта: ${m.name}`);
@@ -758,6 +790,10 @@
 
     modal.classList.add('open');
   }
+
+  // ВЫНЕСЕНО НАРУЖУ: теперь доступна сразу при загрузке приложения
+  window.openQuickSwapTargetModal = openQuickSwapTargetModal;
+  WM.openQuickSwapTargetModal = openQuickSwapTargetModal;
 
   // =========================================================================
   // ОБРАБОТКА КОРОТКОГО И ДОЛГОГО НАЖАТИЯ ДЛЯ КНОПКИ БЫСТРОЙ СМЕНЫ КАРТЫ
@@ -1343,6 +1379,276 @@
   };
 
   // =========================================================================
+  // СИСТЕМА ЗАЩИТЫ ОТ ГЛУШИЛОК GPS (АНТИСПУФИНГ) И АВТОНОМНЫЙ ШАГОМЕР (PDR)
+  // =========================================================================
+  let isAntiSpoofEnabled = localStorage.getItem('wm_gps_anti_spoof') !== 'false';
+  let isDeadReckonEnabled = localStorage.getItem('wm_gps_dead_reckon') === 'true';
+
+  let isManualPdrActive = false; // <-- Флаг принудительного режима ведения по датчикам
+  let isSpoofed = false;
+  let lastGoodGpsFix = null;
+  let cleanGpsSamplesCount = 0;   // Счетчик стабильных точек для выхода из спуфинга
+  let rawGpsPointsBuffer = [];    // Буфер последних сырых точек для выявления кругового бега
+
+  // Логика шагомера (акселерометр)
+  let isMotionListening = false;
+  let lastStepTime = 0;
+  let accelMagnitudePrev = 9.8;
+  const STEP_THRESHOLD = 2.4;     // Порог всплеска ускорения (ходьба)
+  const MIN_STEP_INTERVAL = 330;  // Минимальное время между шагами (мс)
+  const STEP_LENGTH_METERS = 0.72; // Средняя длина шага
+
+  const spoofBadgeEl = document.getElementById('spoof-warning-badge');
+  const btnIAmHere = document.getElementById('btn-i-am-here');
+
+  function setSpoofState(spoofed, reason = '') {
+    if (isSpoofed === spoofed) return;
+    isSpoofed = spoofed;
+
+    if (isSpoofed) {
+      if (spoofBadgeEl) {
+        spoofBadgeEl.hidden = false;
+        spoofBadgeEl.textContent = `⚠️ Глушение GPS (${reason || 'аномалия'}) ↺`;
+      }
+      if (btnIAmHere) btnIAmHere.hidden = false;
+      if (WM.ui && WM.ui.showToast) {
+        WM.ui.showToast(`⚠️ Обнаружена аномалия GPS (${reason})! Позиция заморожена`);
+      }
+      cleanGpsSamplesCount = 0;
+      if (isDeadReckonEnabled) startStepDetection();
+    } else {
+      if (spoofBadgeEl) spoofBadgeEl.hidden = true;
+      if (btnIAmHere) btnIAmHere.hidden = true;
+      if (WM.ui && WM.ui.showToast) {
+        WM.ui.showToast('✅ Сигнал GPS нормализовался!');
+      }
+      stopStepDetection();
+    }
+  }
+
+  // Анализ кругового движения (характерного для глушилок у важных объектов)
+  function isRunningInSpoofCircles(buffer) {
+    if (buffer.length < 5) return false;
+    let headingChanges = 0;
+    let totalDist = 0;
+
+    for (let i = 1; i < buffer.length; i++) {
+      const p1 = buffer[i - 1];
+      const p2 = buffer[i];
+      const dist = p1.ll.distanceTo(p2.ll);
+      totalDist += dist;
+      const b1 = p1.heading || 0;
+      const b2 = p2.heading || 0;
+      const diff = Math.abs(((b2 - b1 + 540) % 360) - 180);
+      if (diff > 15 && diff < 80) headingChanges++;
+    }
+
+    // Если за короткий период идет постоянный поворот по кругу со скоростью авто/самолета (> 65 км/ч)
+    return headingChanges >= 4 && (totalDist / buffer.length) > 15;
+  }
+
+  // Фильтр-валидатор входящей GPS точки
+  function validateGpsPoint(newLL, rawCoords, timestamp) {
+    if (!isAntiSpoofEnabled) return true;
+
+    const now = timestamp || Date.now();
+    const speed = (rawCoords && rawCoords.speed != null && rawCoords.speed >= 0) ? rawCoords.speed : 0;
+    const altitude = (rawCoords && rawCoords.altitude != null) ? rawCoords.altitude : null;
+    const accuracy = (rawCoords && rawCoords.accuracy) ? rawCoords.accuracy : 10;
+
+    // Слишком большая погрешность не считается спуфингом, просто плохой прием
+    if (accuracy > 120) return false;
+
+    // Первоначальная точка
+    if (!lastGoodGpsFix) {
+      if (speed > 85 || (altitude !== null && altitude > 9000)) {
+        setSpoofState(true, 'нереальная высота/скорость');
+        return false;
+      }
+      lastGoodGpsFix = { ll: newLL, time: now, alt: altitude, speed };
+      return true;
+    }
+
+    const dt = Math.max(0.4, (now - lastGoodGpsFix.time) / 1000);
+    const dist = lastGoodGpsFix.ll.distanceTo(newLL);
+    const impliedSpeed = dist / dt; // м/с
+
+    // Записываем в скользящий буфер для анализа геометрии трека
+    rawGpsPointsBuffer.push({ ll: newLL, time: now, heading: rawCoords.heading });
+    if (rawGpsPointsBuffer.length > 8) rawGpsPointsBuffer.shift();
+
+    // 1. ПРОВЕРКА НА ТЕЛЕПОРТАЦИЮ (с учетом выключенного экрана)
+    // Если прошло меньше 12 секунд, а смещение > 700 метров (скорость > 210 км/ч)
+    if (dt < 12 && dist > 700 && impliedSpeed > 60) {
+      setSpoofState(true, 'скачок >200 км/ч');
+      return false;
+    }
+
+    // 2. ПРОВЕРКА НА СВЕРХСКОРОСТЬ (даже если телефон был заблокирован 20-30 сек)
+    // Предел 300 км/ч (83 м/с) — исключает самолетные скорости для пешехода/авто
+    if (impliedSpeed > 85) {
+      setSpoofState(true, 'сверхскорость');
+      return false;
+    }
+
+    // 3. ПРОВЕРКА НА АНОМАЛЬНУЮ ВЫСОТУ
+    if (altitude !== null) {
+      if (altitude > 8000) {
+        setSpoofState(true, 'высота >8000м');
+        return false;
+      }
+      if (lastGoodGpsFix.alt !== null && dt < 8 && Math.abs(altitude - lastGoodGpsFix.alt) > 800) {
+        setSpoofState(true, 'вертикальный скачок');
+        return false;
+      }
+    }
+
+    // 4. ПРОВЕРКА НА БЕГ ПО КРУГУ (аэропортовый спуфер)
+    if (speed > 18 && isRunningInSpoofCircles(rawGpsPointsBuffer)) {
+      setSpoofState(true, 'круговой спуфинг');
+      return false;
+    }
+
+    // 5. ВЫХОД ИЗ СПУФИНГА (РЕКУПЕРАЦИЯ):
+    // Если система была в режиме тревоги, она не выходит сразу по одной точке.
+    // Требуется серия из 4 точек подряд со спокойной скоростью (< 25 м/с)
+    if (isSpoofed) {
+      if (impliedSpeed < 25 && speed < 25) {
+        cleanGpsSamplesCount++;
+        if (cleanGpsSamplesCount >= 4) {
+          setSpoofState(false);
+          lastGoodGpsFix = { ll: newLL, time: now, alt: altitude, speed };
+          return true;
+        }
+      } else {
+        cleanGpsSamplesCount = 0;
+      }
+      return false;
+    }
+
+    // Точка полностью валидна
+    lastGoodGpsFix = { ll: newLL, time: now, alt: altitude, speed };
+    return true;
+  }
+
+  // --- ШАГОМЕР И ПРИРАЩЕНИЕ ПО КОМПАСУ (PDR) ---
+  function onDeviceMotion(e) {
+    // Работает, если включен ручной режим ИЛИ система в тревоге спуфинга
+    if ((!isManualPdrActive && (!isSpoofed || !isDeadReckonEnabled)) || !userLatLng) return;
+
+    const acc = e.accelerationIncludingGravity || e.acceleration;
+    if (!acc || acc.x === null) return;
+
+    const x = acc.x || 0, y = acc.y || 0, z = acc.z || 0;
+    const mag = Math.hypot(x, y, z);
+    const delta = Math.abs(mag - accelMagnitudePrev);
+    accelMagnitudePrev = mag;
+
+    const now = performance.now();
+    if (delta > STEP_THRESHOLD && (now - lastStepTime) > MIN_STEP_INTERVAL) {
+      lastStepTime = now;
+      registerStepForward();
+    }
+  }
+
+  function registerStepForward() {
+    if (!userLatLng) return;
+    const heading = (WM.compass && WM.compass.getHeading) ? WM.compass.getHeading() : (currentHeading || 0);
+
+    const rad = (heading * Math.PI) / 180;
+    const dLat = (STEP_LENGTH_METERS * Math.cos(rad)) / 111320;
+    const cosLat = Math.cos((userLatLng[0] * Math.PI) / 180) || 1;
+    const dLng = (STEP_LENGTH_METERS * Math.sin(rad)) / (111320 * cosLat);
+
+    const nextLL = [userLatLng[0] + dLat, userLatLng[1] + dLng];
+    const syntheticCoords = {
+      latitude: nextLL[0],
+      longitude: nextLL[1],
+      accuracy: 12,
+      speed: 1.3,
+      heading: heading,
+      timestamp: Date.now()
+    };
+
+    // Обновляем маркер и хвост движения по данным шага
+    setGpsCoords(nextLL, syntheticCoords, syntheticCoords.timestamp, true);
+  }
+
+  function startStepDetection() {
+    if (isMotionListening) return;
+    window.addEventListener('devicemotion', onDeviceMotion, false);
+    isMotionListening = true;
+  }
+
+  function stopStepDetection() {
+    if (!isMotionListening) return;
+    window.removeEventListener('devicemotion', onDeviceMotion, false);
+    isMotionListening = false;
+  }
+
+  // Клики по кнопкам управления
+  if (btnIAmHere) {
+    btnIAmHere.onclick = () => {
+      const c = map.getCenter();
+      const ll = [c.lat, c.lng];
+      lastGoodGpsFix = { ll: L.latLng(ll[0], ll[1]), time: Date.now(), alt: null, speed: 0 };
+      setGpsCoords(ll, { latitude: ll[0], longitude: ll[1], accuracy: 5, speed: 0, heading: currentHeading }, Date.now(), true);
+      if (WM.ui && WM.ui.showToast) WM.ui.showToast('🧲 Позиция перенесена в центр экрана');
+    };
+  }
+
+  if (spoofBadgeEl) {
+    spoofBadgeEl.onclick = () => {
+      setSpoofState(false);
+      rawGpsPointsBuffer = [];
+      cleanGpsSamplesCount = 0;
+      if (WM.loader && WM.loader.retryNow) WM.loader.retryNow(true);
+      if (WM.ui && WM.ui.showToast) WM.ui.showToast('🔄 Сброс проверки глушения GPS');
+    };
+  }
+
+  WM.antiSpoof = {
+    isEnabled: () => isAntiSpoofEnabled,
+    setEnabled(v) { isAntiSpoofEnabled = !!v; if (!v) setSpoofState(false); },
+    setDeadReckoningEnabled(v) {
+      isDeadReckonEnabled = !!v;
+      if (v && isSpoofed) startStepDetection();
+      else stopStepDetection();
+    },
+    isSpoofed: () => isSpoofed,
+    reset: () => {
+      setSpoofState(false);
+      rawGpsPointsBuffer = [];
+      cleanGpsSamplesCount = 0;
+    }
+  };
+
+  WM.manualPdr = {
+    isActive: () => isManualPdrActive,
+    toggle() {
+      isManualPdrActive = !isManualPdrActive;
+      if (isManualPdrActive) {
+        const c = map.getCenter();
+        const ll = [c.lat, c.lng];
+        lastGoodGpsFix = { ll: L.latLng(ll[0], ll[1]), time: Date.now(), alt: null, speed: 0 };
+        // Принудительно устанавливаем точку в центр
+        setGpsCoords(ll, { latitude: ll[0], longitude: ll[1], accuracy: 5, speed: 0, heading: currentHeading }, Date.now(), true);
+        startStepDetection();
+        if (WM.compass && WM.compass.start) WM.compass.start();
+        if (WM.ui && WM.ui.showToast) WM.ui.showToast('🧲 Позиция привязана к центру. Включён шагомер');
+      } else {
+        if (!(isSpoofed && isDeadReckonEnabled)) {
+          stopStepDetection();
+        }
+        if (WM.ui && WM.ui.showToast) WM.ui.showToast('🛰️ Ручной режим датчиков отключен (возврат к GPS)');
+      }
+      if (WM.ui && WM.ui.updateManualPdrBtnState) {
+        WM.ui.updateManualPdrBtnState();
+      }
+    }
+  };
+
+  // =========================================================================
   // МОДУЛЬ КОМПАСА И ОРИЕНТАЦИИ УСТРОЙСТВА (DEVICE ORIENTATION API)
   // =========================================================================
   let me = null;
@@ -1380,8 +1686,12 @@
     return heading;
   }
 
+  let orientationRafId = 0;
+  let pendingHeading = null;
+
   function onDeviceOrientation(e) {
     let heading = null;
+    window._wmSensorEventsCount++;
 
     if (typeof e.webkitCompassHeading === 'number') {
       heading = e.webkitCompassHeading;
@@ -1397,11 +1707,19 @@
     }
 
     if (heading !== null && !isNaN(heading)) {
-      currentHeading = Math.round(heading);
-      updateCompassVisuals();
+      pendingHeading = Math.round(heading);
+      // Не запускаем перерисовку чаще, чем частота кадра экрана
+      if (!orientationRafId) {
+        orientationRafId = requestAnimationFrame(() => {
+          orientationRafId = 0;
+          if (pendingHeading !== null && pendingHeading !== currentHeading) {
+            currentHeading = pendingHeading;
+            updateCompassVisuals();
+          }
+        });
+      }
     }
   }
-
   function updateCompassVisuals() {
     if (currentHeading === null) return;
 
@@ -1724,14 +2042,11 @@
     el.onclick = (e) => {
       e.stopPropagation();
       map.panTo(originLL);
-      if (WM.ui && WM.ui.showToast) WM.ui.showToast('📍 Переход к геопозиции');
+      if (WM.ui && WM.ui.showToast) WM.ui.showToast('🧲 Переход к геопозиции');
     };
     el.hidden = false;
   }
 // =========================================================================
-  // СГЛАЖИВАНИЕ И ТЯГУЧАЯ ФИЛЬТРАЦИЯ КУРСА ДВИЖЕНИЯ (COG)
-  // =========================================================================
-  // =========================================================================
   // СГЛАЖИВАНИЕ И ТЯГУЧАЯ ФИЛЬТРАЦИЯ КУРСА ДВИЖЕНИЯ (COG)
   // =========================================================================
   let smoothedMotionCourse = null;
@@ -1794,7 +2109,7 @@
     let diff = ((raw - smoothedMotionCourse + 540) % 360) - 180;
     const absDiff = Math.abs(diff);
 
-    // Зона нечувствительности для фильтрации микро-дрожания рук (1.2° вместо 3.5°)
+    // Зона нечувствительности для фильтрации микро-дрожания рук (1.2°)
     if (absDiff < 1.2) {
       return;
     }
@@ -1804,8 +2119,7 @@
     let maxTurnDegPerSec;
 
     if (speed < 2.0) {
-      // Пешеход: плавно сглаживает огибание кочек (до 30°/сек),
-      // но при реальном повороте на тропу (absDiff > 35°) поворачивает бодрее
+      // Пешеход: плавно сглаживает огибание препятствий
       alpha = 0.35;
       maxTurnDegPerSec = 35;
 
@@ -1843,71 +2157,130 @@
     return smoothedMotionCourse !== null ? Math.round(smoothedMotionCourse * 10) / 10 : null;
   }
 
+  // =========================================================================
+  // ПЛАВНАЯ АНИМАЦИЯ ПОВОРОТА ВЕКТОРА (САМОЗАТУХАЮЩИЙ АНИМАЦИОННЫЙ ЦИКЛ)
+  // =========================================================================
+  let currentRenderedAngle = null; // Фактический угол, отрисованный сейчас на Canvas/SVG
+  let targetMotionCourse = null;   // Целевой угол, куда стремится вектор
+  let mvAnimRafId = 0;             // requestAnimationFrame id
+  let lastMvAnimTime = 0;
+
+  function startMotionVectorAnimation() {
+    if (mvAnimRafId) return; // Анимация уже в процессе
+    lastMvAnimTime = performance.now();
+    stepMotionVectorAnimation();
+  }
+
+  function stepMotionVectorAnimation() {
+    if (!isMotionVectorEnabled || targetMotionCourse === null || !userLatLng) {
+      mvAnimRafId = 0;
+      return;
+    }
+
+    const now = performance.now();
+    const dt = Math.min(0.08, Math.max(0.005, (now - lastMvAnimTime) / 1000));
+    lastMvAnimTime = now;
+
+    if (currentRenderedAngle === null) {
+      currentRenderedAngle = targetMotionCourse;
+    }
+
+    // Кратчайшая угловая разница в пределах [-180, 180]
+    let diff = ((targetMotionCourse - currentRenderedAngle + 540) % 360) - 180;
+    const absDiff = Math.abs(diff);
+
+    // Если практически дошли до цели — фиксируем значение и глушим анимацию (0% нагрузки)
+    if (absDiff < 0.15) {
+      currentRenderedAngle = targetMotionCourse;
+      renderMotionVectorLine(currentRenderedAngle);
+      mvAnimRafId = 0;
+      return;
+    }
+
+    // Динамическая скорость доводки: от 50°/с при малых отклонениях до 180°/с при резких разворотах
+    const turnRate = Math.max(50, Math.min(180, absDiff * 3.5));
+    let step = diff * (1 - Math.exp(-9.0 * dt));
+    const maxStep = turnRate * dt;
+
+    if (Math.abs(step) > maxStep) {
+      step = Math.sign(step) * maxStep;
+    }
+
+    currentRenderedAngle = (currentRenderedAngle + step + 360) % 360;
+
+    // Отрисовываем обновлённую позицию луча
+    renderMotionVectorLine(currentRenderedAngle);
+
+    // Планируем следующий кадр
+    mvAnimRafId = requestAnimationFrame(stepMotionVectorAnimation);
+  }
+
   // Быстрый математический расчёт пересечения бесконечного луча курса с экраном
-function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
-  // Переводим координаты в плоскую меркаторскую проекцию EPSG:3857 (в метрах)
-  const crs = L.CRS.EPSG3857;
-  const O = crs.project(originLL);
-  const sw = crs.project(bounds.getSouthWest());
-  const ne = crs.project(bounds.getNorthEast());
+  function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
+    // Переводим координаты в плоскую меркаторскую проекцию EPSG:3857 (в метрах)
+    const crs = L.CRS.EPSG3857;
+    const O = crs.project(originLL);
+    const sw = crs.project(bounds.getSouthWest());
+    const ne = crs.project(bounds.getNorthEast());
 
-  const Xmin = Math.min(sw.x, ne.x);
-  const Xmax = Math.max(sw.x, ne.x);
-  const Ymin = Math.min(sw.y, ne.y);
-  const Ymax = Math.max(sw.y, ne.y);
+    const Xmin = Math.min(sw.x, ne.x);
+    const Xmax = Math.max(sw.x, ne.x);
+    const Ymin = Math.min(sw.y, ne.y);
+    const Ymax = Math.max(sw.y, ne.y);
 
-  // Вектор направления курса (в Mercator: X - восток, Y - север)
-  const rad = courseDeg * Math.PI / 180;
-  const Dx = Math.sin(rad);
-  const Dy = Math.cos(rad);
+    // Вектор направления курса (в Mercator: X - восток, Y - север)
+    const rad = courseDeg * Math.PI / 180;
+    const Dx = Math.sin(rad);
+    const Dy = Math.cos(rad);
 
-  let t0 = 0;
-  let t1 = Infinity;
+    let t0 = 0;
+    let t1 = Infinity;
 
-  // 1. Пересечение с вертикальными границами экрана (X)
-  if (Math.abs(Dx) < 1e-9) {
-    if (O.x < Xmin || O.x > Xmax) return null; // Параллелен экрану и снаружи
-  } else {
-    let tx1 = (Xmin - O.x) / Dx;
-    let tx2 = (Xmax - O.x) / Dx;
-    if (tx1 > tx2) { const tmp = tx1; tx1 = tx2; tx2 = tmp; }
-    t0 = Math.max(t0, tx1);
-    t1 = Math.min(t1, tx2);
-    if (t0 > t1) return null;
+    // 1. Пересечение с вертикальными границами экрана (X)
+    if (Math.abs(Dx) < 1e-9) {
+      if (O.x < Xmin || O.x > Xmax) return null; // Параллелен экрану и снаружи
+    } else {
+      let tx1 = (Xmin - O.x) / Dx;
+      let tx2 = (Xmax - O.x) / Dx;
+      if (tx1 > tx2) { const tmp = tx1; tx1 = tx2; tx2 = tmp; }
+      t0 = Math.max(t0, tx1);
+      t1 = Math.min(t1, tx2);
+      if (t0 > t1) return null;
+    }
+
+    // 2. Пересечение с горизонтальными границами экрана (Y)
+    if (Math.abs(Dy) < 1e-9) {
+      if (O.y < Ymin || O.y > Ymax) return null; // Параллелен экрану и снаружи
+    } else {
+      let ty1 = (Ymin - O.y) / Dy;
+      let ty2 = (Ymax - O.y) / Dy;
+      if (ty1 > ty2) { const tmp = ty1; ty1 = ty2; ty2 = tmp; }
+      t0 = Math.max(t0, ty1);
+      t1 = Math.min(t1, ty2);
+      if (t0 > t1) return null;
+    }
+
+    // Если весь экран остался позади направления взгляда
+    if (t1 < 0) return null;
+
+    // Вычисляем точки входа и выхода луча
+    const isEnteringFromOutside = (t0 > 0.001);
+    const startPt = isEnteringFromOutside 
+      ? L.point(O.x + t0 * Dx, O.y + t0 * Dy) 
+      : O;
+
+    const endPt = L.point(O.x + t1 * Dx, O.y + t1 * Dy);
+
+    return {
+      startLL: crs.unproject(startPt),
+      endLL: crs.unproject(endPt),
+      isEnteringFromOutside
+    };
   }
 
-  // 2. Пересечение с горизонтальными границами экрана (Y)
-  if (Math.abs(Dy) < 1e-9) {
-    if (O.y < Ymin || O.y > Ymax) return null; // Параллелен экрану и снаружи
-  } else {
-    let ty1 = (Ymin - O.y) / Dy;
-    let ty2 = (Ymax - O.y) / Dy;
-    if (ty1 > ty2) { const tmp = ty1; ty1 = ty2; ty2 = tmp; }
-    t0 = Math.max(t0, ty1);
-    t1 = Math.min(t1, ty2);
-    if (t0 > t1) return null;
-  }
-
-  // Если весь экран остался позади направления взгляда
-  if (t1 < 0) return null;
-
-  // Вычисляем точки входа и выхода луча
-  const isEnteringFromOutside = (t0 > 0.001);
-  const startPt = isEnteringFromOutside 
-    ? L.point(O.x + t0 * Dx, O.y + t0 * Dy) 
-    : O;
-
-  const endPt = L.point(O.x + t1 * Dx, O.y + t1 * Dy);
-
-  return {
-    startLL: crs.unproject(startPt),
-    endLL: crs.unproject(endPt),
-    isEnteringFromOutside
-  };
-}
-
-  function updateMotionVectorVisuals() {
-    if (!isMotionVectorEnabled || !userLatLng || !map) {
+  // Физическая отрисовка геометрии луча под заданным углом
+  function renderMotionVectorLine(course) {
+    if (!isMotionVectorEnabled || !userLatLng || !map || course === null) {
       motionVectorLayer.clearLayers();
       motionVectorLine = null;
       motionVectorBadge = null;
@@ -1915,11 +2288,10 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
       return;
     }
 
-    const course = getEstimatedMotionCourse();
     const speed = (WM.gpsState && WM.gpsState.speed != null) ? WM.gpsState.speed : 0;
 
-    // Не чертим вектор, если стоим на месте (скорость < 1.2 км/ч) и нет чёткого курса
-    if (course === null || speed < 0.35) {
+    // Не чертим вектор, если стоим на месте (скорость < 1.2 км/ч)
+    if (speed < 0.35) {
       motionVectorLayer.clearLayers();
       motionVectorLine = null;
       motionVectorBadge = null;
@@ -1960,6 +2332,7 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
       motionVectorLine.setLatLngs([startLL, endLL]);
     }
 
+    // Бейдж на входе луча в видимую область экрана
     if (isEnteringFromOutside) {
       const speedKmh = Math.round(speed * 3.6);
       const infoText = speedKmh > 0 ? `${speedKmh} км/ч` : `${Math.round(course)}°`;
@@ -1975,18 +2348,49 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
           interactive: false,
           zIndexOffset: 1500
         }).addTo(motionVectorLayer);
+        motionVectorBadge._lastHtml = badgeHtml;
       } else {
         motionVectorBadge.setLatLng(startLL);
-        motionVectorBadge.setIcon(L.divIcon({
-          className: 'wm-motion-badge-wrap',
-          html: badgeHtml,
-          iconSize: [140, 24],
-          iconAnchor: [70, 12]
-        }));
+        if (motionVectorBadge._lastHtml !== badgeHtml) {
+          motionVectorBadge._lastHtml = badgeHtml;
+          const el = motionVectorBadge.getElement();
+          if (el) el.innerHTML = badgeHtml;
+        }
       }
     } else if (motionVectorBadge) {
       motionVectorLayer.removeLayer(motionVectorBadge);
       motionVectorBadge = null;
+    }
+  }
+
+  function updateMotionVectorVisuals() {
+    if (!isMotionVectorEnabled || !userLatLng || !map) {
+      if (mvAnimRafId) { cancelAnimationFrame(mvAnimRafId); mvAnimRafId = 0; }
+      renderMotionVectorLine(null);
+      return;
+    }
+
+    targetMotionCourse = getEstimatedMotionCourse();
+
+    const speed = (WM.gpsState && WM.gpsState.speed != null) ? WM.gpsState.speed : 0;
+    if (targetMotionCourse === null || speed < 0.35) {
+      if (mvAnimRafId) { cancelAnimationFrame(mvAnimRafId); mvAnimRafId = 0; }
+      renderMotionVectorLine(null);
+      return;
+    }
+
+    if (currentRenderedAngle === null) {
+      currentRenderedAngle = targetMotionCourse;
+    }
+
+    const diff = ((targetMotionCourse - currentRenderedAngle + 540) % 360) - 180;
+    if (Math.abs(diff) > 0.15) {
+      // Запускаем плавную доводку (работает как при движении, так и на месте)
+      startMotionVectorAnimation();
+    } else {
+      // Если угол уже совпадает, сразу пересчитываем геометрию под границы экрана
+      currentRenderedAngle = targetMotionCourse;
+      renderMotionVectorLine(currentRenderedAngle);
     }
   }
 
@@ -1995,6 +2399,7 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
     setEnabled(val) {
       isMotionVectorEnabled = !!val;
       if (!isMotionVectorEnabled) {
+        if (mvAnimRafId) { cancelAnimationFrame(mvAnimRafId); mvAnimRafId = 0; }
         motionVectorLayer.clearLayers();
         motionVectorLine = null;
         motionVectorBadge = null;
@@ -2003,7 +2408,7 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
         updateMotionVectorVisuals();
       }
     },
-    getCourse: getEstimatedMotionCourse
+    getCourse: () => (currentRenderedAngle !== null ? Math.round(currentRenderedAngle * 10) / 10 : getEstimatedMotionCourse())
   };
 
   // =========================================================================
@@ -2510,7 +2915,19 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
     }
   }
 
-  function setGpsCoords(ll, coords, timestamp) {
+  function setGpsCoords(ll, coords, timestamp, isPdrBypass = false) {
+    // Если активен ручной режим датчиков — игнорируем любые входящие спутниковые сигналы
+    if (isManualPdrActive && !isPdrBypass) {
+      return;
+    }
+
+    const targetLL = L.latLng(ll[0], ll[1]);
+
+    // Если это сырые данные со спутников — проверяем их антиспуфингом
+    if (!isPdrBypass && !validateGpsPoint(targetLL, coords, timestamp)) {
+      return; // Точка отсеяна глушилкой, не смещаем маркер
+    }
+
     userLatLng = ll;
     if (me) {
       me.setLatLng(ll);
@@ -2679,6 +3096,10 @@ function clipRayToBounds(originLL, courseDeg, maxRayLenMeters, bounds) {
 
   if (WM.ui && WM.ui.updateMotionBtnState) {
     WM.ui.updateMotionBtnState();
+  }
+
+  if (WM.ui && WM.ui.updateManualPdrBtnState) {
+    WM.ui.updateManualPdrBtnState();
   }
 
   // =========================================================================
@@ -2902,7 +3323,7 @@ document.getElementById('btn-sw-debug-copy')?.addEventListener('click', () => {
   window.WM = window.WM || {};
   WM.gpsSimulator = { toggle, isRunning: () => simActive };
 })();
-
+window._wmSensorEventsCount = 0;
 // 2. Функция мониторинга
 function initPerfMonitor() {
   const hud = document.getElementById('perf-hud');
@@ -2912,9 +3333,10 @@ function initPerfMonitor() {
   const elFps = document.getElementById('perf-fps');
   const elFtime = document.getElementById('perf-ftime');
   const elDomTiles = document.getElementById('perf-dom-tiles');
+  const elDomNodes = document.getElementById('perf-dom-nodes');
+  const elSensors = document.getElementById('perf-sensors');
   const elLongTasks = document.getElementById('perf-long-tasks');
   const elDpr = document.getElementById('perf-dpr');
-  const elRam = document.getElementById('perf-ram');
 
   let isEnabled = localStorage.getItem('wm_perf_hud') === 'true';
   let frameCount = 0;
@@ -2961,9 +3383,14 @@ function initPerfMonitor() {
     if (delta > maxFrameDelta) maxFrameDelta = delta;
     frameCount++;
 
-    if (now >= lastTime + 500) {
-      const fps = Math.round((frameCount * 1000) / (now - lastTime));
-      const avgFrameTime = (now - lastTime) / frameCount;
+    // Обновляем статистику раз в секунду
+    if (now >= lastTime + 1000) {
+      const elapsed = now - lastTime;
+      const fps = Math.round((frameCount * 1000) / elapsed);
+      const avgFrameTime = elapsed / frameCount;
+
+      const sensorHz = Math.round((window._wmSensorEventsCount * 1000) / elapsed);
+      window._wmSensorEventsCount = 0;
 
       frameCount = 0;
       lastTime = now;
@@ -2979,10 +3406,21 @@ function initPerfMonitor() {
       }
       maxFrameDelta = 0;
 
+      if (elSensors) {
+        elSensors.textContent = sensorHz + ' Гц';
+        elSensors.style.color = sensorHz > 40 ? '#f59e0b' : '#22c55e';
+      }
+
       if (elDomTiles) {
         const totalTiles = document.querySelectorAll('.leaflet-tile').length;
         elDomTiles.textContent = totalTiles;
         elDomTiles.style.color = totalTiles > 60 ? '#f59e0b' : '#ffffff';
+      }
+
+      if (elDomNodes) {
+        const nodes = document.getElementsByTagName('*').length;
+        elDomNodes.textContent = nodes;
+        elDomNodes.style.color = nodes > 1200 ? '#f59e0b' : '#ffffff';
       }
 
       if (elLongTasks) {
@@ -2990,21 +3428,9 @@ function initPerfMonitor() {
         elLongTasks.style.color = longTasksCount > 0 ? '#ef4444' : '#ffffff';
       }
 
-      // Обновлённый вывод разрешения
       if (elDpr) {
         const dpr = window.devicePixelRatio || 1;
-        elDpr.textContent = `${window.innerWidth}×${window.innerHeight} (экран ${Math.round(window.screen.width * dpr)}×${Math.round(window.screen.height * dpr)}, ${dpr}x)`;
-      }
-
-      // Обновлённый вывод памяти
-      if (elRam) {
-        if (performance.memory) {
-          const used = (performance.memory.usedJSHeapSize / (1024 * 1024)).toFixed(1);
-          const total = (performance.memory.totalJSHeapSize / (1024 * 1024)).toFixed(1);
-          elRam.textContent = `${used} / ${total} МБ`;
-        } else {
-          elRam.textContent = 'Ограничено браузером';
-        }
+        elDpr.textContent = `${window.innerWidth}×${window.innerHeight} (${dpr}x)`;
       }
     }
 
@@ -3017,22 +3443,13 @@ function initPerfMonitor() {
   }
   if (closeBtn) closeBtn.onclick = () => updateVisibility(false);
 
-  // ВОТ ЗДЕСЬ ПРИВЯЗЫВАЕТСЯ КНОПКА ТЕСТА И ОБРАБОТЧИК RESIZE:
   const btnSim = document.getElementById('perf-btn-gps-sim');
   if (btnSim && window.WM && WM.gpsSimulator) {
     btnSim.onclick = () => WM.gpsSimulator.toggle();
   }
 
-  window.addEventListener('resize', () => {
-    if (elDpr) {
-      const dpr = window.devicePixelRatio || 1;
-      elDpr.textContent = `${window.innerWidth}×${window.innerHeight} (экран ${Math.round(window.screen.width * dpr)}×${Math.round(window.screen.height * dpr)}, ${dpr}x)`;
-    }
-  });
-
   if (isEnabled) updateVisibility(true);
 }
-
 // Запуск строго после полной загрузки дерева DOM:
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initPerfMonitor);
