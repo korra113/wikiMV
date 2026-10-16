@@ -32,6 +32,40 @@
         if (isCapacitor) {
           document.documentElement.classList.add('capacitor-app');
         }
+
+        // --- МГНОВЕННОЕ ПРИМЕНЕНИЕ ВИДИМОСТИ КНОПОК ДО ОТРИСОВКИ ---
+        var visRaw = localStorage.getItem('wm_ui_vis');
+        var vis = visRaw ? JSON.parse(visRaw) : {};
+        var css = '';
+
+        // Список ID кнопок и их ключей в wm_ui_vis
+        var mapVis = {
+          'btn-quick-measure': vis.quickmeasure === true,
+          'btn-measure': vis.measure !== false,
+          'btn-add-marker': vis.marker === true,
+          'btn-download-area': vis.precache !== false,
+          'btn-location': vis.location !== false,
+          'btn-manual-pdr': vis.manualpdr === true,
+          'btn-motion-toggle': vis.motion === true,
+          'btn-gps-dist': vis.gpsdist === true,
+          'btn-rays-toggle': vis.rays === true,
+          'btn-compass': vis.compassneedle !== false,
+          'btn-search': vis.search !== false
+        };
+
+        for (var id in mapVis) {
+          if (mapVis[id]) {
+            css += '#' + id + ' { display: flex !important; } ';
+          } else {
+            css += '#' + id + ' { display: none !important; } ';
+          }
+        }
+
+        var styleEl = document.createElement('style');
+        styleEl.id = 'early-ui-vis-style';
+        styleEl.textContent = css;
+        document.head.appendChild(styleEl);
+
       } catch (e) {}
     })();
   </script>
@@ -142,16 +176,16 @@
 
   <!-- Плавающие круглые кнопки управления -->
   <nav class="floating-controls" id="ui-floating-controls">
-    <button id="btn-mode-toggle" class="floating-btn active" title="Режим: Перекрестие (нажмите для смены)">✛</button>
-    <button id="btn-quick-measure" class="floating-btn" title="Быстрое измерение (2 точки)" style="display: none;">📐</button>
+    <button id="btn-mode-toggle" class="floating-btn" title="Режим карты">✛</button>
+    <button id="btn-quick-measure" class="floating-btn" title="Быстрое измерение (2 точки)">📐</button>
     <button id="btn-measure" class="floating-btn" title="Линейка (измерение расстояний)">📏</button>
-    <button id="btn-add-marker" class="floating-btn" title="Добавить метку" style="display: none;">📍</button>
+    <button id="btn-add-marker" class="floating-btn" title="Добавить метку">📍</button>
     <button id="btn-download-area" class="floating-btn" title="Скачать область">📥</button>
     <button id="btn-location" class="floating-btn" title="Моя геопозиция">🛰️</button>
-    <button id="btn-manual-pdr" class="floating-btn" title="Поместить точку GPS сюда" style="display: none;">🧲</button>
-    <button id="btn-motion-toggle" class="floating-btn" title="Хвост и траектория движения" style="display: none;">🐾</button>
-    <button id="btn-gps-dist" class="floating-btn" title="Расстояние от центра до GPS" style="display: none;">🧭</button>
-    <button id="btn-rays-toggle" class="floating-btn" title="Азимуты Солнца и Луны" style="display: none;">✨</button>
+    <button id="btn-manual-pdr" class="floating-btn" title="Поместить точку GPS сюда">🧲</button>
+    <button id="btn-motion-toggle" class="floating-btn" title="Хвост и траектория движения">🐾</button>
+    <button id="btn-gps-dist" class="floating-btn" title="Расстояние от центра до GPS">🧭</button>
+    <button id="btn-rays-toggle" class="floating-btn" title="Азимуты Солнца и Луны">✨</button>
     <button id="btn-theme-toggle" class="floating-btn" title="Сменить тему">🌙</button>
     <button id="btn-settings" class="floating-btn" title="Настройки">⚙️</button>
   </nav>
