@@ -4302,11 +4302,18 @@
   function updateManualPdrBtnState() {
     const btn = $('btn-manual-pdr');
     if (!btn) return;
-    const active = WM.manualPdr ? WM.manualPdr.isActive() : false;
+    const isPdr = WM.manualPdr ? WM.manualPdr.isActive() : false;
+    const isSpoof = WM.antiSpoof ? WM.antiSpoof.isSpoofed() : false;
+    const active = isPdr || isSpoof;
     btn.classList.toggle('active', active);
-    btn.title = active
-      ? '📍 Ведение по датчикам активно (нажмите для возврата к GPS)'
-      : '📍 Поместить точку GPS сюда\nПривязать координаты к центру и включить шагомер';
+
+    if (isSpoof) {
+      btn.title = '⚠️ Глушение GPS активно (нажмите, чтобы снять режим и вернуться к GPS)';
+    } else if (isPdr) {
+      btn.title = '📍 Ведение по датчикам активно (нажмите для возврата к GPS)';
+    } else {
+      btn.title = '📍 Поместить точку GPS сюда\nПривязать координаты к центру и включить шагомер';
+    }
   }
 
   
