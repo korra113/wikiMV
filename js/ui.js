@@ -27,6 +27,12 @@
       return true;
     }
 
+    const modalCoords = $('modal-open-coords');
+    if (modalCoords && modalCoords.classList.contains('open')) {
+      modalCoords.classList.remove('open');
+      return true;
+    }
+
     // 2. Список объектов в зоне
     const modalObjs = $('modal-objects-list');
     if (modalObjs && modalObjs.classList.contains('open')) {
@@ -211,10 +217,11 @@
       measure: true,
       marker: true,
       gpsDist: true,
+      manualPdr: false, // <-- Добавлено (по умолчанию скрыто)
       coords: true,
       sunMoonRays: true,
       customOverlay: true,
-      rangering: false // <-- ДОБАВИТЬ: по умолчанию в меню отключено
+      rangering: false
     }
   };
 
@@ -242,6 +249,8 @@
       if (isClickable) crosshair.setAttribute('title', '⚡ Быстрое меню');
       else crosshair.removeAttribute('title');
     }
+    // Пересчёт расположения кнопки смены карты (если она слева внизу)
+    if (window.updateQuickSwapUI) window.updateQuickSwapUI();
   }
 
   function renderQuickMenuItems() {
@@ -343,6 +352,19 @@
         }
       },
       {
+        id: 'manualPdr',
+        icon: '📍',
+        title: 'Поместить точку GPS сюда',
+        sub: (WM.manualPdr && WM.manualPdr.isActive()) 
+          ? 'Ведение по датчикам активно (нажмите для выключения)' 
+          : 'Привязать координаты к центру и вести по датчикам',
+        show: !!itemsCfg.manualPdr,
+        action: () => {
+          closeQuickMenu();
+          if (WM.manualPdr && WM.manualPdr.toggle) WM.manualPdr.toggle();
+        }
+      },
+      {
         id: 'gpsDist',
         icon: '🧭',
         title: 'Расстояние до GPS',
@@ -374,17 +396,12 @@
       {
         id: 'coords',
         icon: '🌐',
-        title: 'Скопировать координаты',
-        sub: coordStr,
+        title: 'Открыть координаты',
+        sub: `${coordStr} · Внешние карты и копирование`,
         show: itemsCfg.coords,
-        action: async () => {
+        action: () => {
           closeQuickMenu();
-          try {
-            await navigator.clipboard.writeText(coordStr);
-            showToast(`📋 Координаты скопированы: ${coordStr}`);
-          } catch (e) {
-            showToast(`Координаты: ${coordStr}`);
-          }
+          openCoordsModal(center.lat, center.lng);
         }
       }
     ];
@@ -713,6 +730,25 @@
     showToast(`Проверка завершена: доступно ${okCount} из ${catalog.length} карт`);
   }
 
+  function updateQuickSwapTargetBtn() {
+    const titleEl = $('quick-swap-target-title');
+    if (!titleEl) return;
+
+    const targetMap = localStorage.getItem('wm_quick_swap_target') || 'Спутник (Esri)';
+
+    if (targetMap.startsWith('kml:')) {
+      const kmlId = targetMap.slice(4);
+      const kml = WM.imageOverlay && WM.imageOverlay.getOverlay ? WM.imageOverlay.getOverlay(kmlId) : null;
+      titleEl.textContent = kml ? `📜 ${kml.name}` : '📜 KML карта';
+    } else {
+      const isSat = targetMap.includes('Спутник');
+      const icon = isSat ? '🛰️' : '🗺️';
+      titleEl.textContent = `${icon} ${targetMap}`;
+    }
+  }
+  WM.ui = WM.ui || {};
+  WM.ui.updateQuickSwapTargetBtn = updateQuickSwapTargetBtn;
+
   // Отрисовка списков карт в настройках
   function renderBaseMapsSettingsUI() {
     const modernListEl = $('modern-maps-list');
@@ -723,9 +759,25 @@
     const chkQuickSwap = $('toggle-quick-swap-enabled');
     const wrapQuickSwap = $('quick-swap-select-wrap');
     const selectQuickSwap = $('quick-swap-map-select');
+    const selectQuickSwapPos = $('quick-swap-pos-select'); // <-- Добавлено
 
     const isQuickSwapOn = localStorage.getItem('wm_quick_swap_enabled') !== 'false';
     const currentTargetMap = localStorage.getItem('wm_quick_swap_target') || 'Спутник (Esri)';
+    const currentSwapPos = localStorage.getItem('wm_quick_swap_pos') || 'top-right'; // <-- Добавлено
+
+    const btnChooseMap = $('btn-quick-swap-choose-map');
+    if (btnChooseMap) {
+      btnChooseMap.onclick = () => {
+        if (window.openQuickSwapTargetModal) {
+          window.openQuickSwapTargetModal();
+        }
+      };
+      updateQuickSwapTargetBtn();
+    }
+
+    if (selectQuickSwapPos) {
+      selectQuickSwapPos.value = currentSwapPos; // <-- Добавлено
+    }
 
     if (chkQuickSwap) {
       chkQuickSwap.checked = isQuickSwapOn;
@@ -842,6 +894,7 @@
     marker: false,
     precache: true,
     location: true,
+    manualpdr: false, // <-- Добавлено (по умолчанию скрыто в боковом меню)
     gpsdist: false,
     motion: false,
     compasscone: true,
@@ -850,11 +903,11 @@
     theme: true,
     infomenu: true,
     rangering: false,
-    motiontail: true,    // <-- Хвост по умолчанию включен
-    motionvector: false  // <-- Траектория по умолчанию выключена
+    motiontail: true,
+    motionvector: false
   };
-  let uiVis = { ...UI_VIS_DEFAULT };
-  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'gpsdist', 'motion', 'compasscone', 'compassneedle', 'rays', 'theme', 'infomenu', 'rangering', 'motiontail', 'motionvector'];
+
+  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'manualpdr', 'gpsdist', 'motion', 'compasscone', 'compassneedle', 'rays', 'theme', 'infomenu', 'rangering', 'motiontail', 'motionvector'];
   const DEFAULT_INFO_ITEMS = {
     time: true,
     userCoords: true,
@@ -882,7 +935,8 @@
   const hudSpoilersState = {
     sun: true,
     moon: true,
-    weather: false
+    weather: false,
+    weatherHourly: false
   };
 
   // Коды погоды WMO (World Meteorological Organization)
@@ -962,6 +1016,7 @@
     const hourlyTimes = [];
     const hourlyTemps = [];
     const hourlyCodes = [];
+    const hourlyPrecip = [];
     const dailyTimes = [];
     const dailyPrecip = [];
     const dailyCodes = [];
@@ -979,6 +1034,7 @@
         hourlyTimes.push(`${day.date}T${pad(hour)}:00`);
         hourlyTemps.push(parseFloat(h.tempC != null ? h.tempC : h.temp_C));
         hourlyCodes.push(wwoToWmoCode(h.weatherCode));
+        hourlyPrecip.push(parseFloat(h.precipMM) || 0);
       });
     });
 
@@ -986,6 +1042,7 @@
       hourly: {
         time: hourlyTimes,
         temperature_2m: hourlyTemps,
+        precipitation: hourlyPrecip,
         weather_code: hourlyCodes
       },
       daily: {
@@ -1122,6 +1179,7 @@
     const times = weatherCacheData.hourly.time;
     const temps = weatherCacheData.hourly.temperature_2m;
     const codes = weatherCacheData.hourly.weather_code;
+    const precips = weatherCacheData.hourly.precipitation || [];
 
     function getHourData(hour) {
       const targetTime = `${dateStr}T${pad(hour)}:00`;
@@ -1142,6 +1200,27 @@
     const evening = getHourData(21);
     const night = getHourData(3);
 
+    // Сбор почасового прогноза на все 24 часа выбранного дня
+    const hourlyList = [];
+    for (let h = 0; h < 24; h++) {
+      const targetTime = `${dateStr}T${pad(h)}:00`;
+      const idx = times.indexOf(targetTime);
+      if (idx !== -1) {
+        const t = temps[idx];
+        const code = codes[idx];
+        const p = precips[idx] != null ? precips[idx] : 0;
+        const wInfo = WMO_WEATHER_MAP[code] || { text: 'Ясно', icon: '🌤️' };
+        hourlyList.push({
+          hour: h,
+          timeStr: `${pad(h)}:00`,
+          temp: t != null ? (t > 0 ? `+${Math.round(t)}` : `${Math.round(t)}`) + '°' : '--',
+          precip: p > 0 ? (p < 0.1 ? '0.1' : p.toFixed(1)) : null,
+          icon: wInfo.icon,
+          text: wInfo.text
+        });
+      }
+    }
+
     // Осадки и общее описание за день из блока daily
     let precipSum = 0;
     let dayCode = 0;
@@ -1160,6 +1239,7 @@
       day,
       evening,
       night,
+      hourlyList,
       precipSum,
       weatherDesc: mainWeather.text,
       weatherIcon: mainWeather.icon
@@ -1179,8 +1259,22 @@
   }
 
   // Сверхбыстрое обновление линий азимута (60 FPS без пересоздания DOM)
-  function updateRays(centerLL) {
-    if (!WM.map) return;
+  let lastRayUpdateMinute = -1;
+
+  function updateRays(centerLL, force = false) {
+    if (!WM.map || !infoHudConfig.rays) {
+      if (infoRaysLayer) infoRaysLayer.clearLayers();
+      sunRayPoly = null;
+      moonRayPoly = null;
+      return;
+    }
+
+    // Обновляем геометрию лучей только если сменилась минута или принудительно (сдвиг карты)
+    const currentMinute = Math.floor(Date.now() / 30000); // раз в 30 секунд
+    if (!force && currentMinute === lastRayUpdateMinute) {
+      return;
+    }
+    lastRayUpdateMinute = currentMinute;
     const map = WM.map;
 
     // ГАРАНТИРОВАННАЯ ОЧИСТКА ПРИ ОТКЛЮЧЕНИИ
@@ -1488,6 +1582,42 @@
           ? `${wData.weatherIcon} Погода (${wData.day ? wData.day.temp : '--'})`
           : '🌦️ Погода (загрузка…)';
 
+        // Показываем вложенный почасовой спойлер только для Сегодня (0) и Завтра (1)
+        const isTodayOrTomorrow = (infoAstroDayOffset === 0 || infoAstroDayOffset === 1);
+        const currentHour = now.getHours();
+
+        let hourlyHtml = '';
+        if (isTodayOrTomorrow && wData && wData.hourlyList && wData.hourlyList.length) {
+          const cardsHtml = wData.hourlyList.map(hItem => {
+            const isCurrent = (infoAstroDayOffset === 0 && hItem.hour === currentHour);
+            const isPast = (infoAstroDayOffset === 0 && hItem.hour < currentHour);
+            const timeLabel = isCurrent ? 'Сейчас' : hItem.timeStr;
+            const precipLabel = hItem.precip ? `<span class="ih-hourly-precip">💧${hItem.precip}</span>` : '';
+            return `
+              <div class="ih-hourly-card ${isCurrent ? 'current' : ''} ${isPast ? 'past' : ''}">
+                <span class="ih-hourly-time">${timeLabel}</span>
+                <span class="ih-hourly-icon">${hItem.icon}</span>
+                <span class="ih-hourly-temp">${hItem.temp}</span>
+                ${precipLabel}
+              </div>
+            `;
+          }).join('');
+
+          hourlyHtml = `
+            <details class="ih-spoiler ih-hourly-spoiler" data-spoiler="weatherHourly" ${hudSpoilersState.weatherHourly ? 'open' : ''}>
+              <summary class="ih-spoiler-summary" style="margin-top: 5px; padding: 3px 0; border-top: 1px dashed var(--border);">
+                <span>⏱️ Почасовой (${wData.hourlyList.length} ч)</span>
+                <span class="ih-chevron">▼</span>
+              </summary>
+              <div class="ih-spoiler-body" style="padding-top: 3px;">
+                <div class="ih-hourly-scroll">
+                  ${cardsHtml}
+                </div>
+              </div>
+            </details>
+          `;
+        }
+
         html += `
           <details class="ih-spoiler ih-astro-section" data-spoiler="weather" ${hudSpoilersState.weather ? 'open' : ''}>
             <summary class="ih-spoiler-summary">
@@ -1522,6 +1652,7 @@
                   <div>${wData.precipSum > 0 ? `💧 Осадки: <b>${wData.precipSum.toFixed(1)} мм</b>` : '💧 Без осадков'}</div>
                   <div style="color: var(--text-muted); margin-top: 1px;">${wData.weatherDesc}</div>
                 </div>
+                ${hourlyHtml}
               ` : `
                 <div class="muted-val" style="padding: 4px 0; font-size: 10px; color: var(--text-muted);">
                   ${isWeatherLoading ? '⏳ Загрузка прогноза Open-Meteo…' : 'Ожидание сети…'}
@@ -1535,7 +1666,26 @@
       html += `</div>`; // ih-astro-swipe-area
     }
 
-    if (!isCollapsed) content.innerHTML = html;
+    if (!isCollapsed) {
+      // Сохраняем положение прокрутки почасовых карточек перед обновлением DOM
+      const prevScrollEl = content.querySelector('.ih-hourly-scroll');
+      const prevScrollPos = prevScrollEl ? prevScrollEl.scrollLeft : null;
+
+      content.innerHTML = html;
+
+      // Восстанавливаем позицию прокрутки или центрируем на текущем часе
+      const newScrollEl = content.querySelector('.ih-hourly-scroll');
+      if (newScrollEl) {
+        if (prevScrollPos !== null) {
+          newScrollEl.scrollLeft = prevScrollPos;
+        } else if (infoAstroDayOffset === 0) {
+          const curCard = newScrollEl.querySelector('.ih-hourly-card.current');
+          if (curCard) {
+            newScrollEl.scrollLeft = Math.max(0, curCard.offsetLeft - 12);
+          }
+        }
+      }
+    }
   }
 
 
@@ -1843,6 +1993,7 @@
     if ($('btn-download-area')) $('btn-download-area').style.display = uiVis.precache ? '' : 'none';
     if ($('btn-location')) $('btn-location').style.display = uiVis.location ? '' : 'none';
     if ($('btn-motion-toggle')) $('btn-motion-toggle').style.display = uiVis.motion ? '' : 'none'; // <-- Добавлено
+    if ($('btn-manual-pdr')) $('btn-manual-pdr').style.display = uiVis.manualpdr ? '' : 'none'; // <-- Добавлено
     if ($('btn-gps-dist')) $('btn-gps-dist').style.display = uiVis.gpsdist ? '' : 'none';
     if ($('btn-rays-toggle')) $('btn-rays-toggle').style.display = uiVis.rays ? '' : 'none';
     if ($('btn-theme-toggle')) $('btn-theme-toggle').style.display = uiVis.theme ? '' : 'none';
@@ -2605,9 +2756,9 @@
     if (WM.picker) WM.picker.refresh();
     if (syncHistory) clearHistoryState('sheet');
 
-    // Если карточка открывалась из окна списка объектов — возвращаем его обратно
+    // Если карточка открывалась из окна списка — возвращаем его обратно с сохранением тега
     if (returnToObjectsList) {
-      openObjectsListModal(true);
+      openObjectsListModal(true, objectsListFilterTag);
     }
   }
 
@@ -3487,6 +3638,9 @@
       'btn-add-marker': () => '📍 Добавить метку: создать заметку с эмодзи в центре экрана с возможностью перемещения',
       'btn-download-area': () => '📥 Скачать область: сохранить контуры и описания видимой области для автономной работы',
       'btn-location': () => '🛰️ Моя геопозиция: определить и показать текущие координаты по GPS',
+      'btn-manual-pdr': () => (WM.manualPdr && WM.manualPdr.isActive())
+        ? '📍 Ведение по датчикам активно\nНажмите для возврата к штатному GPS'
+        : '📍 Поместить точку GPS сюда\nПривязать координаты к центру экрана и включить шагомер',
       'btn-motion-toggle': () => {
         const tail = WM.motionTail ? WM.motionTail.isEnabled() : false;
         const vector = WM.motionVector ? WM.motionVector.isEnabled() : false;
@@ -3632,12 +3786,38 @@
   let returnToObjectsList = false;
   let lastObjectsSearchQuery = '';
   let cachedObjectsSnapshot = null; // Фиксированный снимок объектов исходной области
+  let objectsListFilterTag = null;  // <-- Активный тег фильтрации (если открыто по тегу)
   let isDownloadingObjects = false;
+
+  function getSourceObjectsForList() {
+    const rawList = (WM.view && WM.view.shownObjects) ? WM.view.shownObjects() : [];
+    if (!objectsListFilterTag) return rawList;
+    const tag = objectsListFilterTag;
+    return rawList.filter(o => {
+      if (WM.view && WM.view.matchesTag) return WM.view.matchesTag(o, tag);
+      if (!Array.isArray(o.tags)) return false;
+      return o.tags.some(t => {
+        if (tag.id && t.id && String(tag.id) === String(t.id)) return true;
+        if (tag.title && t.title && t.title.toLowerCase() === tag.title.toLowerCase()) return true;
+        return false;
+      });
+    });
+  }
+
+  function updateObjectsModalHeader() {
+    const titleEl = $('objects-list-modal-title');
+    if (!titleEl) return;
+    if (objectsListFilterTag) {
+      titleEl.innerHTML = `🏷️ ${escapeHtml(objectsListFilterTag.title)} (<span id="objects-list-count">0</span>)`;
+    } else {
+      titleEl.innerHTML = `📋 Объекты на карте (<span id="objects-list-count">0</span>)`;
+    }
+  }
 
   function updateObjectsDownloadBtn() {
     const btn = $('objects-download-btn');
     if (!btn) return;
-    const allObjs = cachedObjectsSnapshot || ((WM.view && WM.view.shownObjects) ? WM.view.shownObjects() : []);
+    const allObjs = cachedObjectsSnapshot || getSourceObjectsForList();
     const count = allObjs.length;
     const isTooMany = count >= 50;
 
@@ -3668,9 +3848,9 @@
     if (modal) modal.classList.remove('open');
     returnToObjectsList = false;
     cachedObjectsSnapshot = null;
+    objectsListFilterTag = null;
     clearHistoryState('modal');
 
-    // Если загрузка не идет, скрываем прогресс-бар
     if (!isDownloadingObjects) {
       const pWrap = $('objects-download-progress-wrap');
       if (pWrap) pWrap.hidden = true;
@@ -3683,8 +3863,7 @@
     if (!listEl) return;
     listEl.textContent = '';
 
-    // Используем зафиксированный снимок, если он есть, иначе берем текущие объекты
-    const allObjs = cachedObjectsSnapshot || ((WM.view && WM.view.shownObjects) ? WM.view.shownObjects() : []);
+    const allObjs = cachedObjectsSnapshot || getSourceObjectsForList();
     const q = (filterText || '').trim().toLowerCase();
 
     let list = allObjs;
@@ -3701,10 +3880,13 @@
     }
 
     if (!allObjs.length) {
+      const emptyText = objectsListFilterTag 
+        ? `В видимой области карты не найдено объектов с тегом «${objectsListFilterTag.title}».`
+        : 'На экране пока нет загруженных объектов. Приблизьте карту или дождитесь загрузки.';
       listEl.append(el('div', {
         class: 'muted',
         style: 'width: 100%; padding: 24px 8px;',
-        text: 'На экране пока нет загруженных объектов. Приблизьте карту или дождитесь загрузки.'
+        text: emptyText
       }));
       return;
     }
@@ -3718,7 +3900,6 @@
       return;
     }
 
-    // Сортировка: сначала объекты с именами по алфавиту, затем безымянные по ID
     list.sort((a, b) => {
       if (a.title && !b.title) return -1;
       if (!a.title && b.title) return 1;
@@ -3729,7 +3910,6 @@
       const title = o.title || `Объект #${o.id}`;
       const isVisited = !!o.isVisited;
 
-      // Получаем актуальные данные из кэша (или самого объекта)
       const liveObj = (WM.cache && WM.cache.objects) ? WM.cache.objects.get(o.id) : null;
       const ph = Number(liveObj ? liveObj.photosCount : o.photosCount) || 0;
       const cm = Number(liveObj ? liveObj.commentsCount : o.commentsCount) || 0;
@@ -3739,18 +3919,10 @@
         el('span', { class: 'object-tag-chip-title', text: title })
       ];
 
-      // Добавляем эмодзи фото и комментариев только если они есть
       const statsKids = [];
-      if (ph > 0) {
-        statsKids.push(el('span', { class: 'object-chip-stat', text: `📷 ${ph}` }));
-      }
-      if (cm > 0) {
-        statsKids.push(el('span', { class: 'object-chip-stat', text: `💬 ${cm}` }));
-      }
-
-      if (statsKids.length > 0) {
-        chipKids.push(el('span', { class: 'object-chip-stats' }, statsKids));
-      }
+      if (ph > 0) statsKids.push(el('span', { class: 'object-chip-stat', text: `📷 ${ph}` }));
+      if (cm > 0) statsKids.push(el('span', { class: 'object-chip-stat', text: `💬 ${cm}` }));
+      if (statsKids.length > 0) chipKids.push(el('span', { class: 'object-chip-stats' }, statsKids));
 
       const chip = el('button', {
         class: 'object-tag-chip' + (isVisited ? ' visited' : ''),
@@ -3783,34 +3955,34 @@
     updateObjectsDownloadBtn();
   }
 
-  function openObjectsListModal(preserveState = false) {
+  function openObjectsListModal(preserveState = false, filterTag = null) {
     const modal = $('modal-objects-list');
     const input = $('objects-search-input');
     const clearBtn = $('objects-search-clear-btn');
     if (!modal) return;
 
     if (!preserveState) {
+      objectsListFilterTag = filterTag;
       lastObjectsSearchQuery = '';
-      cachedObjectsSnapshot = (WM.view && WM.view.shownObjects) ? [...WM.view.shownObjects()] : [];
+      cachedObjectsSnapshot = [...getSourceObjectsForList()];
       if (input) input.value = '';
       if (clearBtn) clearBtn.hidden = true;
 
-      // Скрываем полоску при новом открытии, если загрузка не идёт прямо сейчас
       if (!isDownloadingObjects) {
         const pWrap = $('objects-download-progress-wrap');
         if (pWrap) pWrap.hidden = true;
       }
     } else {
-      // Возврат после закрытия карточки: восстанавливаем поисковый запрос и держим старый снимок
       if (input) {
         input.value = lastObjectsSearchQuery;
         if (clearBtn) clearBtn.hidden = !lastObjectsSearchQuery;
       }
       if (!cachedObjectsSnapshot) {
-        cachedObjectsSnapshot = (WM.view && WM.view.shownObjects) ? [...WM.view.shownObjects()] : [];
+        cachedObjectsSnapshot = [...getSourceObjectsForList()];
       }
     }
 
+    updateObjectsModalHeader();
     renderObjectsList(lastObjectsSearchQuery);
     pushHistoryState('modal');
     modal.classList.add('open');
@@ -3980,6 +4152,86 @@
   }
   window.updateInfoHudUI = updateInfoHudUI;
 
+  let activeCoordsStr = '';
+
+  function openCoordsModal(lat, lng) {
+    const modal = $('modal-open-coords');
+    if (!modal) return;
+
+    // Ограничиваем зум для RetroMap адекватным диапазоном (от 5 до 18)
+    const currentZoom = WM.map ? Math.round(WM.map.getZoom()) : 16;
+    const rZoom = Math.min(18, Math.max(5, currentZoom));
+    
+    const latStr = lat.toFixed(6);
+    const lngStr = lng.toFixed(6);
+    activeCoordsStr = `${latStr}, ${lngStr}`;
+
+    const valEl = $('open-coords-val');
+    if (valEl) valEl.textContent = activeCoordsStr;
+
+    // 1. Яндекс Карты
+    const yandexBtn = $('open-coords-yandex');
+    if (yandexBtn) yandexBtn.href = `https://yandex.ru/maps/?pt=${lngStr},${latStr}&z=${currentZoom}&l=map`;
+
+    // 2. Google Maps
+    const googleBtn = $('open-coords-google');
+    if (googleBtn) googleBtn.href = `https://www.google.com/maps/search/?api=1&query=${latStr},${lngStr}`;
+
+    // 3. OpenStreetMap
+    const osmBtn = $('open-coords-osm');
+    if (osmBtn) osmBtn.href = `https://www.openstreetmap.org/#map=${currentZoom}/${latStr}/${lngStr}`;
+
+    // 4. ЭтоМесто (etomesto.com через карту мира с переходом к архивам)
+    const etomestoBtn = $('open-coords-etomesto');
+    if (etomestoBtn) etomestoBtn.href = `https://etomesto.com/map-mir/?y=${latStr}&x=${lngStr}`;
+
+    // 5. RetroMap (базовая карта 1619851 с сохранением зума и точки)
+    const retromapBtn = $('open-coords-retromap');
+    if (retromapBtn) retromapBtn.href = `https://retromap.ru/1619851_z${rZoom}_${latStr},${lngStr}`;
+
+    // 6. Wikimapia
+    const wmBtn = $('open-coords-wm');
+    if (wmBtn) wmBtn.href = `https://wikimapia.org/#lang=ru&lat=${latStr}&lon=${lngStr}&z=${currentZoom}&m=w`;
+
+    // 7. В Навигатор
+    const geoBtn = $('open-coords-geo');
+    if (geoBtn) geoBtn.href = `geo:${latStr},${lngStr}?q=${latStr},${lngStr}`;
+
+    modal.classList.add('open');
+    pushHistoryState('openCoords');
+  }
+
+  function initCoordsModal() {
+    const modal = $('modal-open-coords');
+    if (!modal) return;
+
+    const doCopy = async () => {
+      if (!activeCoordsStr) return;
+      try {
+        await navigator.clipboard.writeText(activeCoordsStr);
+        showToast(`📋 Координаты скопированы: ${activeCoordsStr}`);
+      } catch (e) {
+        showToast(`Координаты: ${activeCoordsStr}`);
+      }
+    };
+
+    const card = $('open-coords-copy-card');
+    if (card) card.onclick = doCopy;
+
+    const copyBtn = $('open-coords-btn-copy');
+    if (copyBtn) copyBtn.onclick = doCopy;
+
+    const closeBtn = $('open-coords-close');
+    if (closeBtn) closeBtn.onclick = () => modal.classList.remove('open');
+
+    const closeX = $('open-coords-x');
+    if (closeX) closeX.onclick = () => modal.classList.remove('open');
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.classList.remove('open');
+    });
+  }
+
   async function openClearTilesModal() {
     const modal = $('modal-clear-tiles');
     const listEl = $('clear-tiles-list');
@@ -4047,6 +4299,16 @@
     }
   }
 
+  function updateManualPdrBtnState() {
+    const btn = $('btn-manual-pdr');
+    if (!btn) return;
+    const active = WM.manualPdr ? WM.manualPdr.isActive() : false;
+    btn.classList.toggle('active', active);
+    btn.title = active
+      ? '📍 Ведение по датчикам активно (нажмите для возврата к GPS)'
+      : '📍 Поместить точку GPS сюда\nПривязать координаты к центру и включить шагомер';
+  }
+
   
   
 
@@ -4093,6 +4355,7 @@
 
   WM.ui = {
     updateMotionBtnState,
+    updateManualPdrBtnState, // <-- Экспортируем
     updateRays,
     openPlace(obj, alts) {
       obj.isVisited = true;
@@ -4159,7 +4422,9 @@
       }
       badge.hidden = false;
       const textEl = $('tag-filter-text');
-      if (textEl) textEl.textContent = `🏷️ «${tag.title}» (${count})`;
+      // Добавляем стрелочку '›' для очевидности кликабельности
+      if (textEl) textEl.textContent = `🏷️ «${tag.title}» (${count})  ›`;
+      textEl.title = `Нажмите, чтобы открыть список объектов «${tag.title}»`;
     },
     setStatus(text, warn) {
       const s = $('status');
@@ -4192,6 +4457,14 @@
         if (chk) chk.checked = uiVis[k] !== false;
       });
 
+      const btnManualPdr = $('btn-manual-pdr');
+      if (btnManualPdr) {
+        btnManualPdr.onclick = () => {
+          if (WM.manualPdr && WM.manualPdr.toggle) WM.manualPdr.toggle();
+        };
+      }
+      updateManualPdrBtnState();
+
       // Радиокнопки в модальном окне настроек
       document.querySelectorAll('input[name="app-theme-mode"]').forEach(r => {
         r.addEventListener('change', (e) => {
@@ -4215,6 +4488,19 @@
         btnMotion.onclick = cycleMotionMode;
       }
       updateMotionBtnState();
+
+      const tagText = $('tag-filter-text');
+      if (tagText) {
+        tagText.onclick = (e) => {
+          e.stopPropagation();
+          const curTag = (WM.view && WM.view.getActiveTag) ? WM.view.getActiveTag() : null;
+          if (curTag) {
+            openObjectsListModal(false, curTag);
+          }
+        };
+      }
+
+
 
       // Обработка клика и долгого тапа для btn-theme-toggle
       const btnTheme = $('btn-theme-toggle');
@@ -4533,6 +4819,9 @@
 
         hudContent.addEventListener('touchend', (e) => {
           if (e.changedTouches.length === 1) {
+            // Если свайп был внутри горизонтальной ленты почасового прогноза — не переключаем день!
+            if (e.target.closest('.ih-hourly-scroll')) return;
+
             const dx = e.changedTouches[0].clientX - astroTouchX;
             const dy = e.changedTouches[0].clientY - astroTouchY;
             if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.3) {
@@ -4631,17 +4920,31 @@
         btnGetKeyTop.onclick = openKeysSettings;
       }
 
+      const tagBadge = $('tag-filter-badge');
+      if (tagBadge) {
+        tagBadge.onclick = (e) => {
+          if (e.target.closest('#tag-filter-refresh, #tag-filter-clear')) return;
+          const curTag = (WM.view && WM.view.getActiveTag) ? WM.view.getActiveTag() : null;
+          if (curTag) {
+            openObjectsListModal(false, curTag);
+          }
+        };
+      }
+
       const clearTagBtn = $('tag-filter-clear');
       if (clearTagBtn) {
-        clearTagBtn.onclick = () => {
+        clearTagBtn.onclick = (e) => {
+          e.stopPropagation(); // Не открывать окно при клике на крестик
           if (WM.view && WM.view.clearTagFilter) {
             WM.view.clearTagFilter();
           }
         };
       }
+
       const refreshTagBtn = $('tag-filter-refresh');
       if (refreshTagBtn) {
-        refreshTagBtn.onclick = async () => {
+        refreshTagBtn.onclick = async (e) => {
+          e.stopPropagation(); // Не открывать окно при клике на обновление
           refreshTagBtn.classList.remove('spinning');
           void refreshTagBtn.offsetWidth;
           refreshTagBtn.classList.add('spinning');
@@ -4689,6 +4992,7 @@
 
           // 1. Сброс лимитов API
           WM.api.resetAllLimits();
+          if (WM.antiSpoof) WM.antiSpoof.reset();
           updateLimitHUD();
 
           // 2. Обновление публичных меток Firebase
@@ -4764,6 +5068,7 @@
       initSheetGestures();
       initMobileTooltips();
       initQuickMenu();
+      initCoordsModal();
 
       // Клик по верхней плашке статуса открывает меню объектов
       const statusBar = $('status');
@@ -4858,6 +5163,12 @@
           $('toggle-qm-item-shadowheight').checked = quickMenuConfig.items.shadowHeight !== false;
         }
 
+        if ($('toggle-qm-item-manualpdr')) {
+          $('toggle-qm-item-manualpdr').checked = !!quickMenuConfig.items.manualPdr;
+        }
+
+
+
         const passSettingsInput = $('shared-markers-password-input');
         if (passSettingsInput && WM.sharedMarkers) {
           passSettingsInput.value = WM.sharedMarkers.getPassword() || '';
@@ -4902,6 +5213,10 @@
         renderBaseMapsSettingsUI();
         renderKeysUI();
         $('net-mode').value = WM.api.netMode;
+        const antiSpoofOn = WM.api.store.get('wm_gps_anti_spoof') !== 'false';
+        const deadReckonOn = WM.api.store.get('wm_gps_dead_reckon') === 'true';
+        if ($('toggle-anti-spoof')) $('toggle-anti-spoof').checked = antiSpoofOn;
+        if ($('toggle-dead-reckon')) $('toggle-dead-reckon').checked = deadReckonOn;
 
         // Загрузка состояния быстрого меню в чекбоксы
         const chkQmEnabled = $('toggle-qm-enabled');
@@ -5262,6 +5577,8 @@
         updateInfoHudUI();
         updateRaysBtnState();
 
+        quickMenuConfig.items.manualPdr = $('toggle-qm-item-manualpdr') ? $('toggle-qm-item-manualpdr').checked : false;
+
 
         quickMenuConfig.enabled = $('toggle-qm-enabled') ? $('toggle-qm-enabled').checked : true;
         quickMenuConfig.triggers.longpress = $('toggle-qm-trigger-longpress') ? $('toggle-qm-trigger-longpress').checked : false;
@@ -5279,6 +5596,7 @@
 
         WM.api.store.set('wm_quick_menu', JSON.stringify(quickMenuConfig));
         updateQuickMenuTriggersUI();
+        updateManualPdrBtnState();
 
 
         snapshotVector = null;
@@ -5301,6 +5619,15 @@
 
         WM.api.save(editingKeys, $('net-mode').value, editingActiveIndex);
 
+        const antiSpoofChecked = $('toggle-anti-spoof') ? $('toggle-anti-spoof').checked : true;
+        const deadReckonChecked = $('toggle-dead-reckon') ? $('toggle-dead-reckon').checked : false;
+        WM.api.store.set('wm_gps_anti_spoof', antiSpoofChecked ? 'true' : 'false');
+        WM.api.store.set('wm_gps_dead_reckon', deadReckonChecked ? 'true' : 'false');
+        if (WM.antiSpoof) {
+          WM.antiSpoof.setEnabled(antiSpoofChecked);
+          WM.antiSpoof.setDeadReckoningEnabled(deadReckonChecked);
+        }
+
 
         const noEvictObjs = $('toggle-no-evict-objects') ? $('toggle-no-evict-objects').checked : false;
         const noEvictTiles = $('toggle-no-evict-tiles') ? $('toggle-no-evict-tiles').checked : false;
@@ -5313,12 +5640,12 @@
         syncSWNoTrim(noEvictTiles);
 
         const chkQuickSwap = $('toggle-quick-swap-enabled');
-        const selectQuickSwap = $('quick-swap-map-select');
+        const selectQuickSwapPos = $('quick-swap-pos-select');
         const isQuickSwapEnabled = chkQuickSwap ? chkQuickSwap.checked : false;
-        const targetQuickSwapMap = selectQuickSwap ? selectQuickSwap.value : 'Спутник (Esri)';
+        const targetSwapPos = selectQuickSwapPos ? selectQuickSwapPos.value : 'top-right';
 
         localStorage.setItem('wm_quick_swap_enabled', isQuickSwapEnabled ? 'true' : 'false');
-        localStorage.setItem('wm_quick_swap_target', targetQuickSwapMap);
+        localStorage.setItem('wm_quick_swap_pos', targetSwapPos);
 
         if (window.updateQuickSwapUI) {
           window.updateQuickSwapUI();
