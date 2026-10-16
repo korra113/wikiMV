@@ -85,6 +85,9 @@
     <!-- Кнопка перехода в получение ключей при исчерпании лимита -->
     <button id="btn-get-key-top" class="topbar-action-btn" hidden>🔑 Получить ключ</button>
   </header>
+ <div id="spoof-warning-badge" class="spoof-warning-badge" hidden title="Нажмите для принудительного сброса и проверки GPS">
+    ⚠️ Обнаружено глушение GPS ↺
+  </div>
   <div id="tag-filter-badge" class="tag-filter-badge" hidden>
     <span id="tag-filter-text">🏷️ Тег</span>
     <button id="tag-filter-refresh" class="tag-filter-action-btn" title="Искать в текущей области карты">🔄</button>
@@ -92,6 +95,7 @@
   </div>
   <!-- Прицел перекрестия -->
   <div id="crosshair" aria-hidden="true"></div>
+  <button id="btn-i-am-here" class="btn-i-am-here" hidden title="Перенести моё местоположение в центр перекрестия">🧲 Я тут</button>
 
   <div id="info-hud" class="info-hud" hidden>
     <div class="info-hud-header" id="info-hud-header" title="Нажмите для сворачивания / разворачивания">
@@ -128,6 +132,7 @@
     <button id="btn-add-marker" class="floating-btn" title="Добавить метку" style="display: none;">📍</button>
     <button id="btn-download-area" class="floating-btn" title="Скачать область">📥</button>
     <button id="btn-location" class="floating-btn" title="Моя геопозиция">🛰️</button>
+    <button id="btn-manual-pdr" class="floating-btn" title="Поместить точку GPS сюда" style="display: none;">🧲</button>
     <button id="btn-motion-toggle" class="floating-btn" title="Хвост и траектория движения" style="display: none;">🐾</button>
     <button id="btn-gps-dist" class="floating-btn" title="Расстояние от центра до GPS" style="display: none;">🧭</button>
     <button id="btn-rays-toggle" class="floating-btn" title="Азимуты Солнца и Луны" style="display: none;">✨</button>
@@ -161,7 +166,7 @@
   <div id="modal-objects-list" class="modal-overlay">
     <div class="modal-box modal-box-large">
       <div class="modal-header">
-        <h3>📋 Объекты на карте (<span id="objects-list-count">0</span>)</h3>
+        <h3 id="objects-list-modal-title">📋 Объекты на карте (<span id="objects-list-count">0</span>)</h3>
         <button class="modal-close-x" id="objects-list-x">✕</button>
       </div>
       <div class="objects-search-row">
@@ -197,6 +202,43 @@
     </div>
   </div>
 </div>
+
+<!-- Модальное окно открытия координат во внешних картах и копирования -->
+  <div id="modal-open-coords" class="modal-overlay">
+    <div class="modal-box modal-box-large">
+      <div class="modal-header">
+        <h3>🌐 Координаты и внешние карты</h3>
+        <button class="modal-close-x" id="open-coords-x">✕</button>
+      </div>
+
+      <!-- Карточка координат с быстрым копированием по клику -->
+      <div class="coords-card" id="open-coords-copy-card" title="Нажмите, чтобы скопировать координаты" style="margin-bottom: 12px;">
+        <div class="coords-meta">
+          <span class="coords-label">Координаты центра экрана</span>
+          <span class="coords-val" id="open-coords-val">--</span>
+        </div>
+        <span class="coords-copy-badge">📋 Скопировать</span>
+      </div>
+
+      <div class="modal-desc" style="margin-bottom: 10px;">Открыть текущую точку в сторонних сервисах:</div>
+
+      <!-- Сетка ссылок на внешние карты -->
+      <div class="nav-actions-grid" style="margin-bottom: 14px;">
+        <a id="open-coords-yandex" class="action-card-btn" target="_blank" rel="noopener noreferrer">🟡 Яндекс Карты ↗</a>
+        <a id="open-coords-google" class="action-card-btn" target="_blank" rel="noopener noreferrer">🔵 Google Maps ↗</a>
+        <a id="open-coords-osm" class="action-card-btn" target="_blank" rel="noopener noreferrer">🌍 OpenStreetMap ↗</a>
+        <a id="open-coords-etomesto" class="action-card-btn" target="_blank" rel="noopener noreferrer">📜 ЭтоМесто ↗</a>
+        <a id="open-coords-retromap" class="action-card-btn" target="_blank" rel="noopener noreferrer">🏛️ RetroMap ↗</a>
+        <a id="open-coords-wm" class="action-card-btn" target="_blank" rel="noopener noreferrer">🌐 Wikimapia ↗</a>
+        <a id="open-coords-geo" class="action-card-btn primary" style="grid-column: span 2;">🧭 В Навигатор (geo:)</a>
+      </div>
+
+      <div class="modal-actions" style="margin-top: 0; justify-content: space-between;">
+        <button type="button" id="open-coords-btn-copy" class="btn btn-secondary">📋 Скопировать координаты</button>
+        <button type="button" id="open-coords-close" class="btn btn-primary">Закрыть</button>
+      </div>
+    </div>
+  </div>
 
 
   <!-- Карточка объекта (шторка снизу / сайдбар на ПК) -->
@@ -514,15 +556,24 @@
                   <label class="toggle-item">
                     <div>
                       <span style="font-weight:600; display:block;">Кнопка быстрой смены карты</span>
-                      <small class="hint-text">Квадратная кнопка 🔀 слева от списка слоёв для мгновенного переключения</small>
+                      <small class="hint-text">Кнопка 🔀 для мгновенного переключения между двумя картами</small>
                     </div>
                     <input type="checkbox" id="toggle-quick-swap-enabled">
                     <span class="toggle-switch"></span>
                   </label>
 
                   <div id="quick-swap-select-wrap" class="style-row" style="margin-top: 10px;" hidden>
-                    <label for="quick-swap-map-select" style="font-size: 12.5px; font-weight: 600; margin-bottom: 5px;">Вторая карта для переключения:</label>
-                    <select id="quick-swap-map-select" class="styled-select"></select>
+                    <label for="quick-swap-pos-select" style="font-size: 12.5px; font-weight: 600; margin-bottom: 5px;">Расположение кнопки на экране:</label>
+                    <select id="quick-swap-pos-select" class="styled-select" style="margin-bottom: 8px;">
+                      <option value="top-right">Справа вверху (по умолчанию)</option>
+                      <option value="bottom-left">Слева внизу</option>
+                    </select>
+
+                    <label style="font-size: 12.5px; font-weight: 600; margin-bottom: 5px; display: block;">Вторая карта для переключения:</label>
+                    <button type="button" id="btn-quick-swap-choose-map" class="styled-input" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; text-align: left; width: 100%;">
+                      <span id="quick-swap-target-title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Спутник (Esri)</span>
+                      <span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">Изменить ›</span>
+                    </button>
                   </div>
                 </div>
 
@@ -822,6 +873,13 @@
                     <span class="toggle-switch"></span>
                   </label>
 
+                  <!-- Чекбокс включения в быстром меню (по умолчанию выключен) -->
+                  <label class="toggle-item">
+                    <span>🧲 Поместить точку GPS сюда</span>
+                    <input type="checkbox" id="toggle-qm-item-manualpdr">
+                    <span class="toggle-switch"></span>
+                  </label>
+
                   <label class="toggle-item">
                     <span>🎯 Круг дальности (визир)</span>
                     <input type="checkbox" id="toggle-qm-item-rangering">
@@ -829,7 +887,7 @@
                   </label>
 
                   <label class="toggle-item">
-                    <span>🌐 Скопировать координаты центра экрана</span>
+                    <span>🌐 Открыть координаты (внешние карты / копирование)</span>
                     <input type="checkbox" id="toggle-qm-item-coords" checked>
                     <span class="toggle-switch"></span>
                   </label>
@@ -1032,6 +1090,12 @@
                   <input type="checkbox" id="toggle-ui-location" checked>
                   <span class="toggle-switch"></span>
                 </label>
+                <!-- Чекбокс отображения кнопки в боковой панели -->
+                <label class="toggle-item">
+                  <span>Кнопка «Поместить точку GPS сюда»</span>
+                  <input type="checkbox" id="toggle-ui-manualpdr">
+                  <span class="toggle-switch"></span>
+                </label>
                 <label class="toggle-item">
                   <span>Кнопка «Хвост и траектория движения»</span>
                   <input type="checkbox" id="toggle-ui-motion">
@@ -1164,11 +1228,11 @@
             <!-- Сеть и CORS-режим -->
             <details class="spoiler sub-spoiler">
               <summary class="spoiler-title sub-spoiler-title">
-                <span>🌐 Сеть и подключение</span>
+                <span>🌐 Сеть, GPS и защита</span>
                 <span class="chevron">▼</span>
               </summary>
-              <div class="spoiler-body">
-                <div class="form-group" style="margin-bottom: 0;">
+              <div class="spoiler-body toggles-list">
+                <div class="form-group" style="margin-bottom: 6px;">
                   <label for="net-mode">Режим отправки запросов</label>
                   <select id="net-mode" class="styled-select">
                     <option value="direct">Напрямую (рекомендуется для WebView / APK)</option>
@@ -1176,6 +1240,26 @@
                     <option value="proxy">Всегда через CORS-прокси</option>
                   </select>
                 </div>
+
+                <hr class="style-divider" style="margin: 6px 0;">
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Защищать от глушения GPS</span>
+                    <small class="hint-text">Фильтрует аномальные прыжки координат, бег по кругу на 100 км/ч (аэропортовый спуфинг) и удерживает позицию.</small>
+                  </div>
+                  <input type="checkbox" id="toggle-anti-spoof" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight:600; display:block;">Шагомер при глушении</span>
+                    <small class="hint-text">Использует акселерометр и компас устройства, чтобы продолжать вести точку шагом от последней точки или метки «Я тут».</small>
+                  </div>
+                  <input type="checkbox" id="toggle-dead-reckon">
+                  <span class="toggle-switch"></span>
+                </label>
               </div>
             </details>
 
@@ -1303,12 +1387,40 @@
                  style="text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px;">
                 📱 Скачать APK (~5 МБ)
               </a>
+
               <a href="https://github.com/korra113/wikiMV/raw/refs/heads/main/download/source.rar" 
                  class="btn btn-secondary btn-external-dl" 
                  target="_blank" 
                  rel="noopener noreferrer" 
                  style="text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                📦 Скачать исходники (ZIP)
+                📦 Скачать исходники (RAR)
+              </a>
+
+              <!-- Сдвоенные кнопки GitHub (в одну строку) -->
+              <div style="display: flex; gap: 8px;">
+                <a href="https://korra113.github.io/wikiMV/" 
+                   class="btn btn-secondary btn-external-dl" 
+                   target="_blank" 
+                   rel="noopener noreferrer" 
+                   style="flex: 1; text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                  🌐 GitHub Pages ↗
+                </a>
+
+                <a href="https://github.com/korra113/wikiMV/" 
+                   class="btn btn-secondary btn-external-dl" 
+                   target="_blank" 
+                   rel="noopener noreferrer" 
+                   style="flex: 1; text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                  🐙 Репозиторий GitHub ↗
+                </a>
+              </div>
+
+              <a href="https://4pda.to/forum/index.php?showtopic=1127622#entry145526692" 
+                 class="btn btn-secondary btn-external-dl" 
+                 target="_blank" 
+                 rel="noopener noreferrer" 
+                 style="text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                💬 Тема приложения на 4PDA ↗
               </a>
             </div>
             <small class="hint-text" style="margin-top: 6px; display: block;">
@@ -1895,13 +2007,13 @@
   </div>
   <div class="perf-hud-grid">
     <div class="perf-item"><span class="perf-lbl">FPS:</span><b id="perf-fps">--</b></div>
-    <div class="perf-item"><span class="perf-lbl">Кадр (Frame Time):</span><b id="perf-ftime">--</b></div>
-    <div class="perf-item"><span class="perf-lbl">Тайлов в DOM (всего):</span><b id="perf-dom-tiles">0</b></div>
+    <div class="perf-item"><span class="perf-lbl">Время кадра:</span><b id="perf-ftime">--</b></div>
+    <div class="perf-item"><span class="perf-lbl">Частота датчиков:</span><b id="perf-sensors">0 Гц</b></div>
+    <div class="perf-item"><span class="perf-lbl">Тайлы в DOM:</span><b id="perf-dom-tiles">0</b></div>
+    <div class="perf-item"><span class="perf-lbl">DOM элементов:</span><b id="perf-dom-nodes">0</b></div>
     <div class="perf-item"><span class="perf-lbl">Зависания (>50мс):</span><b id="perf-long-tasks">0</b></div>
-    <div class="perf-item"><span class="perf-lbl">DPR / Разрешение:</span><b id="perf-dpr">--</b></div>
-    <div class="perf-item"><span class="perf-lbl">RAM (Heap):</span><b id="perf-ram">--</b></div>
+    <div class="perf-item"><span class="perf-lbl">DPR / Экран:</span><b id="perf-dpr">--</b></div>
   </div>
-  <!-- КНОПКА ТЕСТОВОЙ ЭМУЛЯЦИИ ХОДЬБЫ -->
   <button id="perf-btn-gps-sim" type="button" class="perf-sim-btn">🚶 Тест ходьбы GPS (лес)</button>
 </div>
 </body>
