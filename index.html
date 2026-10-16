@@ -77,17 +77,33 @@
 
   <!-- Верхняя информационная панель -->
   <header class="topbar" id="ui-topbar">
+    <!-- Стандартная плашка лимитов API (скрывается во время глушения) -->
     <div class="limit-row" id="limit-row">
       <div id="limit-badge" class="limit-badge" title="Запросов за 5 минут">🔑 0/100</div>
       <button id="btn-force-refresh" class="limit-reset-btn" title="Сбросить таймеры и загрузить объекты">🔄</button>
     </div>
+
+    <!-- НОВАЯ ЕДИНАЯ ПАНЕЛЬ ТРЕВОГИ ГЛУШЕНИЯ GPS -->
+    <div id="spoof-alert-panel" class="spoof-alert-panel" hidden>
+      <div class="spoof-alert-main">
+        <span class="spoof-alert-icon">⚠️</span>
+        <div class="spoof-alert-texts">
+          <span class="spoof-alert-title">Глушение GPS</span>
+          <span id="spoof-alert-reason" class="spoof-alert-sub">Аномальный скачок</span>
+        </div>
+      </div>
+      <div class="spoof-alert-actions">
+        <button id="btn-i-am-here" class="spoof-action-btn pin" type="button" title="Привязать моё положение к центру перекрестия на карте">🧲 Я тут</button>
+        <button id="btn-spoof-probe" class="spoof-action-btn probe" type="button" title="Запросить текущий сигнал GPS и проверить, прекратилось ли глушение">🔄 Проверить</button>
+        <button id="btn-spoof-dismiss" class="spoof-action-btn close" type="button" title="Снять тревогу глушения вручную">✕</button>
+      </div>
+    </div>
+
     <div id="status" class="status-bar">Загрузка базы…</div>
     <!-- Кнопка перехода в получение ключей при исчерпании лимита -->
     <button id="btn-get-key-top" class="topbar-action-btn" hidden>🔑 Получить ключ</button>
   </header>
- <div id="spoof-warning-badge" class="spoof-warning-badge" hidden title="Нажмите для принудительного сброса и проверки GPS">
-    ⚠️ Обнаружено глушение GPS ↺
-  </div>
+
   <div id="tag-filter-badge" class="tag-filter-badge" hidden>
     <span id="tag-filter-text">🏷️ Тег</span>
     <button id="tag-filter-refresh" class="tag-filter-action-btn" title="Искать в текущей области карты">🔄</button>
