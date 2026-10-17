@@ -3,7 +3,7 @@
   let map, renderer; const shown = new Map(), hl = {};
   let activeTag = null; // { id, title }
   let isVectorVisible = true;
-  let isZooming = false; // <-- ПЕРЕНЕСЕНО СЮДА
+  let isZooming = false;
 
   const DEFAULT_STYLE = {
     color: '#f2ba5a',
@@ -39,27 +39,27 @@
   const LARGE_AREA_MIN = 0.00012;
 
   let filters = {
+    autoSize: true,         // По умолчанию ВКЛЮЧЕНО
     hideBuildings: false,
     hideRegions: false,
     hideDeleted: false,
-    hideSmallDensity: true, // По умолчанию включено для плавной работы
+    hideSmallDensity: true,
     hideSmall: false,
     hideMedium: false,
-    hideLarge: true // <-- БЫЛО: false, СТАЛО: true (по умолчанию включено)
+    hideLarge: false        // По умолчанию ВЫКЛЮЧЕНО
   };
 
   function loadStoredFilters() {
     try {
       if (WM.api && WM.api.store) {
+        filters.autoSize = WM.api.store.get('wm_filter_auto_size') !== 'false';
         filters.hideBuildings = WM.api.store.get('wm_filter_hide_buildings') === 'true';
         filters.hideRegions = WM.api.store.get('wm_filter_hide_regions') === 'true';
         filters.hideDeleted = WM.api.store.get('wm_filter_hide_deleted') === 'true';
         filters.hideSmallDensity = WM.api.store.get('wm_filter_hide_small_density') !== 'false';
         filters.hideSmall = WM.api.store.get('wm_filter_hide_small') === 'true';
         filters.hideMedium = WM.api.store.get('wm_filter_hide_medium') === 'true';
-        // БЫЛО: filters.hideLarge = WM.api.store.get('wm_filter_hide_large') === 'true';
-        // СТАЛО: если в хранилище ещё ничего не записано, по умолчанию считаем включённым (!== 'false')
-        filters.hideLarge = WM.api.store.get('wm_filter_hide_large') !== 'false';
+        filters.hideLarge = WM.api.store.get('wm_filter_hide_large') === 'true';
       }
     } catch (e) {}
   }
@@ -73,16 +73,144 @@
     return 'medium';
   }
 
-  function isObjectAllowed(o) {
+  // Адаптивная фильтрация по размеру и текущему масштабу экрана
+  function isAllowedByAutoSize(o, zoom, mapSize, density) {
+    const area = o.area || 0;
+    const isRegion = !!o.is_region;
+
+    // Оценка плотности объектов на экране
+    const isHighDensity = density > 180;
+    const isExtremeDensity = density > 380;
+
+    // -------------------------------------------------------------------------
+    // 1. ПРОВЕРКА СВЕРХУ: Скрытие фоновых супергигантов при сильном приближении (zoom >= 16)
+    // Чтобы огромный район или промзона не перекрывали обзор мелких домов внутри.
+    // На зумах 14-15 НЕ скрываем, чтобы можно было кликнуть любой парк/квартал.
+    // -------------------------------------------------------------------------
+    if (zoom >= 16 && (area >= 0.00015 || isRegion)) {
+      const curMapSize = mapSize || (map ? map.getSize() : { x: 400, y: 700 });
+      const degPerPx = 360 / (256 * 2 ** zoom);
+      const centerLat = map ? map.getCenter().lat : ((o.bbox.s + o.bbox.n) / 2);
+      const cosLat = Math.cos(centerLat * Math.PI / 180) || 1;
+
+      const wpx = (o.bbox.e - o.bbox.w) / degPerPx;
+      const hpx = (o.bbox.n - o.bbox.s) / cosLat / degPerPx;
+
+      // Отсекаем только если объект больше всего экрана более чем в 1.3-1.5 раза
+      const maxRatio = zoom >= 18 ? 1.1 : 1.4;
+      if (wpx > curMapSize.x * maxRatio && hpx > curMapSize.y * maxRatio) {
+        return false;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. ЗУМ 14 И КРУПНЕЕ (14, 15, 16, 17, 18, 19, 20):
+    // НЕ УДАЛЯЕТСЯ ВООБЩЕ НИЧЕГО — видны все ларьки, памятники, гаражи и входы
+    // -------------------------------------------------------------------------
+    if (zoom >= 14) {
+      return true;
+    }
+
+    // Административные регионы и границы сохраняем всегда
+    if (isRegion) {
+      return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. ПЕРЕХОДНАЯ ЗОНА (МАСШТАБЫ 13 — 9)
+    // -------------------------------------------------------------------------
+
+    // Зум 13: убираем только самую микро-мелочь (< 400 м²: памятники, будки, ларьки).
+    // Все жилые дома, гаражные кооперативы и склады остаются.
+    if (zoom === 13) {
+      let minArea = 0.00000006; // ~400 м²
+      if (isExtremeDensity) minArea = 0.00000035; // плотный мегаполис: ~2 500 м² (крупные дома/ТЦ)
+      else if (isHighDensity) minArea = 0.00000015; // плотная застройка: ~1 000 м²
+      return area >= minArea;
+    }
+
+    // Зум 12: чуть крупнее мелочи (хрущевки, школы, детсады, ТЦ, кварталы остаются).
+    if (zoom === 12) {
+      let minArea = 0.00000035; // ~2 500 м²
+      if (isExtremeDensity) minArea = 0.000002; // мегаполис: ~14 000 м²
+      else if (isHighDensity) minArea = 0.0000009; // ~6 000 м²
+      return area >= minArea;
+    }
+
+    // Зум 11: ещё крупнее (кварталы, больничные городки, промплощадки, парки).
+    if (zoom === 11) {
+      let minArea = 0.0000025; // ~18 000 м²
+      if (isExtremeDensity) minArea = 0.000015; // мегаполис: ~100 000 м²
+      else if (isHighDensity) minArea = 0.000006; // ~40 000 м²
+      return area >= minArea;
+    }
+
+    // Зум 10: районный масштаб (микрорайоны, крупные заводы, большие парки, посёлки).
+    if (zoom === 10) {
+      let minArea = 0.00002; // ~140 000 м² (~14 га)
+      if (isExtremeDensity) minArea = 0.00009; // ~600 000 м²
+      else if (isHighDensity) minArea = 0.000045; // ~300 000 м²
+      return area >= minArea;
+    }
+
+    // Зум 9: городской масштаб (крупные промзоны, лесопарки, городские районы).
+    if (zoom === 9) {
+      let minArea = 0.00009; // ~600 000 м² (~60 га)
+      if (isExtremeDensity) minArea = 0.00035; // ~2.5 км²
+      else if (isHighDensity) minArea = 0.00018; // ~1.2 км²
+      return area >= minArea;
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. МАСШТАБЫ 8 И МЕЛЬЧЕ: АГРЕССИВНОЕ ОТСЕЧЕНИЕ
+    // Остаются только гигантские объекты (города, озера, водохранилища, заповедники)
+    // -------------------------------------------------------------------------
+
+    // Зум 8:
+    if (zoom === 8) {
+      let minArea = 0.00045; // ~3 км²
+      if (isExtremeDensity) minArea = 0.0018; // ~12 км²
+      else if (isHighDensity) minArea = 0.0009; // ~6 км²
+      return area >= minArea;
+    }
+
+    // Зум 7:
+    if (zoom === 7) {
+      let minArea = 0.002; // ~14 км²
+      if (isHighDensity) minArea = 0.0045; // ~30 км²
+      return area >= minArea;
+    }
+
+    // Зум 6 и мельче (обзор всей страны/континента):
+    let minArea = 0.007; // ~50+ км²
+    if (isHighDensity) minArea = 0.015;
+    return area >= minArea;
+  }
+
+  function isObjectAllowed(o, optZoom, optMapSize, optDensity) {
     if (!o) return false;
     if (filters.hideBuildings && o.is_building) return false;
     if (filters.hideRegions && o.is_region) return false;
     if (filters.hideDeleted && o.is_deleted) return false;
 
+    const zoom = (optZoom !== undefined) ? optZoom : (map ? map.getZoom() : 15);
+    const mapSize = optMapSize || (map ? map.getSize() : { x: 400, y: 700 });
+    const density = (optDensity !== undefined) ? optDensity : (shown ? shown.size : 0);
+
+    // В авто-режиме размеры балансируются автоматически
+    if (filters.autoSize) {
+      return isAllowedByAutoSize(o, zoom, mapSize, density);
+    }
+
+    // Ручной режим фильтрации
     const size = getObjectSizeCategory(o);
     if (filters.hideSmall && size === 'small') return false;
     if (filters.hideMedium && size === 'medium') return false;
     if (filters.hideLarge && size === 'large') return false;
+
+    if (filters.hideSmallDensity && density > 260 && zoom <= 14 && size === 'small') {
+      return false;
+    }
 
     return true;
   }
@@ -99,7 +227,6 @@
     } catch (e) {}
   }
 
-  // Кэш для предотвращения повторных математических расчетов цветов
   const desatCache = new Map();
 
   function desaturateColor(hex, factor = 0.4) {
@@ -168,25 +295,20 @@
 
   function computeStyleForObject(o, mapSize, degPerPx, cosLat) {
     const isTagMatched = activeTag && objectMatchesTag(o, activeTag);
-
-    // На зумах 18+ отключаем упрощение геометрии, на обзорных оставляем сглаживание
     const smoothFactor = (map && map.getZoom() >= 18) ? 0 : 1.5;
 
     if (isTagMatched) {
       return { ...TAG_HL_STYLE, interactive: false, smoothFactor, _k: 'tag' };
     }
 
-    // Экранный размер полигона относительно окна просмотра
     const wpx = (o.bbox.e - o.bbox.w) / degPerPx;
     const hpx = (o.bbox.n - o.bbox.s) / cosLat / degPerPx;
     const maxRatio = Math.max(wpx / mapSize.x, hpx / mapSize.y);
     const sizeCat = getObjectSizeCategory(o);
 
-    // 1. Рассчитываем коэффициент прозрачности в зависимости от размера
-    // Чем больше полигон на экране или по площади — тем прозрачнее фон
     let opacityFactor = 1.0;
     if (maxRatio > 1.2 || o.is_region || sizeCat === 'large') {
-      opacityFactor = 0.15; // Ровно 15% от максимальной заливки для огромных полигонов
+      opacityFactor = 0.15;
     } else if (maxRatio > 0.6) {
       opacityFactor = 0.35;
     } else if (maxRatio > 0.3) {
@@ -196,7 +318,6 @@
     const isVisited = !!o.isVisited;
     const visitedFactor = isVisited ? 0.85 : 1.0;
 
-    // 2. Обработка пользовательского цвета
     if (o.customColor) {
       const baseOpacity = 0.35;
       const fillOpacity = Math.round(baseOpacity * opacityFactor * visitedFactor * 1000) / 1000;
@@ -212,15 +333,11 @@
       };
     }
 
-    // 3. Стандартные цвета Wikimapia
     const baseColor = isVisited ? desaturateColor(STYLE.color, 0.55) : STYLE.color;
     const baseFillColor = isVisited ? desaturateColor(STYLE.fillColor, 0.4) : STYLE.fillColor;
     const baseWeight = isVisited ? Math.max(1, STYLE.weight * 0.9) : STYLE.weight;
 
-    // Итоговая прозрачность с учетом коэффициента размера полигона
     const fillOpacity = Math.round(STYLE.fillOpacity * opacityFactor * visitedFactor * 1000) / 1000;
-
-    // Включаем дискретный fillOpacity в ключ кэша, чтобы Leaflet динамически менял прозрачность при зуме
     const styleKey = `s_${isVisited}_${baseColor}_${baseFillColor}_${baseWeight}_${fillOpacity}_${smoothFactor}`;
 
     return {
@@ -252,8 +369,6 @@
     h.id = obj.id;
   }
 
-
-
   WM.view = {
     init(m) {
       map = m;
@@ -263,7 +378,6 @@
       map.createPane('wm-hl').style.zIndex = 450;
       map.createPane('wm-sel').style.zIndex = 460;
       
-      // Отключаем лишний padding для Canvas на больших зумах — экономит до 40% пикселей рендера
       renderer = L.canvas({ pane: 'wm-base', padding: 0.1 });
 
       map.on('zoomstart', () => { 
@@ -272,7 +386,6 @@
 
       map.on('zoomend', () => {
         isZooming = false;
-        // Синхронный вызов НЕ делаем, событие moveend само вызовет scheduleRender()
       });
     },
 
@@ -291,27 +404,29 @@
         ? WM.cache.queryBBox({ w: vw, s: vs, e: ve, n: vn }) 
         : WM.cache.objects.values();
 
+      const density = candidates.length || 0;
+
       for (let i = 0; i < candidates.length; i++) {
         const o = candidates[i];
-        if (!isObjectAllowed(o)) continue;
+        if (!isObjectAllowed(o, zoom, mapSize, density)) continue;
         const ob = o.bbox;
         if (ob.w > ve || ob.e < vw || ob.s > vn || ob.n < vs) continue;
 
         const wpx = (ob.e - ob.w) / degPerPx;
         const hpx = (ob.n - ob.s) / cosLat / degPerPx;
 
-        // На зумах 17+ отсекаем полигоны шире 1.5 экранов — их отрисовка в Canvas забирает сотни миллисекунд
         if (zoom >= 17 && (wpx > mapSize.x * 1.5 || hpx > mapSize.y * 1.5)) {
           continue;
         }
 
         const maxPx = wpx > hpx ? wpx : hpx;
-        if (maxPx >= (C.MIN_PX || 6)) {
+        // На зумах 14+ понижаем порог, чтобы микро-объекты физически попадали в рендер
+        const minPxLimit = zoom >= 16 ? 1 : (zoom >= 14 ? 2 : (C.MIN_PX || 5));
+        if (maxPx >= minPxLimit) {
           vis.push({ o, maxPx });
         }
       }
 
-      // Лимит полигонов на сверхдетальных масштабах
       const maxRendered = zoom >= 19 ? 120 : (zoom >= 17 ? 250 : (C.MAX_RENDERED || 1200));
       if (vis.length > maxRendered) {
         vis.sort((a, b) => (b.o.area || 0) - (a.o.area || 0));
@@ -323,7 +438,6 @@
         keep.add(vis[i].o.id);
       }
 
-      // 1. Сначала удаляем полигоны, вышедшие за экран
       for (const [id, s] of shown) {
         if (!keep.has(id)) { 
           map.removeLayer(s.poly); 
@@ -331,7 +445,6 @@
         }
       }
 
-      // 2. Отрисовываем / добавляем оставшиеся
       for (let i = 0; i < vis.length; i++) {
         const o = vis[i].o;
         const style = computeStyleForObject(o, mapSize, degPerPx, cosLat);
@@ -354,6 +467,7 @@
         WM.ui.updateTagFilterHUD(activeTag, matches);
       }
     },
+
     setVisible(visible) {
       isVectorVisible = !!visible;
       if (!isVectorVisible) {
@@ -371,7 +485,7 @@
     updateObjectStyle(id) {
       const s = shown.get(id);
       if (s && map) {
-        if (!isObjectAllowed(s.obj)) {
+        if (!isObjectAllowed(s.obj, map.getZoom(), map.getSize(), shown.size)) {
           map.removeLayer(s.poly);
           shown.delete(id);
           return;
@@ -403,7 +517,7 @@
       if (WM.ui && WM.ui.updateTagFilterHUD) WM.ui.updateTagFilterHUD(null);
       this.render();
     },
-    matchesTag: objectMatchesTag, // <-- ДОБАВЛЕНО: экспорт проверки тега для UI
+    matchesTag: objectMatchesTag,
     shownObjects() { return [...shown.values()].map(s => s.obj); },
     count() { return shown.size; },
 
@@ -425,6 +539,10 @@
     isObjectAllowed,
     getObjectSizeCategory,
     setFilters(f) {
+      if (f.autoSize !== undefined) {
+        filters.autoSize = !!f.autoSize;
+        if (WM.api && WM.api.store) WM.api.store.set('wm_filter_auto_size', filters.autoSize ? 'true' : 'false');
+      }
       if (f.hideBuildings !== undefined) {
         filters.hideBuildings = !!f.hideBuildings;
         if (WM.api && WM.api.store) WM.api.store.set('wm_filter_hide_buildings', filters.hideBuildings ? 'true' : 'false');
