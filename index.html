@@ -50,7 +50,8 @@
           'btn-gps-dist': vis.gpsdist === true,
           'btn-rays-toggle': vis.rays === true,
           'btn-compass': vis.compassneedle !== false,
-          'btn-search': vis.search !== false
+          'btn-search': vis.search !== false,
+          'btn-hide-ui': vis.hideuibtn === true
         };
 
         for (var id in mapVis) {
@@ -173,6 +174,7 @@
   <button id="btn-search" class="square-btn-top" title="Поиск мест и объектов">🔍</button>
 
   <button id="btn-quick-menu" class="floating-btn quick-menu-fab" title="Быстрое меню" hidden>☰</button>
+  <button id="btn-hide-ui" class="floating-btn hide-ui-fab" title="Скрыть интерфейс" hidden>👁️</button>
 
   <!-- Плавающие круглые кнопки управления -->
   <nav class="floating-controls" id="ui-floating-controls">
@@ -511,6 +513,15 @@
               <div class="spoiler-body toggles-list">
                 <label class="toggle-item">
                   <div>
+                    <span style="font-weight:600; display:block;">Автоматически по масштабу (рекомендуется)</span>
+                    <small class="hint-text" style="margin:2px 0 0; color: var(--accent);">Адаптирует размеры под зум: скрывает микро-объекты при отдалении и гигантские полигоны при приближении</small>
+                  </div>
+                  <input type="checkbox" id="toggle-filter-auto-size" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item">
+                  <div>
                     <span style="font-weight:600; display:block;">Скрывать мелкие при высокой плотности</span>
                     <small class="hint-text" style="margin:2px 0 0; color: var(--accent);">Убирает микро-объекты при отдалении карты, если в городе > 260 полигонов (ускоряет работу в разы)</small>
                   </div>
@@ -520,32 +531,34 @@
 
                 <hr class="style-divider" style="margin: 6px 0;">
 
-                <label class="toggle-item">
-                  <div>
-                    <span style="font-weight:600; display:block;">Скрыть мелкие объекты</span>
-                    <small class="hint-text" style="margin:2px 0 0;">Скрывать частные дома, гаражи, киоски, памятники на всех масштабах</small>
-                  </div>
-                  <input type="checkbox" id="toggle-filter-hide-small">
-                  <span class="toggle-switch"></span>
-                </label>
+                <div id="manual-size-filters-wrap" class="toggles-list" style="transition: opacity 0.2s ease;">
+                  <label class="toggle-item">
+                    <div>
+                      <span style="font-weight:600; display:block;">Скрыть мелкие объекты</span>
+                      <small class="hint-text" style="margin:2px 0 0;">Скрывать частные дома, гаражи, киоски, памятники на всех масштабах</small>
+                    </div>
+                    <input type="checkbox" id="toggle-filter-hide-small">
+                    <span class="toggle-switch"></span>
+                  </label>
 
-                <label class="toggle-item">
-                  <div>
-                    <span style="font-weight:600; display:block;">Скрыть средние объекты</span>
-                    <small class="hint-text" style="margin:2px 0 0;">Скрывать школы, ТЦ, кварталы и средние предприятия</small>
-                  </div>
-                  <input type="checkbox" id="toggle-filter-hide-medium">
-                  <span class="toggle-switch"></span>
-                </label>
+                  <label class="toggle-item">
+                    <div>
+                      <span style="font-weight:600; display:block;">Скрыть средние объекты</span>
+                      <small class="hint-text" style="margin:2px 0 0;">Скрывать школы, ТЦ, кварталы и средние предприятия</small>
+                    </div>
+                    <input type="checkbox" id="toggle-filter-hide-medium">
+                    <span class="toggle-switch"></span>
+                  </label>
 
-                <label class="toggle-item">
-                  <div>
-                    <span style="font-weight:600; display:block;">Скрыть крупные объекты</span>
-                    <small class="hint-text" style="margin:2px 0 0;">Скрывать огромные лесопарки, водохранилища и целые районы</small>
-                  </div>
-                  <input type="checkbox" id="toggle-filter-hide-large" checked>
-                  <span class="toggle-switch"></span>
-                </label>
+                  <label class="toggle-item">
+                    <div>
+                      <span style="font-weight:600; display:block;">Скрыть крупные объекты</span>
+                      <small class="hint-text" style="margin:2px 0 0;">Скрывать огромные лесопарки, водохранилища и целые районы</small>
+                    </div>
+                    <input type="checkbox" id="toggle-filter-hide-large">
+                    <span class="toggle-switch"></span>
+                  </label>
+                </div>
 
                 <hr class="style-divider" style="margin: 6px 0;">
 
@@ -1166,6 +1179,11 @@
                   <input type="checkbox" id="toggle-ui-theme" checked>
                   <span class="toggle-switch"></span>
                 </label>
+                <label class="toggle-item">
+                  <span>Кнопка скрытия интерфейса (UI)</span>
+                  <input type="checkbox" id="toggle-ui-hideuibtn">
+                  <span class="toggle-switch"></span>
+                </label>
 
                 <hr class="style-divider" style="margin: 6px 0;">
 
@@ -1491,27 +1509,6 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="js/leaflet.js"></script>
-  <script src="js/config.js"></script>
-  <script src="js/geo.js"></script>
-  <script src="js/cache.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/loader.js"></script>
-  <script src="js/view.js"></script>
-  <script src="js/picker.js"></script>
-  <script src="js/ui.js"></script>
-  <script src="js/markers.js"></script> 
-  <script src="js/imageOverlay.js"></script>
-
-  <script src="js/sharedMarkers.js"></script>
-  <script src="js/geocaching.js"></script>
-  <script src="js/suncalc.js"></script>
-  <script src="js/measure.js"></script>
-  <script src="js/quickMeasure.js"></script>
-  <script src="js/rangeRing.js"></script>
-  <script src="js/shadowHeight.js"></script>
-  <script src="js/main.js"></script>
-
 
   <div id="modal-keys-guide" class="modal-overlay">
     <div class="modal-box modal-box-large">
@@ -1740,33 +1737,75 @@
   </div>
 
   <div id="measure-hud" class="measure-hud" hidden>
-    <!-- Верхний ряд: выбор и создание линий, облачный шеринг, закрытие -->
-    <div class="measure-hud-top">
-      <div class="measure-hud-track-bar">
-        <span id="measure-track-color-dot" class="measure-track-color-dot" title="Цвет текущей линии"></span>
-        <select id="measure-track-select" class="measure-hud-select" title="Выбрать активное измерение"></select>
-        <button id="btn-measure-rename" class="measure-hud-icon-btn" title="Переименовать это измерение">✏️</button>
-        <button id="btn-measure-new" class="measure-hud-icon-btn" title="Создать новое измерение">＋</button>
+    <!-- Обычный режим линейки (редактирование, добавление точек) -->
+    <div id="measure-hud-edit-mode">
+      <!-- Верхний ряд: выбор и создание линий, облачный шеринг, закрытие -->
+      <div class="measure-hud-top">
+        <div class="measure-hud-track-bar">
+          <span id="measure-track-color-dot" class="measure-track-color-dot" title="Цвет текущей линии"></span>
+          <select id="measure-track-select" class="measure-hud-select" title="Выбрать активное измерение"></select>
+          <button id="btn-measure-rename" class="measure-hud-icon-btn" title="Переименовать это измерение">✏️</button>
+          <button id="btn-measure-new" class="measure-hud-icon-btn" title="Создать новое измерение">＋</button>
+        </div>
+        <div class="measure-hud-top-right">
+          <button id="btn-measure-share" class="measure-hud-icon-btn share" title="Поделиться линиями по паролю (Firebase)">📤</button>
+          <button id="btn-measure-download" class="measure-hud-icon-btn download" title="Скачать линии по паролю из облака">📥</button>
+          <button id="btn-measure-close" class="measure-hud-close-btn" title="Закрыть панель линейки">✕</button>
+        </div>
       </div>
-      <div class="measure-hud-top-right">
-        <button id="btn-measure-share" class="measure-hud-icon-btn share" title="Поделиться линиями по паролю (Firebase)">📤</button>
-        <button id="btn-measure-download" class="measure-hud-icon-btn download" title="Скачать линии по паролю из облака">📥</button>
-        <button id="btn-measure-close" class="measure-hud-close-btn" title="Закрыть панель линейки">✕</button>
+
+      <!-- Нижний ряд: ключевой метраж и быстрые действия -->
+      <div class="measure-hud-bottom">
+        <div class="measure-hud-stats">
+          <div class="measure-hud-dist"><span id="measure-total-dist">0 м</span></div>
+          <div class="measure-hud-sub">
+            <span id="measure-points-count">0 узлов</span>
+          </div>
+        </div>
+        <div class="measure-hud-ctrls">
+          <button id="btn-measure-nav-play" class="measure-hud-btn nav-play-btn" title="Начать навигацию по маршруту">▶</button>
+          <button id="btn-measure-undo" class="measure-hud-btn undo" title="Отменить последний узел">↩</button>
+          <button id="btn-measure-clear" class="measure-hud-btn danger" title="Удалить выбранное измерение">🗑️</button>
+          <button id="btn-measure-finish" class="measure-hud-btn primary" title="Зафиксировать измерение">✓ Готово</button>
+        </div>
       </div>
     </div>
 
-    <!-- Нижний ряд: ключевой метраж и быстрые действия -->
-    <div class="measure-hud-bottom">
-      <div class="measure-hud-stats">
-        <div class="measure-hud-dist"><span id="measure-total-dist">0 м</span></div>
-        <div class="measure-hud-sub">
-          <span id="measure-points-count">0 узлов</span>
+    <!-- Режим активной навигации по маршруту -->
+    <div id="measure-hud-nav-mode" hidden>
+      <div class="measure-nav-header">
+        <div class="measure-nav-header-left">
+          <span class="measure-nav-pulse-dot"></span>
+          <span id="measure-nav-target-title" class="measure-nav-target-title">🎯 Узел 1 из 1</span>
+        </div>
+        <div class="measure-nav-header-actions">
+          <button id="btn-measure-nav-vibro" class="measure-nav-icon-btn" type="button" title="Виброотклик при сбитии с курса (выключен)">🔕</button>
+          <button id="btn-measure-nav-recenter" class="measure-nav-icon-btn" type="button" title="Перейти к моей позиции GPS">🛰️</button>
+          <button id="btn-measure-nav-stop" class="measure-nav-icon-btn stop" type="button" title="Завершить навигацию">✕</button>
         </div>
       </div>
-      <div class="measure-hud-ctrls">
-        <button id="btn-measure-undo" class="measure-hud-btn undo" title="Отменить последний узел">↩</button>
-        <button id="btn-measure-clear" class="measure-hud-btn danger" title="Удалить выбранное измерение">🗑️</button>
-        <button id="btn-measure-finish" class="measure-hud-btn primary" title="Зафиксировать измерение">✓ Готово</button>
+
+      <div class="measure-nav-grid">
+        <div class="measure-nav-cell">
+          <span class="measure-nav-cell-lbl">До узла:</span>
+          <b id="measure-nav-dist-node" class="measure-nav-cell-val">0 м</b>
+          <small id="measure-nav-eta-node" class="measure-nav-cell-sub">--:--</small>
+        </div>
+        <div class="measure-nav-cell">
+          <span class="measure-nav-cell-lbl">До финиша:</span>
+          <b id="measure-nav-dist-total" class="measure-nav-cell-val">0 м</b>
+          <small id="measure-nav-eta-total" class="measure-nav-cell-sub">--:--</small>
+        </div>
+        <div class="measure-nav-cell">
+          <span class="measure-nav-cell-lbl">Курс / Уклон:</span>
+          <b id="measure-nav-drift-text" class="measure-nav-cell-val">Стоянка</b>
+          <small id="measure-nav-drift-sub" class="measure-nav-cell-sub">--</small>
+        </div>
+        <div class="measure-nav-cell">
+          <span class="measure-nav-cell-lbl">Скорость:</span>
+          <b id="measure-nav-speed" class="measure-nav-cell-val">0 км/ч</b>
+          <small id="measure-nav-status-sub" class="measure-nav-cell-sub">Поиск GPS</small>
+        </div>
       </div>
     </div>
   </div>
@@ -2066,5 +2105,24 @@
   </div>
   <button id="perf-btn-gps-sim" type="button" class="perf-sim-btn">🚶 Тест ходьбы GPS (лес)</button>
 </div>
+<script src="js/leaflet.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/cache.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/loader.js"></script>
+  <script src="js/view.js"></script>
+  <script src="js/picker.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/markers.js"></script> 
+  <script src="js/imageOverlay.js"></script>
+  <script src="js/sharedMarkers.js"></script>
+  <script src="js/geocaching.js"></script>
+  <script src="js/suncalc.js"></script>
+  <script src="js/measure.js"></script>
+  <script src="js/quickMeasure.js"></script>
+  <script src="js/rangeRing.js"></script>
+  <script src="js/shadowHeight.js"></script>
+  <script src="js/main.js"></script>
 </body>
 </html>
