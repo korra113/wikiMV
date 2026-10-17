@@ -14,6 +14,11 @@
 
   // Централизованный диспетчер обработки кнопки "Назад" со строгой очередью приоритетов
   function handleGlobalBackAction() {
+    // 0. Если скрыт UI — первое нажатие "Назад" возвращает интерфейс
+    if (document.body.classList.contains('wm-ui-hidden')) {
+      toggleHideUI(false);
+      return true;
+    }
     // 1. Просмотр фото на весь экран (лайтбокс): закрываем фото и остаёмся в карточке
     const lbEl = $('lightbox');
     if (lbEl && !lbEl.hidden) {
@@ -123,6 +128,10 @@
     }
 
     // 9. Меню и активные режимы измерений (Линейка, 2 точки, высота по тени)
+    if (WM.measure && WM.measure.isNavigating && WM.measure.isNavigating()) {
+      WM.measure.stopNavigation();
+      return true;
+    }
     if (WM.quickMeasure && WM.quickMeasure.isActive()) {
       WM.quickMeasure.closeTool();
       return true;
@@ -432,7 +441,24 @@
     if (!quickMenuConfig.enabled) return;
     const overlay = $('quick-menu-overlay');
     const box = $('quick-menu-box');
+    const closeBtn = $('quick-menu-close');
     if (!overlay || !box) return;
+
+    // Гарантированная привязка обработчиков закрытия при открытии
+    overlay.onclick = (e) => {
+      if (e.target === overlay) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeQuickMenu();
+      }
+    };
+    if (closeBtn) {
+      closeBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeQuickMenu();
+      };
+    }
 
     renderQuickMenuItems();
     quickMenuJustOpenedTime = Date.now();
@@ -441,7 +467,7 @@
     if (clickPos && window.innerWidth >= 768) {
       overlay.classList.add('desktop-context');
       box.style.position = 'absolute';
-      box.style.width = '280px'; // Фиксируем ширину для абсолютного позиционирования
+      box.style.width = '280px';
       const menuW = 280;
       const menuH = 260;
       let left = clickPos.x;
@@ -459,29 +485,67 @@
       box.style.top = '';
     }
 
+    overlay.classList.add('open');
     overlay.hidden = false;
     pushHistoryState('quickMenu');
   }
 
   function closeQuickMenu(syncHistory = true) {
     const overlay = $('quick-menu-overlay');
-    if (overlay) overlay.hidden = true;
+    if (overlay) {
+      overlay.classList.remove('open');
+      overlay.hidden = true;
+    }
     if (syncHistory) clearHistoryState('quickMenu');
   }
 
   function initQuickMenu() {
     const overlay = $('quick-menu-overlay');
+    const box = $('quick-menu-box');
     const closeBtn = $('quick-menu-close');
     const fabBtn = $('btn-quick-menu');
     const crosshair = $('crosshair');
 
     if (overlay) {
+      // 1. Клик по пустоте вокруг карточки меню
       overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) closeQuickMenu();
+        if (e.target === overlay) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeQuickMenu();
+        }
       });
     }
-    if (closeBtn) closeBtn.onclick = () => closeQuickMenu();
-    if (fabBtn) fabBtn.onclick = (e) => { e.stopPropagation(); openQuickMenu(null); };
+
+    // 2. Изолируем саму карточку, чтобы клики по ней случайно не всплывали на оверлей
+    if (box) {
+      box.addEventListener('click', (e) => {
+        // Разрешаем всплывать только клику по крестику
+        if (!e.target.closest('#quick-menu-close')) {
+          e.stopPropagation();
+        }
+      });
+    }
+
+    // 3. Клик по крестику (поддержка мыши и мобильного тапа)
+    if (closeBtn) {
+      const handleClose = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeQuickMenu();
+      };
+      closeBtn.onclick = handleClose;
+      closeBtn.addEventListener('touchend', handleClose, { passive: false });
+    }
+
+    // 4. Открытие по кнопке в левом нижнем углу
+    if (fabBtn) {
+      fabBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openQuickMenu(null);
+      };
+    }
 
     if (crosshair) {
       crosshair.addEventListener('click', (e) => {
@@ -492,7 +556,7 @@
     }
 
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && overlay && !overlay.hidden) {
+      if (e.key === 'Escape' && overlay && (!overlay.hidden || overlay.classList.contains('open'))) {
         closeQuickMenu();
       }
     });
@@ -500,7 +564,6 @@
     // Обработка клика правой кнопкой мыши на ПК и долгого тапа на мобильных
     const mapContainer = WM.map ? WM.map.getContainer() : document.getElementById('map');
     if (mapContainer) {
-      // 1. Правая кнопка мыши (ПК)
       mapContainer.addEventListener('contextmenu', (e) => {
         if (e.target.closest('button, a, input, select, textarea, .leaflet-control, .modal-overlay, .sheet, .lightbox, .wm-custom-marker-icon, .wm-ruler-vertex-icon, .wm-ruler-midpoint-icon, .wm-qm-marker, .quick-measure-hud, .measure-hud')) {
           return;
@@ -510,7 +573,6 @@
         openQuickMenu({ x: e.clientX, y: e.clientY });
       });
 
-      // 2. Долгий тап на одном месте (смартфон)
       let touchStartPos = null;
       let longPressTimer = null;
 
@@ -561,7 +623,6 @@
 
     updateQuickMenuTriggersUI();
   }
-
 
   // =========================================================================
   // ПРОВЕРКА ДОСТУПНОСТИ И ВЫБОР БАЗОВЫХ КАРТ
@@ -904,10 +965,11 @@
     infomenu: true,
     rangering: false,
     motiontail: true,
-    motionvector: false
+    motionvector: false,
+    hideuibtn: false // по умолчанию выключена
   };
 
-  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'manualpdr', 'gpsdist', 'motion', 'compasscone', 'compassneedle', 'rays', 'theme', 'infomenu', 'rangering', 'motiontail', 'motionvector'];
+  const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'manualpdr', 'gpsdist', 'motion', 'compasscone', 'compassneedle', 'rays', 'theme', 'infomenu', 'rangering', 'motiontail', 'motionvector', 'hideuibtn'];
   const DEFAULT_INFO_ITEMS = {
     time: true,
     userCoords: true,
@@ -1259,7 +1321,8 @@
   }
 
   // Сверхбыстрое обновление линий азимута (60 FPS без пересоздания DOM)
-  let lastRayUpdateMinute = -1;
+  let lastRayOrigin = null;
+  let lastRayCalcTime = 0;
 
   function updateRays(centerLL, force = false) {
     if (!WM.map || !infoHudConfig.rays) {
@@ -1269,23 +1332,20 @@
       return;
     }
 
-    // Обновляем геометрию лучей только если сменилась минута или принудительно (сдвиг карты)
-    const currentMinute = Math.floor(Date.now() / 30000); // раз в 30 секунд
-    if (!force && currentMinute === lastRayUpdateMinute) {
-      return;
-    }
-    lastRayUpdateMinute = currentMinute;
     const map = WM.map;
+    const origin = centerLL || map.getCenter();
+    const now = Date.now();
 
-    // ГАРАНТИРОВАННАЯ ОЧИСТКА ПРИ ОТКЛЮЧЕНИИ
-    if (!infoHudConfig.rays) {
-      if (infoRaysLayer) {
-        infoRaysLayer.clearLayers();
-      }
-      sunRayPoly = null;
-      moonRayPoly = null;
+    // Если центр не сдвинулся и не прошло 15 секунд — пропускаем
+    const centerMoved = !lastRayOrigin || lastRayOrigin.distanceTo(origin) > 0.5;
+    const timeElapsed = (now - lastRayCalcTime) > 15000;
+
+    if (!force && !centerMoved && !timeElapsed) {
       return;
     }
+
+    lastRayOrigin = origin;
+    lastRayCalcTime = now;
 
     if (!window.SunCalc) return;
 
@@ -1293,8 +1353,6 @@
       infoRaysLayer = L.layerGroup().addTo(map);
     }
 
-    const origin = centerLL || map.getCenter();
-    const now = new Date();
     const astroDate = new Date(now);
     astroDate.setDate(astroDate.getDate() + infoAstroDayOffset);
 
@@ -1310,7 +1368,6 @@
     const sunEnd = getDestPoint(origin, sunAzDeg, rayLenMeters);
     const moonEnd = getDestPoint(origin, moonAzDeg, rayLenMeters);
 
-    // Плавное обновление существующих линий на Canvas/SVG без создания мусора в памяти
     if (!sunRayPoly) {
       sunRayPoly = L.polyline([origin, sunEnd], {
         pane: 'wm-top-lines',
@@ -1947,7 +2004,56 @@
     }
   }
 
+// 1. Функция переключения скрытия/показа UI
+  function toggleHideUI(forceState) {
+    const isCurrentlyHidden = document.body.classList.contains('wm-ui-hidden');
+    const nextState = forceState !== undefined ? !!forceState : !isCurrentlyHidden;
+    document.body.classList.toggle('wm-ui-hidden', nextState);
+    const btn = $('btn-hide-ui');
+    if (btn) {
+      btn.classList.toggle('active', nextState);
+      btn.textContent = nextState ? '🕶️' : '👁️';
+      btn.title = nextState ? 'Показать интерфейс' : 'Скрыть интерфейс';
+    }
+    updateBottomLeftButtonsStack();
+    showToast(nextState ? '🕶️ Интерфейс скрыт (нажмите кнопку для возврата)' : '👁️ Интерфейс отображён');
+  }
 
+  // 2. Функция расчёта порядка кнопок в левом нижнем углу
+  function updateBottomLeftButtonsStack() {
+    const btnQuickMenu = $('btn-quick-menu');
+    const btnQuickSwap = $('btn-quick-swap-map');
+    const btnHideUI = $('btn-hide-ui');
+
+    // Кнопка меню активна, если включена в настройках и не скрыта
+    const isMenuVisible = btnQuickMenu && 
+      !btnQuickMenu.hidden && 
+      !!(quickMenuConfig && quickMenuConfig.enabled && quickMenuConfig.triggers && quickMenuConfig.triggers.btn);
+
+    // Кнопка смены карт активна в левом нижнем углу, если включена и настроена на эту позицию
+    const isSwapInBottomLeft = btnQuickSwap && 
+      !btnQuickSwap.hidden && 
+      localStorage.getItem('wm_quick_swap_enabled') !== 'false' &&
+      localStorage.getItem('wm_quick_swap_pos') === 'bottom-left';
+
+    if (btnQuickSwap && isSwapInBottomLeft) {
+      btnQuickSwap.classList.toggle('stacked-above-menu', !!isMenuVisible);
+    }
+
+    if (btnHideUI) {
+      let stackLevel = 0;
+      if (isMenuVisible) stackLevel++;
+      if (isSwapInBottomLeft) stackLevel++;
+
+      btnHideUI.classList.remove('stack-level-1', 'stack-level-2');
+      if (stackLevel === 1) {
+        btnHideUI.classList.add('stack-level-1');
+      } else if (stackLevel >= 2) {
+        btnHideUI.classList.add('stack-level-2');
+      }
+    }
+  }
+  window.updateBottomLeftButtonsStack = updateBottomLeftButtonsStack;
 
   function applyUIVisibility() {
     $('status').style.display = uiVis.status ? '' : 'none';
@@ -1961,6 +2067,14 @@
     if (WM.motionTail) {
       WM.motionTail.setEnabled(uiVis.motiontail !== false);
     }
+
+    // --- ОБНОВЛЕНО: гарантированное мгновенное переключение без перезагрузки ---
+    const btnHideUI = $('btn-hide-ui');
+    if (btnHideUI) {
+      btnHideUI.hidden = !uiVis.hideuibtn;
+      btnHideUI.style.display = uiVis.hideuibtn ? 'flex' : 'none';
+    }
+    updateBottomLeftButtonsStack();
 
     if (WM.rangeRing) {
       WM.rangeRing.setEnabled(!!uiVis.rangering);
@@ -2026,6 +2140,29 @@
       btn.innerHTML = '🔑 Лимит исчерпан · <u>Добавить ключ</u>';
     } else {
       btn.hidden = true;
+    }
+  }
+
+  function updateSizeFilterTogglesState() {
+    const isAuto = $('toggle-filter-auto-size') ? $('toggle-filter-auto-size').checked : true;
+    const smallChk = $('toggle-filter-hide-small');
+    const medChk = $('toggle-filter-hide-medium');
+    const largeChk = $('toggle-filter-hide-large');
+    const wrap = $('manual-size-filters-wrap');
+
+    [smallChk, medChk, largeChk].forEach(chk => {
+      if (chk) {
+        chk.disabled = isAuto;
+        const item = chk.closest('.toggle-item');
+        if (item) {
+          item.style.opacity = isAuto ? '0.45' : '1';
+          item.style.pointerEvents = isAuto ? 'none' : 'auto';
+        }
+      }
+    });
+
+    if (wrap) {
+      wrap.style.opacity = isAuto ? '0.45' : '1';
     }
   }
 
@@ -4451,6 +4588,10 @@
     openKeysSettings,
     toggleTopGetKeyBtn,
     init() {
+      // Удаляем временный стиль предзагрузки, чтобы он не блокировал динамическое включение/выключение
+      const earlyStyle = document.getElementById('early-ui-vis-style');
+      if (earlyStyle) earlyStyle.remove();
+
       const savedTheme = WM.api.store.get('wm_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
       applyTheme(savedTheme);
 
@@ -4458,6 +4599,12 @@
         const savedVis = JSON.parse(WM.api.store.get('wm_ui_vis') || '{}');
         uiVis = { ...UI_VIS_DEFAULT, ...savedVis };
       } catch (e) {}
+
+      const btnHideUI = $('btn-hide-ui');
+      if (btnHideUI) {
+        btnHideUI.onclick = () => toggleHideUI();
+      }
+      updateBottomLeftButtonsStack();
 
       VIS_KEYS.forEach(k => {
         const chk = $('toggle-ui-' + k);
@@ -4471,6 +4618,12 @@
         };
       }
       updateManualPdrBtnState();
+
+      const chkAutoSize = $('toggle-filter-auto-size');
+      if (chkAutoSize) {
+        chkAutoSize.addEventListener('change', updateSizeFilterTogglesState);
+      }
+      updateSizeFilterTogglesState();
 
       // Радиокнопки в модальном окне настроек
       document.querySelectorAll('input[name="app-theme-mode"]').forEach(r => {
@@ -5279,6 +5432,7 @@
         // --- ДОБАВИТЬ ЭТОТ БЛОК: считывание текущих фильтров в чекбоксы ---
         if (WM.view && WM.view.getFilters) {
           const f = WM.view.getFilters();
+          const chkAuto = $('toggle-filter-auto-size');
           const chkBuild = $('toggle-filter-hide-buildings');
           const chkReg = $('toggle-filter-hide-regions');
           const chkDel = $('toggle-filter-hide-deleted');
@@ -5287,6 +5441,7 @@
           const chkMed = $('toggle-filter-hide-medium');
           const chkLarge = $('toggle-filter-hide-large');
 
+          if (chkAuto) chkAuto.checked = f.autoSize !== false;
           if (chkBuild) chkBuild.checked = !!f.hideBuildings;
           if (chkReg) chkReg.checked = !!f.hideRegions;
           if (chkDel) chkDel.checked = !!f.hideDeleted;
@@ -5294,6 +5449,8 @@
           if (chkSmall) chkSmall.checked = !!f.hideSmall;
           if (chkMed) chkMed.checked = !!f.hideMedium;
           if (chkLarge) chkLarge.checked = !!f.hideLarge;
+
+          updateSizeFilterTogglesState();
         }
         // ------------------------------------------------------------------
 
@@ -5613,6 +5770,7 @@
 
         if (WM.view && WM.view.setFilters) {
           WM.view.setFilters({
+            autoSize: $('toggle-filter-auto-size') ? $('toggle-filter-auto-size').checked : true,
             hideBuildings: $('toggle-filter-hide-buildings') ? $('toggle-filter-hide-buildings').checked : false,
             hideRegions: $('toggle-filter-hide-regions') ? $('toggle-filter-hide-regions').checked : false,
             hideDeleted: $('toggle-filter-hide-deleted') ? $('toggle-filter-hide-deleted').checked : false,
