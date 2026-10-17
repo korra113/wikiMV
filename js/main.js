@@ -618,6 +618,9 @@
     const btnSearch = document.getElementById('btn-search');
     const btnQuickMenu = document.getElementById('btn-quick-menu');
     if (!btnQuickSwap) return;
+    if (window.updateBottomLeftButtonsStack) {
+      window.updateBottomLeftButtonsStack();
+    }
 
     const isEnabled = localStorage.getItem('wm_quick_swap_enabled') !== 'false';
     const swapPos = localStorage.getItem('wm_quick_swap_pos') || 'top-right'; // 'top-right' | 'bottom-left'
@@ -2971,13 +2974,15 @@
   let lastMoveCalc = 0;
     map.on('move', () => {
       const now = performance.now();
-      if (now - lastMoveCalc < 33) return; // максимум 30 раз в секунду вместо 120
+      if (now - lastMoveCalc < 33) return;
       lastMoveCalc = now;
 
       if (isGpsDistEnabled) updateGpsDistVisuals();
       if (activeNavTarget) updateNavTargetVisuals();
       if (isMotionVectorEnabled) updateMotionVectorVisuals();
-      if (WM.ui && WM.ui.updateRays) WM.ui.updateRays();
+      if (WM.ui && WM.ui.updateRays) WM.ui.updateRays(map.getCenter(), true);
+      // <-- ДОБАВИТЬ ЭТУ СТРОКУ:
+      if (WM.measure && WM.measure.onMapMove) WM.measure.onMapMove();
     });
 
   // =========================================================================
@@ -3060,6 +3065,10 @@
     }
     if (WM.compass) {
       updateCompassVisuals();
+    }
+    // <-- ДОБАВИТЬ ЭТУ СТРОКУ:
+    if (WM.measure && WM.measure.onGpsUpdate) {
+      WM.measure.onGpsUpdate(ll, coords);
     }
   }
 
