@@ -6298,7 +6298,7 @@
         WM.api.store.set('wm_gps_dead_reckon', autoEngageSpoofVal ? 'true' : 'false');
         if (WM.antiSpoof) {
           WM.antiSpoof.setEnabled(antiSpoofChecked);
-          WM.antiSpoof.setDeadReckoningEnabled(autoEngageSpoofVal); // теперь передает истинное выбранное значение!
+          WM.antiSpoof.setDeadReckoningEnabled(autoEngageSpoofVal);
         }
 
         const noEvictObjs = $('toggle-no-evict-objects') ? $('toggle-no-evict-objects').checked : false;
