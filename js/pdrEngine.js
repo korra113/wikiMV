@@ -348,7 +348,7 @@
                    (qW * qW - qX * qX - qY * qY + qZ * qZ) * cleanGz;
 
     madgwickUpdate(cleanGx, cleanGy, cleanGz, rawAx, rawAy, rawAz, dt);
-                   
+
 
     if (fusedHeading !== null) {
       const gyroYawRate = Math.abs(worldGyroZ * (180 / Math.PI));
@@ -777,5 +777,22 @@
         }
       }
     }
+    getDebugSnapshot() {
+      return {
+        fused: fusedHeading !== null ? Math.round(fusedHeading * 10) / 10 : null,
+        rawMadgwick: Math.round(getRawMadgwickHeading() * 10) / 10,
+        anomaly: magneticAnomalyActive,
+        q: [
+          Math.round(qW * 1000) / 1000,
+          Math.round(qX * 1000) / 1000,
+          Math.round(qY * 1000) / 1000,
+          Math.round(qZ * 1000) / 1000
+        ],
+        biasZ: Math.round(biasGz * 1000) / 1000,
+        dynMag: Math.round(smoothDynMag * 100) / 100,
+        upAccel: Math.round(aUp * 100) / 100
+      };
+    },
+
   };
 })();
