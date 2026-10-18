@@ -688,7 +688,7 @@
 
           <div class="spoiler-body pdr-spoiler-container">
 
-            
+
 
             
             <!-- Памятка об особенностях и точности автономного режима (PDR) -->
@@ -800,6 +800,54 @@
                 <input type="checkbox" id="toggle-ui-manualpdr">
                 <span class="toggle-switch"></span>
               </label>
+            </div>
+
+            <!-- НАСТРОЙКИ ВИБРООТКЛИКА -->
+            <div class="pdr-card-box" id="pdr-vibro-settings-box">
+              <div class="pdr-card-header">📳 Тактильная навигация и виброотклик</div>
+
+              <!-- Вибрация при обычном шаге -->
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight:600; display:block;">Виброотклик при каждом шаге</span>
+                  <small class="hint-text">Лёгкий тактильный импульс (25 мс) при регистрации шага акселерометром.</small>
+                </div>
+                <input type="checkbox" id="toggle-pdr-step-vibe" checked>
+                <span class="toggle-switch"></span>
+              </label>
+
+              <!-- Режим навигации по маршруту / к цели -->
+              <div class="form-group" style="margin-top: 6px; margin-bottom: 8px;">
+                <label for="nav-vibro-mode-select" style="font-weight: 700; color: var(--text-main); margin-bottom: 4px;">
+                  При движении к цели или по маршруту:
+                </label>
+                <select id="nav-vibro-mode-select" class="styled-select">
+                  <option value="deviation" selected>⚠️ При уходе с курса (влево: 1 вибро, вправо: 2)</option>
+                  <option value="correct">🟢 При верном движении (по курсу к цели)</option>
+                  <option value="off">🔕 Полностью отключить</option>
+                </select>
+                <small class="hint-text" id="nav-vibro-mode-hint">Влево — один длинный импульс, вправо — двойной импульс.</small>
+              </div>
+
+              <!-- Размер конуса -->
+              <div id="nav-vibro-cone-wrap" class="style-row" style="margin-bottom: 8px;">
+                <label for="nav-vibro-cone-slider" style="display:flex; justify-content:space-between; font-weight:600;">
+                  <span>Размер конуса курса:</span>
+                  <b id="nav-vibro-cone-val" style="color:var(--accent);">±30°</b>
+                </label>
+                <input type="range" id="nav-vibro-cone-slider" min="10" max="60" step="5" value="30" class="styled-range">
+                <small class="hint-text">Допустимый угол отклонения от линии на цель.</small>
+              </div>
+
+              <!-- Частота сигналов для режима "По курсу" -->
+              <div id="nav-vibro-interval-wrap" class="style-row" style="margin-bottom: 2px;" hidden>
+                <label for="nav-vibro-interval-slider" style="display:flex; justify-content:space-between; font-weight:600;">
+                  <span>Частота сигналов «По курсу»:</span>
+                  <b id="nav-vibro-interval-val" style="color:var(--accent);">каждые 5 сек</b>
+                </label>
+                <input type="range" id="nav-vibro-interval-slider" min="2" max="15" step="1" value="5" class="styled-range">
+                <small class="hint-text">Интервал мягкого виброподтверждения при ходьбе строго в пределах конуса.</small>
+              </div>
             </div>
 
             <!-- 4. КИНЕМАТИКА И БИОМЕХАНИКА ШАГА -->
@@ -954,16 +1002,16 @@
                 </div>
 
                 <div class="pdr-telemetry-grid">
-                  <div class="pdr-telem-card">
-                    <span class="pdr-telem-lbl">Акселерометр:</span>
-                    <b class="pdr-telem-val" id="pdr-val-accel">X: 0 | Y: 0 | Z: 0</b>
+                  <div class="pdr-telem-card card-wide">
+                    <span class="pdr-telem-lbl">Акселерометр (3 оси):</span>
+                    <b class="pdr-telem-val" id="pdr-val-accel">X: 0.0 | Y: 0.0 | Z: 0.0</b>
                   </div>
-                  <div class="pdr-telem-card">
-                    <span class="pdr-telem-lbl">Всплеск (Mag):</span>
+                  <div class="pdr-telem-card card-wide">
+                    <span class="pdr-telem-lbl">Всплеск динамики (Mag):</span>
                     <b class="pdr-telem-val" id="pdr-val-mag">0.00 м/с²</b>
                   </div>
                   <div class="pdr-telem-card">
-                    <span class="pdr-telem-lbl">Азимут компаса:</span>
+                    <span class="pdr-telem-lbl">Курс:</span>
                     <b class="pdr-telem-val" id="pdr-val-heading">--°</b>
                   </div>
                   <div class="pdr-telem-card">
