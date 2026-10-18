@@ -6580,6 +6580,109 @@ body.sheet-open .measure-hud {
   border-color: #5c0f0f;
 }
 
+/* Диагностика PDR на мобильных устройствах */
+#spoiler-pdr-diagnostics .spoiler-body {
+  padding: 8px 10px;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+.pdr-telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.pdr-telem-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.pdr-telem-card.card-wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 440px) {
+  .pdr-telemetry-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pdr-telem-lbl {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.pdr-telem-val {
+  font-size: 11.5px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--text-main);
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.pdr-test-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  gap: 8px;
+}
+
+.pdr-step-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.pdr-step-flash {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 5px;
+  border-radius: 8px;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.1s ease, transform 0.1s ease;
+  pointer-events: none;
+  z-index: 5;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.pdr-test-stats {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  min-width: 0;
+}
+
 [data-theme="night-vision"] .pdr-preset-btn.active {
   border-color: #ef4444 !important;
   background: rgba(239, 68, 68, 0.15) !important;
