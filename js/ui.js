@@ -1942,6 +1942,8 @@
     return toAdd.length;
   }
 
+
+
   let lastNonNightTheme = 'dark';
 
   function applyTheme(theme) {
@@ -2054,6 +2056,8 @@
     }
   }
   window.updateBottomLeftButtonsStack = updateBottomLeftButtonsStack;
+
+
 
   function applyUIVisibility() {
     $('status').style.display = uiVis.status ? '' : 'none';
@@ -4410,6 +4414,460 @@
     });
   }
 
+  // =========================================================================
+  // ДИАГНОСТИКА ДАТЧИКОВ И ТЕСТЕР ШАГОВ
+  // =========================================================================
+  // =========================================================================
+  // ДИАГНОСТИКА ДАТЧИКОВ, ПРЕСЕТЫ И ТЕСТЕР ШАГОВ
+  // =========================================================================
+  function initPdrDiagnosticsUI() {
+    // 1. Таблица параметров пресетов
+    const PDR_PRESETS = {
+      walk: {
+        title: 'Пешком',
+        navigationType: 'step',
+        carryingMode: 'hand',
+        baseStepLength: 0.75,
+        useDynamicStride: true,
+        sensitivity: 'normal',
+        headingDamping: 'medium',
+        stairDetection: true,
+        elevatorDetection: true
+      },
+      run: {
+        title: 'Бег / Марш',
+        navigationType: 'step',
+        carryingMode: 'pocket',
+        baseStepLength: 0.95,
+        useDynamicStride: true,
+        sensitivity: 'low',
+        headingDamping: 'high',
+        stairDetection: true,
+        elevatorDetection: false
+      },
+      bike: {
+        title: 'Велосипед',
+        navigationType: 'vehicular',
+        vehicularSpeedKmh: 18,
+        carryingMode: 'hand',
+        baseStepLength: 0.75,
+        useDynamicStride: false,
+        sensitivity: 'low',
+        headingDamping: 'high',
+        stairDetection: false,
+        elevatorDetection: false
+      },
+      car: {
+        title: 'Автомобиль',
+        navigationType: 'vehicular',
+        vehicularSpeedKmh: 50,
+        carryingMode: 'hand',
+        baseStepLength: 0.75,
+        useDynamicStride: false,
+        sensitivity: 'low',
+        headingDamping: 'high',
+        stairDetection: false,
+        elevatorDetection: false
+      }
+    };
+
+    function applyPdrPreset(presetKey) {
+      const p = PDR_PRESETS[presetKey];
+      if (!p) return;
+
+      // Подсветка активной кнопки пресета в сетке
+      document.querySelectorAll('.pdr-preset-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.preset === presetKey);
+      });
+
+      const labelEl = $('pdr-preset-current-label');
+      if (labelEl) labelEl.textContent = p.title;
+
+      // 1. Положение устройства
+      const selCarry = $('pdr-carrying-mode');
+      if (selCarry) selCarry.value = p.carryingMode;
+
+      // 2. Длина шага
+      const sliderStep = $('pdr-step-length-slider');
+      const valStep = $('pdr-step-length-val');
+      if (sliderStep) {
+        const cm = Math.round(p.baseStepLength * 100);
+        sliderStep.value = cm;
+        if (valStep) valStep.textContent = cm + ' см';
+      }
+
+      // 3. Динамический шаг Weinberg
+      const chkDyn = $('toggle-pdr-dynamic-stride');
+      if (chkDyn) chkDyn.checked = p.useDynamicStride;
+
+      // 4. Чувствительность
+      const selSens = $('pdr-sensitivity-select');
+      if (selSens) selSens.value = p.sensitivity;
+
+      // 5. Демпфирование курса
+      const selDamp = $('pdr-damping-select');
+      if (selDamp) selDamp.value = p.headingDamping;
+
+      // 6. Лестницы и лифты
+      const chkStairs = $('toggle-pdr-stairs');
+      if (chkStairs) chkStairs.checked = p.stairDetection;
+
+      const chkElev = $('toggle-pdr-elevator');
+      if (chkElev) chkElev.checked = p.elevatorDetection;
+
+      // Применяем значения в движке PDR
+      if (WM.pdr) {
+        WM.pdr.setConfig({
+          navigationType: p.navigationType || 'step',
+          vehicularSpeedKmh: p.vehicularSpeedKmh || 18,
+          carryingMode: p.carryingMode,
+          baseStepLength: p.baseStepLength,
+          useDynamicStride: p.useDynamicStride,
+          sensitivity: p.sensitivity,
+          headingDamping: p.headingDamping,
+          stairDetection: p.stairDetection,
+          elevatorDetection: p.elevatorDetection
+        });
+      }
+
+      try { localStorage.setItem('wm_pdr_active_preset', presetKey); } catch (e) {}
+      showToast(`🚀 Применён пресет: «${p.title}»`);
+    }
+
+    // Восстановление активного пресета
+    const savedPresetKey = localStorage.getItem('wm_pdr_active_preset') || 'walk';
+    const presetLabel = $('pdr-preset-current-label');
+    if (presetLabel && PDR_PRESETS[savedPresetKey]) {
+      presetLabel.textContent = PDR_PRESETS[savedPresetKey].title;
+    }
+
+    document.querySelectorAll('.pdr-preset-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.preset === savedPresetKey);
+      btn.onclick = () => {
+        applyPdrPreset(btn.dataset.preset);
+      };
+    });
+
+    // 2. Системные опции экрана, звука и фона
+    const chkSoundTop = $('toggle-pdr-step-sound');
+    if (chkSoundTop) {
+      chkSoundTop.checked = WM.pdr ? WM.pdr.isSoundEnabled() : true;
+      chkSoundTop.onchange = (e) => {
+        if (WM.pdr && WM.pdr.setSoundEnabled) {
+          WM.pdr.setSoundEnabled(e.target.checked);
+        }
+        showToast(e.target.checked ? '🔊 Звук шага включён' : '🔇 Звук шага выключен');
+      };
+    }
+
+    const chkWakeLock = $('toggle-pdr-wakelock');
+    if (chkWakeLock) {
+      const isWake = localStorage.getItem('wm_pdr_wakelock') !== 'false';
+      chkWakeLock.checked = isWake;
+      chkWakeLock.onchange = (e) => {
+        localStorage.setItem('wm_pdr_wakelock', e.target.checked ? 'true' : 'false');
+        if (window.WM && WM.wakeLock) {
+          if (e.target.checked) WM.wakeLock.request();
+          else WM.wakeLock.release();
+        }
+        showToast(e.target.checked ? '🔆 Экран не будет гаснуть' : 'Экран будет гаснуть по таймеру ОС');
+      };
+    }
+
+    const chkBg = $('toggle-pdr-background');
+    if (chkBg) {
+      const isBg = localStorage.getItem('wm_pdr_background') === 'true';
+      chkBg.checked = isBg;
+      chkBg.onchange = (e) => {
+        const isCapacitor = window.Capacitor !== undefined || /wv|Android.*Version\/[0-9.]+/i.test(navigator.userAgent);
+        if (!isCapacitor && e.target.checked) {
+          showToast('⚠️ Фоновый режим в браузере ограничен ОС (доступен в APK)');
+        }
+        localStorage.setItem('wm_pdr_background', e.target.checked ? 'true' : 'false');
+      };
+    }
+
+    // 3. Элементы телеметрии и проверки датчиков
+    const permStatusEl = $('pdr-perm-status');
+    const btnPerm = $('btn-pdr-request-perms');
+    const valAccel = $('pdr-val-accel');
+    const valMag = $('pdr-val-mag');
+    const valHeading = $('pdr-val-heading');
+    const valTilt = $('pdr-val-tilt');
+
+    const btnTest = $('btn-pdr-test-toggle');
+    const countEl = $('pdr-test-step-count');
+    const flashEl = $('pdr-step-flash');
+    const strideEl = $('pdr-test-stride');
+    const cadenceEl = $('pdr-test-cadence');
+    const bearingEl = $('pdr-test-bearing');
+    const gaugeFill = $('pdr-gauge-fill');
+    const gaugeVal = $('pdr-gauge-val');
+    const gaugeThreshold = $('pdr-gauge-threshold');
+    const btnReset = $('btn-pdr-test-reset');
+
+    const btnAlign = $('btn-alignment-test-toggle');
+    const stepsAlign = $('alignment-test-steps');
+    const resAlign = $('alignment-test-result');
+    const sliderOffset = $('pdr-alignment-offset-slider');
+    const valOffset = $('pdr-alignment-offset-val');
+    const chkDecl = $('toggle-pdr-declination');
+    const declText = $('pdr-magnetic-declination-text');
+    const chkStairs = $('toggle-pdr-stairs');
+    const chkElev = $('toggle-pdr-elevator');
+
+    let isTesting = false;
+    let testSteps = 0;
+    let testStartTime = 0;
+    let flashTimer = null;
+
+    function checkSensors() {
+      const isHttps = window.isSecureContext !== false;
+      const hasMotion = 'DeviceMotionEvent' in window || 'ondevicemotion' in window;
+      const hasOrientation = 'DeviceOrientationEvent' in window || 'ondeviceorientation' in window;
+
+      if (!permStatusEl) return;
+      if (!isHttps) {
+        permStatusEl.innerHTML = '⚠️ Требуется HTTPS или запуск в приложении (датчики заблокированы браузером)';
+        permStatusEl.style.color = 'var(--danger)';
+      } else if (hasMotion && hasOrientation) {
+        permStatusEl.innerHTML = '🟢 Датчики движения и компас поддерживаются устройством';
+        permStatusEl.style.color = '#16a34a';
+      } else {
+        permStatusEl.innerHTML = '🟡 Частичная поддержка (отсутствует гироскоп или акселерометр)';
+      }
+    }
+    checkSensors();
+
+    if (btnPerm) {
+      btnPerm.onclick = async () => {
+        if (WM.pdr && WM.pdr.requestPermissions) {
+          const res = await WM.pdr.requestPermissions();
+          if (res.motion && res.orientation) {
+            permStatusEl.innerHTML = '🟢 Доступ к датчикам успешно предоставлен!';
+            permStatusEl.style.color = '#16a34a';
+            showToast('✅ Доступ к датчикам движения предоставлен');
+          } else {
+            showToast('⚠️ Разрешение не получено или отклонено');
+          }
+        }
+      };
+    }
+
+    window.addEventListener('deviceorientation', (e) => {
+      if (valTilt && e.beta !== null && e.gamma !== null) {
+        valTilt.textContent = `${Math.round(e.beta)}° / ${Math.round(e.gamma)}°`;
+      }
+    }, { passive: true });
+
+    // 4. Инициализация параметров PDR-движка
+    if (WM.pdr) {
+      const cfg = WM.pdr.getConfig();
+      if (sliderOffset && valOffset) {
+        sliderOffset.value = cfg.alignmentOffset || 0;
+        valOffset.textContent = (cfg.alignmentOffset > 0 ? '+' : '') + cfg.alignmentOffset + '°';
+        sliderOffset.oninput = (e) => {
+          const val = parseInt(e.target.value, 10);
+          valOffset.textContent = (val > 0 ? '+' : '') + val + '°';
+          WM.pdr.setConfig({ alignmentOffset: val });
+        };
+      }
+
+      if (declText) {
+        const d = WM.pdr.getMagneticDeclination();
+        declText.textContent = `Автоматическая поправка к истинному Северу (${d > 0 ? '+' : ''}${d}°)`;
+      }
+
+      if (chkDecl) {
+        chkDecl.checked = cfg.useMagneticDeclination !== false;
+        chkDecl.onchange = (e) => WM.pdr.setConfig({ useMagneticDeclination: e.target.checked });
+      }
+
+      if (chkStairs) {
+        chkStairs.checked = cfg.stairDetection !== false;
+        chkStairs.onchange = (e) => WM.pdr.setConfig({ stairDetection: e.target.checked });
+      }
+
+      if (chkElev) {
+        chkElev.checked = cfg.elevatorDetection !== false;
+        chkElev.onchange = (e) => WM.pdr.setConfig({ elevatorDetection: e.target.checked });
+      }
+
+      const selSens = $('pdr-sensitivity-select');
+      if (selSens) {
+        selSens.value = cfg.sensitivity || 'normal';
+        selSens.onchange = (e) => {
+          WM.pdr.setConfig({ sensitivity: e.target.value });
+          showToast(`🎯 Чувствительность: ${selSens.options[selSens.selectedIndex].text.split(' ')[0]}`);
+        };
+      }
+
+      const selCarry = $('pdr-carrying-mode');
+      if (selCarry) {
+        selCarry.value = cfg.carryingMode || 'hand';
+        selCarry.onchange = (e) => {
+          WM.pdr.setConfig({ carryingMode: e.target.value });
+        };
+      }
+
+      const sliderStep = $('pdr-step-length-slider');
+      const valStep = $('pdr-step-length-val');
+      if (sliderStep) {
+        const curCm = Math.round((cfg.baseStepLength || 0.75) * 100);
+        sliderStep.value = curCm;
+        if (valStep) valStep.textContent = curCm + ' см';
+        sliderStep.oninput = (e) => {
+          const val = parseFloat(e.target.value);
+          if (valStep) valStep.textContent = val + ' см';
+          WM.pdr.setConfig({ baseStepLength: val / 100 });
+        };
+      }
+
+      const selDamp = $('pdr-damping-select');
+      if (selDamp) {
+        selDamp.value = cfg.headingDamping || 'medium';
+        selDamp.onchange = (e) => {
+          WM.pdr.setConfig({ headingDamping: e.target.value });
+        };
+      }
+
+      const chkDynStride = $('toggle-pdr-dynamic-stride');
+      if (chkDynStride) {
+        chkDynStride.checked = cfg.useDynamicStride !== false;
+        chkDynStride.onchange = (e) => {
+          WM.pdr.setConfig({ useDynamicStride: e.target.checked });
+        };
+      }
+    }
+
+    // 5. Тест соосности (Alignment Walk)
+    if (btnAlign) {
+      btnAlign.onclick = () => {
+        if (!WM.pdr) return;
+        if (WM.pdr.isAlignmentActive()) {
+          const res = WM.pdr.finishAlignmentWalk();
+          btnAlign.textContent = '▶ Старт теста';
+          btnAlign.classList.remove('btn-danger');
+          btnAlign.classList.add('btn-primary');
+          if (res && resAlign) {
+            resAlign.textContent = (res.offset > 0 ? '+' : '') + res.offset + '°';
+            if (sliderOffset) sliderOffset.value = res.offset;
+            if (valOffset) valOffset.textContent = (res.offset > 0 ? '+' : '') + res.offset + '°';
+          }
+          showToast('Тест соосности завершён вручную');
+        } else {
+          WM.pdr.startAlignmentWalk(15);
+          btnAlign.textContent = '⏹ Завершить';
+          btnAlign.classList.remove('btn-primary');
+          btnAlign.classList.add('btn-danger');
+          if (stepsAlign) stepsAlign.textContent = '0 / 15';
+          showToast('🚶 Пройдите 15 шагов строго по прямой линии');
+        }
+      };
+    }
+
+    // 6. Телеметрия через requestAnimationFrame
+    let telemRaf = 0;
+    let latestTelem = null;
+
+    if (WM.pdr && WM.pdr.setTelemetryCallback) {
+      WM.pdr.setTelemetryCallback((data) => {
+        latestTelem = data;
+        if (!telemRaf) {
+          telemRaf = requestAnimationFrame(() => {
+            telemRaf = 0;
+            if (!latestTelem) return;
+            const d = latestTelem;
+
+            if (valAccel) {
+              valAccel.textContent = `X: ${d.ax.toFixed(1)} | Y: ${d.ay.toFixed(1)} | Z: ${d.az.toFixed(1)}`;
+            }
+            if (valMag) {
+              valMag.textContent = d.isBlockedByZupt 
+                ? `${d.dynMag.toFixed(2)} м/с² (Стоянка/ZUPT)` 
+                : `${d.dynMag.toFixed(2)} м/с²`;
+            }
+            if (valHeading && d.heading !== null && !isNaN(d.heading)) {
+              valHeading.textContent = `${Math.round(d.heading)}°`;
+            }
+            if (gaugeFill && gaugeVal) {
+              const maxScale = 3.5;
+              const pct = Math.min(100, Math.round((d.dynMag / maxScale) * 100));
+              gaugeFill.style.width = pct + '%';
+              gaugeVal.textContent = `${d.dynMag.toFixed(2)} м/с²`;
+
+              if (gaugeThreshold && d.threshold) {
+                const threshPct = Math.min(100, Math.round((d.threshold / maxScale) * 100));
+                gaugeThreshold.style.left = threshPct + '%';
+              }
+            }
+          });
+        }
+      });
+    }
+
+    function onTestStep(strideMeters, headingDeg) {
+      testSteps++;
+      if (countEl) countEl.textContent = testSteps;
+      if (strideEl) strideEl.textContent = Math.round(strideMeters * 100) + ' см';
+      if (bearingEl) bearingEl.textContent = Math.round(headingDeg) + '°';
+
+      const elapsedMinutes = (Date.now() - testStartTime) / 60000;
+      if (elapsedMinutes > 0 && cadenceEl) {
+        const cadence = Math.round(testSteps / elapsedMinutes);
+        cadenceEl.textContent = cadence + ' ш/мин';
+      }
+
+      if (flashEl) {
+        flashEl.classList.add('active');
+        clearTimeout(flashTimer);
+        flashTimer = setTimeout(() => flashEl.classList.remove('active'), 280);
+      }
+      if (navigator.vibrate) navigator.vibrate(30);
+    }
+
+    // 7. Интерактивный запуск теста шагов
+    if (btnTest) {
+      btnTest.onclick = async () => {
+        if (!WM.pdr) return;
+        if (isTesting) {
+          isTesting = false;
+          btnTest.textContent = '▶ Старт теста';
+          btnTest.classList.remove('btn-danger');
+          btnTest.classList.add('btn-primary');
+          WM.pdr.stop();
+          showToast('⏹️ Тестирование остановлено');
+        } else {
+          if (WM.pdr.requestPermissions) {
+            await WM.pdr.requestPermissions();
+          }
+
+          isTesting = true;
+          testSteps = 0;
+          testStartTime = Date.now();
+          if (countEl) countEl.textContent = '0';
+          if (cadenceEl) cadenceEl.textContent = '0 ш/мин';
+          btnTest.textContent = '⏹ Стоп теста';
+          btnTest.classList.remove('btn-primary');
+          btnTest.classList.add('btn-danger');
+
+          WM.pdr.start(onTestStep, (h) => {
+            if (valHeading) valHeading.textContent = Math.round(h) + '°';
+          });
+          showToast('🚶 Сделайте несколько шагов с устройством в руке или кармане');
+        }
+      };
+    }
+
+    if (btnReset) {
+      btnReset.onclick = () => {
+        testSteps = 0;
+        testStartTime = Date.now();
+        if (countEl) countEl.textContent = '0';
+        if (cadenceEl) cadenceEl.textContent = '0 ш/мин';
+      };
+    }
+  }
 
   function updateMotionBtnState() {
     const btn = $('btn-motion-toggle');
@@ -4435,6 +4893,8 @@
       btn.title = 'Хвост и траектория выключены (нажмите для включения хвоста)';
     }
   }
+
+
 
   function updateManualPdrBtnState() {
     const btn = $('btn-manual-pdr');
@@ -5229,6 +5689,15 @@
       initMobileTooltips();
       initQuickMenu();
       initCoordsModal();
+      initPdrDiagnosticsUI(); // <-- ДОБАВИТЬ ЭТУ СТРОКУ
+
+      // Синхронизация обоих чекбоксов автоперехода в реальном времени:
+      const chkPdrAuto1 = $('toggle-pdr-auto-engage');
+      const chkPdrAuto2 = $('toggle-dead-reckon');
+      if (chkPdrAuto1 && chkPdrAuto2) {
+        chkPdrAuto1.addEventListener('change', () => { chkPdrAuto2.checked = chkPdrAuto1.checked; });
+        chkPdrAuto2.addEventListener('change', () => { chkPdrAuto1.checked = chkPdrAuto2.checked; });
+      }
 
       // Клик по верхней плашке статуса открывает меню объектов
       const statusBar = $('status');
@@ -5327,6 +5796,27 @@
           $('toggle-qm-item-manualpdr').checked = !!quickMenuConfig.items.manualPdr;
         }
 
+        const pdrCfg = WM.pdr ? WM.pdr.getConfig() : {};
+        const isAutoEngageOn = pdrCfg.autoEngageOnSpoof !== false;
+        if ($('toggle-pdr-auto-engage')) $('toggle-pdr-auto-engage').checked = isAutoEngageOn;
+        if ($('toggle-dead-reckon')) $('toggle-dead-reckon').checked = isAutoEngageOn;
+
+        const stepSlider = $('pdr-step-length-slider');
+        const stepVal = $('pdr-step-length-val');
+        if (stepSlider && stepVal) {
+          const stepCm = Math.round((pdrCfg.baseStepLength || 0.75) * 100);
+          stepSlider.value = stepCm;
+          stepVal.textContent = stepCm + ' см';
+          stepSlider.oninput = (e) => {
+            stepVal.textContent = e.target.value + ' см';
+            if (WM.pdr) WM.pdr.setConfig({ baseStepLength: parseFloat(e.target.value) / 100 });
+          };
+        }
+
+        if ($('toggle-pdr-dynamic-stride')) $('toggle-pdr-dynamic-stride').checked = pdrCfg.useDynamicStride !== false;
+        if ($('pdr-sensitivity-select')) $('pdr-sensitivity-select').value = pdrCfg.sensitivity || 'normal';
+        if ($('pdr-damping-select')) $('pdr-damping-select').value = pdrCfg.headingDamping || 'medium';
+
 
 
         const passSettingsInput = $('shared-markers-password-input');
@@ -5374,9 +5864,7 @@
         renderKeysUI();
         $('net-mode').value = WM.api.netMode;
         const antiSpoofOn = WM.api.store.get('wm_gps_anti_spoof') !== 'false';
-        const deadReckonOn = WM.api.store.get('wm_gps_dead_reckon') === 'true';
         if ($('toggle-anti-spoof')) $('toggle-anti-spoof').checked = antiSpoofOn;
-        if ($('toggle-dead-reckon')) $('toggle-dead-reckon').checked = deadReckonOn;
 
         // Загрузка состояния быстрого меню в чекбоксы
         const chkQmEnabled = $('toggle-qm-enabled');
@@ -5670,6 +6158,27 @@
         });
         applyUIVisibility();
 
+        const autoEngageSpoofVal = $('toggle-pdr-auto-engage') 
+          ? $('toggle-pdr-auto-engage').checked 
+          : ($('toggle-dead-reckon') ? $('toggle-dead-reckon').checked : true);
+
+          const sndTop = $('toggle-pdr-step-sound');
+          if (sndTop && WM.pdr) {
+            WM.pdr.setSoundEnabled(sndTop.checked);
+          }
+
+        if (WM.pdr) {
+          const stepSlider = $('pdr-step-length-slider');
+          WM.pdr.setConfig({
+            carryingMode: $('pdr-carrying-mode') ? $('pdr-carrying-mode').value : 'hand',
+            baseStepLength: stepSlider ? parseFloat(stepSlider.value) / 100 : 0.75,
+            useDynamicStride: $('toggle-pdr-dynamic-stride') ? $('toggle-pdr-dynamic-stride').checked : true,
+            sensitivity: $('pdr-sensitivity-select') ? $('pdr-sensitivity-select').value : 'normal',
+            headingDamping: $('pdr-damping-select') ? $('pdr-damping-select').value : 'medium',
+            autoEngageOnSpoof: autoEngageSpoofVal
+          });
+        }
+
 
         if (hybridSlider) {
           const val = parseFloat(hybridSlider.value);
@@ -5785,14 +6294,12 @@
         WM.api.save(editingKeys, $('net-mode').value, editingActiveIndex);
 
         const antiSpoofChecked = $('toggle-anti-spoof') ? $('toggle-anti-spoof').checked : true;
-        const deadReckonChecked = $('toggle-dead-reckon') ? $('toggle-dead-reckon').checked : false;
         WM.api.store.set('wm_gps_anti_spoof', antiSpoofChecked ? 'true' : 'false');
-        WM.api.store.set('wm_gps_dead_reckon', deadReckonChecked ? 'true' : 'false');
+        WM.api.store.set('wm_gps_dead_reckon', autoEngageSpoofVal ? 'true' : 'false');
         if (WM.antiSpoof) {
           WM.antiSpoof.setEnabled(antiSpoofChecked);
-          WM.antiSpoof.setDeadReckoningEnabled(deadReckonChecked);
+          WM.antiSpoof.setDeadReckoningEnabled(autoEngageSpoofVal); // теперь передает истинное выбранное значение!
         }
-
 
         const noEvictObjs = $('toggle-no-evict-objects') ? $('toggle-no-evict-objects').checked : false;
         const noEvictTiles = $('toggle-no-evict-tiles') ? $('toggle-no-evict-tiles').checked : false;
