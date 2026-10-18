@@ -26,6 +26,15 @@
       return true;
     }
 
+    const modalImu = $('modal-imu-logger');
+    if (modalImu && modalImu.classList.contains('open')) {
+      if (WM.imuLogger && WM.imuLogger.isRecording()) {
+        WM.imuLogger.stop();
+      }
+      modalImu.classList.remove('open');
+      return true;
+    }
+
     const modalQuickSwap = $('modal-quick-swap-select');
     if (modalQuickSwap && modalQuickSwap.classList.contains('open')) {
       modalQuickSwap.classList.remove('open');
@@ -4539,6 +4548,11 @@
     const presetLabel = $('pdr-preset-current-label');
     if (presetLabel && PDR_PRESETS[savedPresetKey]) {
       presetLabel.textContent = PDR_PRESETS[savedPresetKey].title;
+    }
+
+    const btnOpenLogger = $('btn-open-imu-logger');
+    if (btnOpenLogger && WM.imuLogger) {
+      btnOpenLogger.onclick = () => WM.imuLogger.openModal();
     }
 
     document.querySelectorAll('.pdr-preset-btn').forEach(btn => {
