@@ -4548,6 +4548,67 @@
       };
     });
 
+    // Виброотклик: шаг и навигация
+    const chkStepVibe = $('toggle-pdr-step-vibe');
+    if (chkStepVibe) {
+      chkStepVibe.checked = WM.pdr ? (WM.pdr.getConfig().stepVibration !== false) : true;
+      chkStepVibe.onchange = (e) => {
+        if (WM.pdr) WM.pdr.setConfig({ stepVibration: e.target.checked });
+        showToast(e.target.checked ? '📳 Вибрация при шаге включена' : '🔕 Вибрация при шаге выключена');
+      };
+    }
+
+    const selNavVibroMode = $('nav-vibro-mode-select');
+    const wrapVibroCone = $('nav-vibro-cone-wrap');
+    const wrapVibroInt = $('nav-vibro-interval-wrap');
+    const hintNavVibro = $('nav-vibro-mode-hint');
+
+    function updateNavVibroVisibility() {
+      const mode = selNavVibroMode ? selNavVibroMode.value : 'off';
+      if (wrapVibroCone) wrapVibroCone.hidden = (mode === 'off');
+      if (wrapVibroInt) wrapVibroInt.hidden = (mode !== 'correct');
+      if (hintNavVibro) {
+        if (mode === 'correct') {
+          hintNavVibro.textContent = 'Мягкий периодический вибросигнал, пока вы идёте прямо к цели.';
+        } else if (mode === 'deviation') {
+          hintNavVibro.textContent = 'Влево — один импульс, вправо — двойной импульс при сходе с линии.';
+        } else {
+          hintNavVibro.textContent = 'Тактильные сигналы маршрута и цели полностью отключены.';
+        }
+      }
+    }
+
+    if (selNavVibroMode && WM.navVibro) {
+      selNavVibroMode.value = WM.navVibro.getMode();
+      updateNavVibroVisibility();
+      selNavVibroMode.onchange = (e) => {
+        WM.navVibro.setMode(e.target.value);
+        updateNavVibroVisibility();
+      };
+    }
+
+    const sliderCone = $('nav-vibro-cone-slider');
+    const valCone = $('nav-vibro-cone-val');
+    if (sliderCone && valCone && WM.navVibro) {
+      sliderCone.value = WM.navVibro.getCone();
+      valCone.textContent = `±${sliderCone.value}°`;
+      sliderCone.oninput = (e) => {
+        valCone.textContent = `±${e.target.value}°`;
+        WM.navVibro.setCone(parseInt(e.target.value, 10));
+      };
+    }
+
+    const sliderInterval = $('nav-vibro-interval-slider');
+    const valInterval = $('nav-vibro-interval-val');
+    if (sliderInterval && valInterval && WM.navVibro) {
+      sliderInterval.value = WM.navVibro.getInterval();
+      valInterval.textContent = `каждые ${sliderInterval.value} сек`;
+      sliderInterval.oninput = (e) => {
+        valInterval.textContent = `каждые ${e.target.value} сек`;
+        WM.navVibro.setInterval(parseInt(e.target.value, 10));
+      };
+    }
+
     // 2. Системные опции экрана, звука и фона
     const chkSoundTop = $('toggle-pdr-step-sound');
     if (chkSoundTop) {
@@ -5794,6 +5855,25 @@
 
         if ($('toggle-qm-item-manualpdr')) {
           $('toggle-qm-item-manualpdr').checked = !!quickMenuConfig.items.manualPdr;
+        }
+
+        if ($('toggle-pdr-step-vibe') && WM.pdr) {
+          $('toggle-pdr-step-vibe').checked = WM.pdr.getConfig().stepVibration !== false;
+        }
+        if ($('nav-vibro-mode-select') && WM.navVibro) {
+          $('nav-vibro-mode-select').value = WM.navVibro.getMode();
+          const wrapCone = $('nav-vibro-cone-wrap');
+          const wrapInt = $('nav-vibro-interval-wrap');
+          if (wrapCone) wrapCone.hidden = (WM.navVibro.getMode() === 'off');
+          if (wrapInt) wrapInt.hidden = (WM.navVibro.getMode() !== 'correct');
+        }
+        if ($('nav-vibro-cone-slider') && WM.navVibro) {
+          $('nav-vibro-cone-slider').value = WM.navVibro.getCone();
+          if ($('nav-vibro-cone-val')) $('nav-vibro-cone-val').textContent = `±${WM.navVibro.getCone()}°`;
+        }
+        if ($('nav-vibro-interval-slider') && WM.navVibro) {
+          $('nav-vibro-interval-slider').value = WM.navVibro.getInterval();
+          if ($('nav-vibro-interval-val')) $('nav-vibro-interval-val').textContent = `каждые ${WM.navVibro.getInterval()} сек`;
         }
 
         const pdrCfg = WM.pdr ? WM.pdr.getConfig() : {};
