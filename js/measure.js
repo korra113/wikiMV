@@ -20,11 +20,32 @@
   let ignoreNextMapClick = false;
 
   // Режим маршрутной навигации
+  // Режим маршрутной навигации
   let isNavigating = false;
   let navTargetIndex = 0;
-  let navVibroEnabled = false;
+
+  // Настройки тактильной навигации
+  let navVibroMode = 'deviation'; // 'off' | 'correct' | 'deviation'
   try {
-    navVibroEnabled = localStorage.getItem(VIBRO_STORAGE_KEY) === 'true';
+    const savedMode = localStorage.getItem('wm_nav_vibro_mode');
+    if (savedMode) {
+      navVibroMode = savedMode;
+    } else {
+      const legacy = localStorage.getItem(VIBRO_STORAGE_KEY);
+      navVibroMode = (legacy === 'false') ? 'off' : 'deviation';
+    }
+  } catch (e) {}
+
+  let navVibroCone = 30; // Градусы (размер конуса)
+  try {
+    const savedCone = parseInt(localStorage.getItem('wm_nav_vibro_cone'), 10);
+    if (!isNaN(savedCone) && savedCone >= 10 && savedCone <= 90) navVibroCone = savedCone;
+  } catch (e) {}
+
+  let navVibroInterval = 5; // Секунды (частота для режима "по курсу")
+  try {
+    const savedInt = parseInt(localStorage.getItem('wm_nav_vibro_interval'), 10);
+    if (!isNaN(savedInt) && savedInt >= 2 && savedInt <= 30) navVibroInterval = savedInt;
   } catch (e) {}
 
   let offCourseStartTime = 0;
@@ -868,27 +889,97 @@
     if (WM.ui && WM.ui.showToast) WM.ui.showToast('🛑 Навигация по маршруту завершена');
   }
 
-  function toggleVibration() {
-    navVibroEnabled = !navVibroEnabled;
-    try {
-      localStorage.setItem(VIBRO_STORAGE_KEY, navVibroEnabled ? 'true' : 'false');
-    } catch (e) {}
+  function triggerNavigationVibration(signedDiff, absDiff, speed) {
+    if (navVibroMode === 'off' || !navigator.vibrate) return;
+    if (speed < 0.4) return;
 
-    updateVibroBtnUI();
-    if (navVibroEnabled) {
+    const now = Date.now();
+
+    if (navVibroMode === 'correct') {
+      // 1. Отклик когда движение верное (внутри конуса)
+      if (absDiff <= navVibroCone) {
+        if (now - lastVibroAlertTime >= navVibroInterval * 1000) {
+          lastVibroAlertTime = now;
+          try { navigator.vibrate(70); } catch (e) {}
+        }
+      }
+    } else if (navVibroMode === 'deviation') {
+      // 2. Отклик когда ушли с курса (снаружи конуса)
+      if (absDiff > navVibroCone) {
+        let minInterval = 11000;
+        if (absDiff > navVibroCone * 2.5) {
+          minInterval = 3500;
+        } else if (absDiff > navVibroCone * 1.6) {
+          minInterval = 6500;
+        }
+
+        if (now - lastVibroAlertTime < minInterval) return;
+        lastVibroAlertTime = now;
+
+        try {
+          if (signedDiff < 0) {
+            navigator.vibrate(220); // Влево: 1 длинный импульс
+          } else {
+            navigator.vibrate([130, 90, 130]); // Вправо: 2 импульса
+          }
+        } catch (e) {}
+      }
+    }
+  }
+
+  // Экспортируем менеджер наружу в глобальный объект WM
+  WM.navVibro = {
+    getMode: () => navVibroMode,
+    setMode: (m) => {
+      navVibroMode = m;
+      try {
+        localStorage.setItem('wm_nav_vibro_mode', m);
+        localStorage.setItem(VIBRO_STORAGE_KEY, m !== 'off' ? 'true' : 'false');
+      } catch (e) {}
+      updateVibroBtnUI();
+    },
+    getCone: () => navVibroCone,
+    setCone: (c) => {
+      navVibroCone = c;
+      try { localStorage.setItem('wm_nav_vibro_cone', c.toString()); } catch (e) {}
+    },
+    getInterval: () => navVibroInterval,
+    setInterval: (sec) => {
+      navVibroInterval = sec;
+      try { localStorage.setItem('wm_nav_vibro_interval', sec.toString()); } catch (e) {}
+    },
+    isEnabled: () => navVibroMode !== 'off',
+    triggerNavigationVibration
+  };
+
+  function toggleVibration() {
+    if (!WM.navVibro) return;
+    const curMode = WM.navVibro.getMode();
+    if (curMode === 'off') {
+      const lastActive = localStorage.getItem('wm_nav_vibro_last_active') || 'deviation';
+      WM.navVibro.setMode(lastActive);
       if (navigator.vibrate) navigator.vibrate(100);
-      if (WM.ui && WM.ui.showToast) WM.ui.showToast('📳 Виброотклик при уходе с курса включён');
+      if (WM.ui && WM.ui.showToast) {
+        WM.ui.showToast(lastActive === 'correct' ? '📳 Виброотклик «По курсу» включён' : '📳 Виброотклик «Уход с курса» включён');
+      }
     } else {
+      localStorage.setItem('wm_nav_vibro_last_active', curMode);
+      WM.navVibro.setMode('off');
       if (WM.ui && WM.ui.showToast) WM.ui.showToast('🔕 Виброотклик отключён');
     }
+    updateVibroBtnUI();
   }
 
   function updateVibroBtnUI() {
     const btn = $('btn-measure-nav-vibro');
     if (!btn) return;
-    btn.textContent = navVibroEnabled ? '📳' : '🔕';
-    btn.classList.toggle('active', navVibroEnabled);
-    btn.title = navVibroEnabled ? 'Виброотклик активен (нажмите для выключения)' : 'Виброотклик выключен (нажмите для включения)';
+    const isEn = WM.navVibro ? WM.navVibro.isEnabled() : false;
+    btn.textContent = isEn ? '📳' : '🔕';
+    btn.classList.toggle('active', isEn);
+    const mode = WM.navVibro ? WM.navVibro.getMode() : 'off';
+    btn.title = isEn 
+      ? (mode === 'correct' ? 'Виброотклик «По курсу» (нажмите для выкл)' : 'Виброотклик «Уход с курса» (нажмите для выкл)') 
+      : 'Виброотклик выключен (нажмите для вкл)';
   }
 
   function executeDeviationVibration(signedDiff, absDiff) {
@@ -1003,11 +1094,15 @@
     }
     if (course !== null) lastNavCourse = course;
 
+    const cone = WM.navVibro ? WM.navVibro.getCone() : 30;
+
+    const cone = WM.navVibro ? WM.navVibro.getCone() : 30;
+
     if (uLL && lastNavCourse !== null && speed >= 0.45) {
       signedDiff = ((lastNavCourse - bearingToNode + 540) % 360) - 180;
       absDiff = Math.abs(signedDiff);
 
-      if (absDiff <= 35) {
+      if (absDiff <= cone) {
         driftText = '🟢 По курсу';
         driftSub = `Азимут: ${Math.round(bearingToNode)}°`;
         guideColor = '#10b981';
@@ -1015,7 +1110,7 @@
       } else {
         const sideText = signedDiff > 0 ? 'вправо' : 'влево';
         driftText = `Крен ${sideText} ${Math.round(absDiff)}°`;
-        guideColor = absDiff > 75 ? '#ef4444' : '#f59e0b';
+        guideColor = absDiff > (cone * 1.8) ? '#ef4444' : '#f59e0b';
 
         const now = Date.now();
         if (!offCourseStartTime) {
@@ -1027,8 +1122,12 @@
           driftSub = `Проверка уклона: ${15 - elapsedOffCourse}с`;
         } else {
           driftSub = `⚠️ Уход с курса (${elapsedOffCourse}с)`;
-          executeDeviationVibration(signedDiff, absDiff);
         }
+      }
+
+      // Вызов тактильного отклика с учётом выбранного режима (по курсу / уход / выкл)
+      if (WM.navVibro) {
+        WM.navVibro.triggerNavigationVibration(signedDiff, absDiff, speed);
       }
     } else {
       offCourseStartTime = 0;
