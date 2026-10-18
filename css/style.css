@@ -6676,6 +6676,106 @@ body.sheet-open .measure-hud {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
+/* =========================================================================
+   ИНСТРУМЕНТ СБОРА ТЕЛЕМЕТРИИ (IMU LOGGER)
+   ========================================================================= */
+.imu-log-live-box {
+  background: var(--bg-secondary);
+  border: 1.5px solid #8b5cf6;
+  border-radius: var(--radius-md, 12px);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin: 10px 0;
+  animation: progressFadeIn 0.2s ease-out;
+}
+
+.imu-log-phase-badge {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #8b5cf6;
+  line-height: 1.35;
+  margin-bottom: 6px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.imu-log-countdown {
+  font-size: 38px;
+  font-weight: 900;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--text-main);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 10px;
+}
+
+.imu-log-progress-track {
+  width: 100%;
+  height: 8px;
+  background: var(--border-strong);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.imu-log-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #8b5cf6 0%, #38bdf8 100%);
+  transition: width 0.08s linear;
+}
+
+.imu-log-live-telem {
+  font-size: 10.5px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--text-muted);
+  line-height: 1.3;
+  word-break: break-all;
+}
+
+.imu-log-result-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 10px 12px;
+  margin: 10px 0;
+  animation: progressFadeIn 0.2s ease-out;
+}
+
+.imu-log-stats-summary {
+  font-size: 11.5px;
+  color: var(--text-main);
+  line-height: 1.4;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--border);
+}
+
+.imu-log-textarea {
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+  font-size: 11px !important;
+  line-height: 1.35 !important;
+  white-space: pre !important;
+  word-break: normal !important;
+  overflow-x: auto !important;
+  resize: vertical;
+}
+
+[data-theme="night-vision"] .imu-log-live-box {
+  border-color: #ef4444;
+}
+[data-theme="night-vision"] .imu-log-phase-badge {
+  color: #ef4444;
+}
+[data-theme="night-vision"] .imu-log-progress-fill {
+  background: #ef4444;
+}
+
 .pdr-test-stats {
   font-size: 11px;
   line-height: 1.45;
