@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v52'; // Обновляем версию для сброса кэша
+const SHELL_CACHE = 'wm-shell-v53'; // Обновляем версию для сброса кэша
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -150,6 +150,11 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = req.url;
 
+  // ИСПРАВЛЕНО 1: Service Worker не должен перехватывать не-GET запросы (PUT, POST, DELETE)
+  if (req.method !== 'GET') {
+    return;
+  }
+
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).catch(async () => {
@@ -196,7 +201,6 @@ self.addEventListener('fetch', (event) => {
           }
           return res;
         } catch (e) {
-          // Возвращаем реальную 504 ошибку, чтобы Leaflet знал о сбое и мог повторить попытку
           return new Response(null, { status: 504, statusText: 'Tile Fetch Failed' });
         }
       })()
@@ -204,8 +208,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // ИСПРАВЛЕНО 2: добавлен bypass для Firebase Realtime DB и динамических API
   if (
     url.includes('api.wikimapia.org') || 
+    url.includes('firebaseio.com') ||
     url.includes('nominatim') || 
     url.includes('photon') || 
     url.includes('wttr.in') ||    
