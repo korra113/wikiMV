@@ -1746,26 +1746,12 @@
     return current + diff;
   }
 
-  let smoothVx = 0, smoothVy = 0;
+  function computeTiltCompensatedHeading(alpha, beta, gamma) {
+    // Для Android alpha в deviceorientationabsolute уже ориентирован на Север
+    let heading = 360 - alpha; // W3C alpha против часовой стрелки -> переводим по часовой
 
-  function getCompassHeadingFromAngles(alpha, beta, gamma) {
-    const degToRad = Math.PI / 180;
-    const _x = (beta || 0) * degToRad;
-    const _y = (gamma || 0) * degToRad;
-    const _z = (alpha || 0) * degToRad;
-
-    const cX = Math.cos(_x), sX = Math.sin(_x);
-    const cY = Math.cos(_y), sY = Math.sin(_y);
-    const cZ = Math.cos(_z), sZ = Math.sin(_z);
-
-    const Vx = -cZ * sY - sZ * sX * cY;
-    const Vy = -sZ * sY + cZ * sX * cY;
-
-    // Сглаживание компонент убирает дребезг около нуля на Юге
-    smoothVx += 0.25 * (Vx - smoothVx);
-    smoothVy += 0.25 * (Vy - smoothVy);
-
-    let heading = Math.atan2(smoothVx, smoothVy) * (180 / Math.PI);
+    const screenAngle = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+    heading = (heading + screenAngle) % 360;
     if (heading < 0) heading += 360;
     return heading;
   }
@@ -1778,29 +1764,27 @@
     window._wmSensorEventsCount = (window._wmSensorEventsCount || 0) + 1;
 
     if (typeof e.webkitCompassHeading === 'number') {
+      // iOS CoreMotion уже скомпенсирован аппаратно
       heading = e.webkitCompassHeading;
-    } else if (e.alpha !== null && e.alpha !== undefined) {
-      if (e.beta !== null && e.gamma !== null && (Math.abs(e.beta) > 20 || Math.abs(e.gamma) > 20)) {
-        heading = getCompassHeadingFromAngles(e.alpha, e.beta, e.gamma);
-      } else {
-        heading = 360 - e.alpha;
-      }
-      const screenAngle = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
-      heading = (heading + screenAngle) % 360;
-      if (heading < 0) heading += 360;
+    } else if (e.alpha !== null && e.beta !== null && e.gamma !== null) {
+      // Android: передаем все три угла для компенсации наклона
+      heading = computeTiltCompensatedHeading(e.alpha, e.beta, e.gamma);
     }
 
     if (heading !== null && !isNaN(heading)) {
       pendingHeading = Math.round(heading);
+
       if (WM.pdr && WM.pdr.updateExternalCompass) {
         WM.pdr.updateExternalCompass(pendingHeading);
       }
-      // Не запускаем перерисовку чаще, чем частота кадра экрана
+
       if (!orientationRafId) {
         orientationRafId = requestAnimationFrame(() => {
           orientationRafId = 0;
-          if (pendingHeading !== null && pendingHeading !== currentHeading) {
-            currentHeading = pendingHeading;
+          // Конус теперь берет сглаженный отфильтрованный курс PDR вместо сырых прыгающих показаний
+          const effectiveH = (WM.pdr && WM.pdr.getHeading) ? WM.pdr.getHeading() : pendingHeading;
+          if (effectiveH !== null && effectiveH !== currentHeading) {
+            currentHeading = effectiveH;
             updateCompassVisuals();
           }
         });
