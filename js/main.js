@@ -1582,25 +1582,15 @@
   function onPdrStepTaken(strideMeters, headingDeg, count, deltaAlt, currentAlt) {
     if (!userLatLng) return;
 
-    // Если доступен аппаратный компас (по которому ориентирован конус),
-    // берем его напрямую либо fusedHeading с защитой от рассинхрона
-    let effectiveHeading = currentHeading !== null ? currentHeading : headingDeg;
-    if (headingDeg !== null && !isNaN(headingDeg)) {
-      if (currentHeading !== null) {
-        // Защита от закручивания: если угол PDR разошелся с реальным компасом более чем на 30°,
-        // принудительно возвращаем шаг к направлению конуса
-        const diff = Math.abs(((headingDeg - currentHeading + 540) % 360) - 180);
-        effectiveHeading = diff > 30 ? currentHeading : headingDeg;
-      } else {
-        effectiveHeading = headingDeg;
-      }
-    }
+    // Базовый курс берем из устойчивого fused-фильтра PDR
+    let effectiveHeading = (headingDeg !== null && !isNaN(headingDeg)) 
+      ? headingDeg 
+      : (currentHeading !== null ? currentHeading : 0);
 
     const rad = (effectiveHeading * Math.PI) / 180;
     const dLat = (strideMeters * Math.cos(rad)) / 111320;
     const cosLat = Math.cos((userLatLng[0] * Math.PI) / 180) || 1;
     const dLng = (strideMeters * Math.sin(rad)) / (111320 * cosLat);
-
 
     const nextLL = [userLatLng[0] + dLat, userLatLng[1] + dLng];
     
@@ -1747,12 +1737,35 @@
   }
 
   function computeTiltCompensatedHeading(alpha, beta, gamma) {
-    // Для Android alpha в deviceorientationabsolute уже ориентирован на Север
-    let heading = 360 - alpha; // W3C alpha против часовой стрелки -> переводим по часовой
+    if (alpha === null) return null;
+    
+    // Если телефон лежит горизонтально, достаточно простого альфа
+    if (beta === null || gamma === null || (Math.abs(beta) < 2 && Math.abs(gamma) < 2)) {
+      let h = 360 - alpha;
+      const screenAngle = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+      return (h + screenAngle + 360) % 360;
+    }
+
+    const degToRad = Math.PI / 180;
+    const radB = beta * degToRad;
+    const radG = gamma * degToRad;
+    const radA = alpha * degToRad;
+
+    const cA = Math.cos(radA), sA = Math.sin(radA);
+    const cB = Math.cos(radB), sB = Math.sin(radB);
+    const cG = Math.cos(radG), sG = Math.sin(radG);
+
+    // Вычисление компонент горизонтального вектора верха телефона (ось +Y)
+    // Вектор устойчив к прохождению beta через 90° и компенсирует крен gamma
+    const rA = - cA * sG - sA * sB * cG;
+    const rB = - sA * sG + cA * sB * cG;
+
+    let headingRad = Math.atan2(rA, rB);
+    let heading = headingRad * (180 / Math.PI);
+    if (heading < 0) heading += 360;
 
     const screenAngle = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
     heading = (heading + screenAngle) % 360;
-    if (heading < 0) heading += 360;
     return heading;
   }
 
