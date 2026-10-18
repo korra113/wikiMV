@@ -65,6 +65,60 @@
 
 (async function () {
   const WM = window.WM, C = WM.config;
+
+  // =========================================================================
+  // >>> ВСТАВИТЬ СЮДА: УПРАВЛЕНИЕ ЭКРАНОМ (WAKE LOCK API) <<<
+  // =========================================================================
+  let wakeLockSentinel = null;
+
+  async function requestScreenWakeLock() {
+    // 1. Аппаратное удержание через нативный Android-мост (в APK)
+    if (window.AndroidBridge && window.AndroidBridge.setKeepScreenOn) {
+      window.AndroidBridge.setKeepScreenOn(true);
+    }
+
+    // 2. Стандартный веб-API (в браузере)
+    if ('wakeLock' in navigator) {
+      try {
+        if (wakeLockSentinel && !wakeLockSentinel.released) return;
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        wakeLockSentinel.addEventListener('release', () => {
+          wakeLockSentinel = null;
+        });
+      } catch (err) {}
+    }
+  }
+  function releaseScreenWakeLock() {
+    // 1. Снимаем флаг в Android (в APK)
+    if (window.AndroidBridge && window.AndroidBridge.setKeepScreenOn) {
+      window.AndroidBridge.setKeepScreenOn(false);
+    }
+
+    // 2. Снимаем в браузере
+    if (wakeLockSentinel) {
+      wakeLockSentinel.release().catch(() => {});
+      wakeLockSentinel = null;
+    }
+  }
+
+  WM.wakeLock = {
+    request: requestScreenWakeLock,
+    release: releaseScreenWakeLock
+  };
+
+  // Автоматический запрос удержания подсветки, если включено в настройках
+  if (localStorage.getItem('wm_pdr_wakelock') !== 'false') {
+    requestScreenWakeLock();
+  }
+
+  // При возврате вкладки/приложения из фона восстанавливаем блокировку экрана
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && localStorage.getItem('wm_pdr_wakelock') !== 'false') {
+      requestScreenWakeLock();
+    }
+  });
+  // =========================================================================
+
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem('wm_view')); } catch (e) {}
 
@@ -1390,366 +1444,290 @@
     addPoint: addPointToTail
   };
 
-  // =========================================================================
+// =========================================================================
   // СИСТЕМА ЗАЩИТЫ ОТ ГЛУШИЛОК GPS (АНТИСПУФИНГ) И АВТОНОМНЫЙ ШАГОМЕР (PDR)
   // =========================================================================
   let isAntiSpoofEnabled = localStorage.getItem('wm_gps_anti_spoof') !== 'false';
-  let isDeadReckonEnabled = localStorage.getItem('wm_gps_dead_reckon') === 'true';
-
   let isManualPdrActive = false;
   let isSpoofed = false;
   let lastGoodGpsFix = null;
   let cleanGpsSamplesCount = 0;
   let rawGpsPointsBuffer = [];
-  let isProbingGps = false;
-
-  // Логика шагомера (акселерометр)
-  let isMotionListening = false;
-  let lastStepTime = 0;
-  let accelMagnitudePrev = 9.8;
-  const STEP_THRESHOLD = 2.4;
-  const MIN_STEP_INTERVAL = 330;
-  const STEP_LENGTH_METERS = 0.72;
 
   const spoofPanelEl = document.getElementById('spoof-alert-panel');
   const spoofReasonEl = document.getElementById('spoof-alert-reason');
   const limitRowEl = document.getElementById('limit-row');
-  const btnSpoofProbe = document.getElementById('btn-spoof-probe');
-  const btnSpoofDismiss = document.getElementById('btn-spoof-dismiss');
-  const btnIAmHere = document.getElementById('btn-i-am-here');
+  const btnManualPdr = document.getElementById('btn-manual-pdr');
 
   function setSpoofState(spoofed, reason = '') {
     isSpoofed = spoofed;
+    const pdrCfg = WM.pdr ? WM.pdr.getConfig() : {};
 
     if (isSpoofed) {
-      if (limitRowEl) limitRowEl.style.display = 'none'; // Скрываем лимиты ключей
+      if (limitRowEl) limitRowEl.style.display = 'none';
       if (spoofPanelEl) spoofPanelEl.hidden = false;
-      if (spoofReasonEl) spoofReasonEl.textContent = reason || 'Аномалия координат';
+      if (spoofReasonEl) spoofReasonEl.textContent = reason || 'Глушение сигнала';
 
-      cleanGpsSamplesCount = 0;
-      if (isDeadReckonEnabled) startStepDetection();
+      // Авто-переход на шагомер при глушении, если включен в настройках
+      if (pdrCfg.autoEngageOnSpoof && WM.pdr && !WM.pdr.isActive()) {
+        startPdrTracking();
+        if (WM.ui && WM.ui.showToast) {
+          WM.ui.showToast('🛡️ Глушение GPS! Автоматически включён шагомер PDR', 2800);
+        }
+      }
     } else {
       if (spoofPanelEl) spoofPanelEl.hidden = true;
       if (limitRowEl && (WM.ui && WM.ui.uiVis ? WM.ui.uiVis.limit !== false : true)) {
-        limitRowEl.style.display = ''; // Возвращаем лимиты
+        limitRowEl.style.display = '';
       }
-      cleanGpsSamplesCount = 0;
-      if (!isManualPdrActive) stopStepDetection();
+      // Если это не принудительный ручной режим, останавливаем шагомер
+      if (!isManualPdrActive && WM.pdr && WM.pdr.isActive()) {
+        stopPdrTracking();
+      }
     }
+    if (WM.ui && WM.ui.updateManualPdrBtnState) WM.ui.updateManualPdrBtnState();
   }
 
-  // Принудительный ручной тест сигнала спутников по кнопке «🔄 Проверить»
-  async function probeGpsNow() {
-    if (isProbingGps || !navigator.geolocation) return;
-    isProbingGps = true;
-
-    if (btnSpoofProbe) {
-      btnSpoofProbe.classList.add('loading');
-      btnSpoofProbe.textContent = '⏳ Тест…';
+  // Интеллектуальный фильтр отсева спуфинга и глушения GPS
+  function validateGpsPoint(targetLL, coords, timestamp) {
+    if (!isAntiSpoofEnabled) {
+      if (isSpoofed) setSpoofState(false);
+      lastGoodGpsFix = {
+        ll: targetLL,
+        time: timestamp || Date.now(),
+        alt: coords ? coords.altitude : null,
+        speed: coords ? coords.speed : 0
+      };
+      return true;
     }
-    if (WM.ui && WM.ui.showToast) WM.ui.showToast('🛰️ Опрос спутников GPS без кэша…', 1500);
-
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        isProbingGps = false;
-        if (btnSpoofProbe) {
-          btnSpoofProbe.classList.remove('loading');
-          btnSpoofProbe.textContent = '🔄 Проверить';
-        }
-
-        const freshLL = L.latLng(p.coords.latitude, p.coords.longitude);
-        const anchor = lastGoodGpsFix ? lastGoodGpsFix.ll : (userLatLng ? L.latLng(userLatLng[0], userLatLng[1]) : null);
-
-        if (anchor) {
-          const distMeters = anchor.distanceTo(freshLL);
-          const dtSec = Math.max(1, (Date.now() - (lastGoodGpsFix ? lastGoodGpsFix.time : Date.now())) / 1000);
-          const impliedSpeedKmh = (distMeters / dtSec) * 3.6;
-
-          // Если телепортация быстрее 180 км/ч (или скачок > 2 км за пару секунд)
-          if ((distMeters > 2000 && impliedSpeedKmh > 180) || (p.coords.speed && p.coords.speed > 80)) {
-            const distKm = (distMeters / 1000).toFixed(1);
-            if (spoofReasonEl) spoofReasonEl.textContent = `Смещение ${distKm} км`;
-            if (WM.ui && WM.ui.showToast) {
-              WM.ui.showToast(`❌ Глушение продолжается (скачок на ${distKm} км)`, 3000);
-            }
-            return;
-          }
-        }
-
-        // Сигнал чист: снимаем тревогу
-        setSpoofState(false);
-        lastGoodGpsFix = { ll: freshLL, time: p.timestamp, alt: p.coords.altitude, speed: p.coords.speed || 0 };
-        setGpsCoords([freshLL.lat, freshLL.lng], p.coords, p.timestamp, true);
-        map.setView(freshLL, Math.max(map.getZoom(), 16));
-
-        if (WM.ui && WM.ui.showToast) {
-          WM.ui.showToast('✅ Сигнал GPS нормализовался!', 2500);
-        }
-      },
-      (err) => {
-        isProbingGps = false;
-        if (btnSpoofProbe) {
-          btnSpoofProbe.classList.remove('loading');
-          btnSpoofProbe.textContent = '🔄 Проверить';
-        }
-        if (WM.ui && WM.ui.showToast) {
-          WM.ui.showToast('⚠️ Нет ответа от GPS: ' + err.message, 2500);
-        }
-      },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
-    );
-  }
-
-  // Привязка обработчиков панели
-  if (btnSpoofProbe) btnSpoofProbe.onclick = probeGpsNow;
-
-  if (btnSpoofDismiss) {
-    btnSpoofDismiss.onclick = () => {
-      setSpoofState(false);
-      rawGpsPointsBuffer = [];
-      cleanGpsSamplesCount = 0;
-      if (WM.ui && WM.ui.showToast) {
-        WM.ui.showToast('🛑 Защита от глушения временно снята вручную');
-      }
-    };
-  }
-
-  if (btnIAmHere) {
-    btnIAmHere.onclick = () => {
-      const c = map.getCenter();
-      const ll = [c.lat, c.lng];
-      lastGoodGpsFix = { ll: L.latLng(ll[0], ll[1]), time: Date.now(), alt: null, speed: 0 };
-      setGpsCoords(ll, { latitude: ll[0], longitude: ll[1], accuracy: 5, speed: 0, heading: currentHeading }, Date.now(), true);
-      
-      if (isDeadReckonEnabled || isManualPdrActive) {
-        startStepDetection();
-      }
-      if (WM.ui && WM.ui.showToast) {
-        WM.ui.showToast('🧲 Местоположение привязано к перекрестию карты');
-      }
-    };
-  }
-
-  // Анализ кругового движения (характерного для глушилок у важных объектов)
-  function isRunningInSpoofCircles(buffer) {
-    if (buffer.length < 5) return false;
-    let headingChanges = 0;
-    let totalDist = 0;
-
-    for (let i = 1; i < buffer.length; i++) {
-      const p1 = buffer[i - 1];
-      const p2 = buffer[i];
-      const dist = p1.ll.distanceTo(p2.ll);
-      totalDist += dist;
-      const b1 = p1.heading || 0;
-      const b2 = p2.heading || 0;
-      const diff = Math.abs(((b2 - b1 + 540) % 360) - 180);
-      if (diff > 15 && diff < 80) headingChanges++;
-    }
-
-    // Если за короткий период идет постоянный поворот по кругу со скоростью авто/самолета (> 65 км/ч)
-    return headingChanges >= 4 && (totalDist / buffer.length) > 15;
-  }
-
-  // Фильтр-валидатор входящей GPS точки
-  function validateGpsPoint(newLL, rawCoords, timestamp) {
-    if (!isAntiSpoofEnabled) return true;
 
     const now = timestamp || Date.now();
-    const speed = (rawCoords && rawCoords.speed != null && rawCoords.speed >= 0) ? rawCoords.speed : 0;
-    const altitude = (rawCoords && rawCoords.altitude != null) ? rawCoords.altitude : null;
-    const accuracy = (rawCoords && rawCoords.accuracy) ? rawCoords.accuracy : 10;
+    const accuracy = (coords && coords.accuracy != null) ? coords.accuracy : 10;
+    const speed = (coords && coords.speed != null && coords.speed >= 0) ? coords.speed : 0;
+    const altitude = coords ? coords.altitude : null;
 
-    // Первичный приём (по сотовым вышкам / Wi-Fi) может иметь точность до 500м, не считаем это спуфингом
-    if (accuracy > 500) return false;
+    // 1. Отсекаем координаты с критически недостоверной погрешностью
+    if (accuracy > 180) {
+      return false;
+    }
 
-    // Первоначальная точка
+    if (speed > 2.0 && WM.pdr) {
+      const spdKmh = Math.round(speed * 3.6);
+      WM.pdr.setConfig({ vehicularSpeedKmh: spdKmh });
+    }
+
+    // 2. Если это первая точка сессии
     if (!lastGoodGpsFix) {
-      if (speed > 85 || (altitude !== null && altitude > 9000)) {
-        setSpoofState(true, 'нереальная высота/скорость');
-        return false;
-      }
-      lastGoodGpsFix = { ll: newLL, time: now, alt: altitude, speed };
+      lastGoodGpsFix = { ll: targetLL, time: now, alt: altitude, speed: speed };
+      cleanGpsSamplesCount = 1;
       return true;
     }
 
-    const dt = Math.max(0.4, (now - lastGoodGpsFix.time) / 1000);
-    const dist = lastGoodGpsFix.ll.distanceTo(newLL);
+    const dt = Math.max(0.1, (now - lastGoodGpsFix.time) / 1000);
+    const dist = lastGoodGpsFix.ll.distanceTo(targetLL);
     const impliedSpeed = dist / dt; // м/с
 
-    // Если прошло более 40 секунд (экран был заблокирован, пауза в приложении),
-    // не считаем перемещение мгновенной телепортацией
-    if (dt > 40) {
-      lastGoodGpsFix = { ll: newLL, time: now, alt: altitude, speed };
+    // Если приложение спало больше 90 сек — скачок объясним нормальным перемещением
+    if (dt > 90) {
+      lastGoodGpsFix = { ll: targetLL, time: now, alt: altitude, speed: speed };
+      cleanGpsSamplesCount = 1;
+      if (isSpoofed) setSpoofState(false);
       return true;
     }
 
-    // Записываем в скользящий буфер для анализа геометрии трека
-    rawGpsPointsBuffer.push({ ll: newLL, time: now, heading: rawCoords.heading });
-    if (rawGpsPointsBuffer.length > 8) rawGpsPointsBuffer.shift();
+    // 3. Анализ телепортации и аномалий
+    const MAX_REALISTIC_SPEED = 55; // ~200 км/ч
+    let isAnomalous = false;
+    let anomalyReason = '';
 
-    // 1. Проверка на телепортацию
-    if (dt < 12 && dist > 700 && impliedSpeed > 60) {
-      setSpoofState(true, 'скачок >200 км/ч');
-      return false;
-    }
-
-    // 2. Проверка на сверхскорость
-    if (impliedSpeed > 85) {
-      setSpoofState(true, 'сверхскорость');
-      return false;
-    }
-
-    // 3. Проверка на аномальную высоту
-    if (altitude !== null) {
-      if (altitude > 8000) {
-        setSpoofState(true, 'высота >8000м');
-        return false;
-      }
-      if (lastGoodGpsFix.alt !== null && dt < 8 && Math.abs(altitude - lastGoodGpsFix.alt) > 800) {
-        setSpoofState(true, 'вертикальный скачок');
-        return false;
+    if (dist > 350 && impliedSpeed > MAX_REALISTIC_SPEED) {
+      isAnomalous = true;
+      anomalyReason = `Скачок на ${dist > 1000 ? (dist / 1000).toFixed(1) + ' км' : Math.round(dist) + ' м'} (${Math.round(impliedSpeed * 3.6)} км/ч)`;
+    } else if (speed > 65) {
+      // Аппаратный чип сообщает скорость свыше 234 км/ч
+      isAnomalous = true;
+      anomalyReason = `Аномальная скорость (${Math.round(speed * 3.6)} км/ч)`;
+    } else if (altitude !== null && lastGoodGpsFix.alt !== null) {
+      const dAlt = Math.abs(altitude - lastGoodGpsFix.alt);
+      if (dAlt > 600 && (dAlt / dt) > 80) {
+        isAnomalous = true;
+        anomalyReason = `Резкий скачок высоты (${Math.round(dAlt)} м)`;
       }
     }
 
-    // 4. Проверка на круговой спуфинг
-    if (speed > 18 && isRunningInSpoofCircles(rawGpsPointsBuffer)) {
-      setSpoofState(true, 'круговой спуфинг');
+    if (isAnomalous) {
+      cleanGpsSamplesCount = 0;
+      setSpoofState(true, anomalyReason);
       return false;
     }
 
-    // 5. Выход из спуфинга при стабилизации сигнала
+    // Если точка чистая:
+    cleanGpsSamplesCount++;
+    // При активной тревоге глушения требуем минимум 3 валидных точки подряд для автовыхода
     if (isSpoofed) {
-      if (impliedSpeed < 25 && speed < 25) {
-        cleanGpsSamplesCount++;
-        if (cleanGpsSamplesCount >= 4) {
-          setSpoofState(false);
-          lastGoodGpsFix = { ll: newLL, time: now, alt: altitude, speed };
-          return true;
-        }
-      } else {
-        cleanGpsSamplesCount = 0;
+      if (cleanGpsSamplesCount >= 3) {
+        setSpoofState(false);
+        lastGoodGpsFix = { ll: targetLL, time: now, alt: altitude, speed: speed };
+        if (WM.ui && WM.ui.showToast) WM.ui.showToast('✅ Сигнал GPS нормализовался');
+        return true;
       }
       return false;
     }
 
-    lastGoodGpsFix = { ll: newLL, time: now, alt: altitude, speed };
+    lastGoodGpsFix = { ll: targetLL, time: now, alt: altitude, speed: speed };
     return true;
   }
 
-  // --- ШАГОМЕР И ПРИРАЩЕНИЕ ПО КОМПАСУ (PDR) ---
-  function onDeviceMotion(e) {
-    // Работает, если включен ручной режим ИЛИ система в тревоге спуфинга
-    if ((!isManualPdrActive && (!isSpoofed || !isDeadReckonEnabled)) || !userLatLng) return;
-
-    const acc = e.accelerationIncludingGravity || e.acceleration;
-    if (!acc || acc.x === null) return;
-
-    const x = acc.x || 0, y = acc.y || 0, z = acc.z || 0;
-    const mag = Math.hypot(x, y, z);
-    const delta = Math.abs(mag - accelMagnitudePrev);
-    accelMagnitudePrev = mag;
-
-    const now = performance.now();
-    if (delta > STEP_THRESHOLD && (now - lastStepTime) > MIN_STEP_INTERVAL) {
-      lastStepTime = now;
-      registerStepForward();
-    }
-  }
-
-  function registerStepForward() {
+  // Колбэк шага: перемещение координаты вперед по курсу шагомера
+  function onPdrStepTaken(strideMeters, headingDeg, count, deltaAlt, currentAlt) {
     if (!userLatLng) return;
-    const heading = (WM.compass && WM.compass.getHeading) ? WM.compass.getHeading() : (currentHeading || 0);
 
-    const rad = (heading * Math.PI) / 180;
-    const dLat = (STEP_LENGTH_METERS * Math.cos(rad)) / 111320;
+    // headingDeg уже фильтруется алгоритмом Маджвика + ZUPT bias + защитой от магнитных аномалий
+    const effectiveHeading = (headingDeg !== null && !isNaN(headingDeg)) 
+      ? headingDeg 
+      : (currentHeading || 0);
+
+    const rad = (effectiveHeading * Math.PI) / 180;
+    const dLat = (strideMeters * Math.cos(rad)) / 111320;
     const cosLat = Math.cos((userLatLng[0] * Math.PI) / 180) || 1;
-    const dLng = (STEP_LENGTH_METERS * Math.sin(rad)) / (111320 * cosLat);
+    const dLng = (strideMeters * Math.sin(rad)) / (111320 * cosLat);
 
     const nextLL = [userLatLng[0] + dLat, userLatLng[1] + dLng];
+    
+    // Если навигация vehicular, используем скорость пресета, иначе пешеходную
+    const pdrCfg = WM.pdr ? WM.pdr.getConfig() : {};
+    const speedMps = pdrCfg.navigationType === 'vehicular' 
+      ? ((pdrCfg.vehicularSpeedKmh || 18) / 3.6) 
+      : (strideMeters / 0.65);
+
     const syntheticCoords = {
       latitude: nextLL[0],
       longitude: nextLL[1],
-      accuracy: 12,
-      speed: 1.3,
-      heading: heading,
+      altitude: Math.round(currentAlt),
+      accuracy: 5,
+      speed: speedMps,
+      heading: effectiveHeading,
       timestamp: Date.now()
     };
 
-    // Обновляем маркер и хвост движения по данным шага
     setGpsCoords(nextLL, syntheticCoords, syntheticCoords.timestamp, true);
-  }
 
-  function startStepDetection() {
-    if (isMotionListening) return;
-    window.addEventListener('devicemotion', onDeviceMotion, false);
-    isMotionListening = true;
-  }
-
-  function stopStepDetection() {
-    if (!isMotionListening) return;
-    window.removeEventListener('devicemotion', onDeviceMotion, false);
-    isMotionListening = false;
-  }
-
-  // Клики по кнопкам управления
-  if (btnIAmHere) {
-    btnIAmHere.onclick = () => {
-      const c = map.getCenter();
-      const ll = [c.lat, c.lng];
-      lastGoodGpsFix = { ll: L.latLng(ll[0], ll[1]), time: Date.now(), alt: null, speed: 0 };
-      setGpsCoords(ll, { latitude: ll[0], longitude: ll[1], accuracy: 5, speed: 0, heading: currentHeading }, Date.now(), true);
-      if (WM.ui && WM.ui.showToast) WM.ui.showToast('🧲 Позиция перенесена в центр экрана');
-    };
-  }
-
-
-
-  WM.antiSpoof = {
-    isEnabled: () => isAntiSpoofEnabled,
-    setEnabled(v) { isAntiSpoofEnabled = !!v; if (!v) setSpoofState(false); },
-    setDeadReckoningEnabled(v) {
-      isDeadReckonEnabled = !!v;
-      if (v && isSpoofed) startStepDetection();
-      else stopStepDetection();
-    },
-    isSpoofed: () => isSpoofed,
-    reset: () => {
-      setSpoofState(false);
-      lastGoodGpsFix = null; // Сбрасываем принудительную точку, чтобы не провоцировать ложный скачок
-      rawGpsPointsBuffer = [];
-      cleanGpsSamplesCount = 0;
+    if (WM.pdr && WM.pdr.updateRegionCoordinates) {
+      WM.pdr.updateRegionCoordinates(nextLL[0], nextLL[1]);
     }
-  };
+  }
 
+  function startPdrTracking() {
+    if (!WM.pdr) return;
+    WM.pdr.start(onPdrStepTaken, (heading) => {
+      // Синхронизируем, если компас доступен
+      if (currentHeading !== null) {
+        updateCompassVisuals();
+      }
+    });
+    if (btnManualPdr) btnManualPdr.classList.add('pdr-walking');
+  }
+
+  function stopPdrTracking() {
+    if (!WM.pdr) return;
+    WM.pdr.stop();
+    if (btnManualPdr) btnManualPdr.classList.remove('pdr-walking');
+  }
+
+  // Ручной режим PDR (привязка точки к центру экрана)
   WM.manualPdr = {
     isActive: () => isManualPdrActive,
     toggle() {
-      // Если включен режим датчиков ИЛИ активно глушение — отжимаем кнопку и выходим в чистый GPS
       if (isManualPdrActive || isSpoofed) {
         isManualPdrActive = false;
         setSpoofState(false);
-        lastGoodGpsFix = null; // Сброс якоря, чтобы следующий реальный GPS не посчитали спуфингом
+        lastGoodGpsFix = null;
         rawGpsPointsBuffer = [];
         cleanGpsSamplesCount = 0;
-        stopStepDetection();
-        if (WM.ui && WM.ui.showToast) WM.ui.showToast('🛰️ Режим глушилки снят вручную (возврат к GPS)');
+        stopPdrTracking();
+        if (WM.ui && WM.ui.showToast) WM.ui.showToast('🛰️ Возврат к штатному GPS');
       } else {
-        // Включение привязки к перекрестию
         isManualPdrActive = true;
         const c = map.getCenter();
         const ll = [c.lat, c.lng];
         lastGoodGpsFix = { ll: L.latLng(ll[0], ll[1]), time: Date.now(), alt: null, speed: 0 };
-        setGpsCoords(ll, { latitude: ll[0], longitude: ll[1], accuracy: 5, speed: 0, heading: currentHeading }, Date.now(), true);
-        startStepDetection();
-        if (WM.compass && WM.compass.start) WM.compass.start();
-        if (WM.ui && WM.ui.showToast) WM.ui.showToast('🧲 Позиция привязана к центру. Включён шагомер');
+        setGpsCoords(ll, { latitude: ll[0], longitude: ll[1], accuracy: 5, speed: 0, heading: currentHeading || 0 }, Date.now(), true);
+        startPdrTracking();
+        if (WM.ui && WM.ui.showToast) WM.ui.showToast('🧲 Позиция привязана к центру. Шагомер активен!');
       }
-      if (WM.ui && WM.ui.updateManualPdrBtnState) {
-        WM.ui.updateManualPdrBtnState();
-      }
+      if (WM.ui && WM.ui.updateManualPdrBtnState) WM.ui.updateManualPdrBtnState();
     }
   };
+
+  WM.antiSpoof = {
+    isEnabled: () => isAntiSpoofEnabled,
+    setEnabled(v) { 
+      isAntiSpoofEnabled = !!v; 
+      if (!v) setSpoofState(false); 
+    },
+    setDeadReckoningEnabled(v) {
+      if (WM.pdr) {
+        WM.pdr.setConfig({ autoEngageOnSpoof: !!v });
+      }
+    },
+    isSpoofed: () => isSpoofed,
+    reset: () => {
+      setSpoofState(false);
+      lastGoodGpsFix = null;
+      rawGpsPointsBuffer = [];
+      cleanGpsSamplesCount = 0;
+    }
+  };
+
+  // Обработчики кнопок панели тревоги глушения
+  document.querySelectorAll('#btn-i-am-here, .btn-i-am-here').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const c = map.getCenter();
+      const ll = [c.lat, c.lng];
+      lastGoodGpsFix = { ll: L.latLng(ll[0], ll[1]), time: Date.now(), alt: null, speed: 0 };
+      setGpsCoords(ll, { latitude: ll[0], longitude: ll[1], accuracy: 5, speed: 0, heading: currentHeading || 0 }, Date.now(), true);
+      isManualPdrActive = true;
+      startPdrTracking();
+      if (WM.ui && WM.ui.showToast) WM.ui.showToast('🧲 Позиция привязана к центру перекрестия');
+      if (WM.ui && WM.ui.updateManualPdrBtnState) WM.ui.updateManualPdrBtnState();
+    });
+  });
+
+  document.getElementById('btn-spoof-probe')?.addEventListener('click', () => {
+    const probeBtn = document.getElementById('btn-spoof-probe');
+    if (probeBtn) probeBtn.classList.add('loading');
+    acquireLocation(
+      () => {
+        if (probeBtn) probeBtn.classList.remove('loading');
+        if (!isSpoofed && WM.ui && WM.ui.showToast) WM.ui.showToast('✅ Сигнал проверен: глушения нет');
+      },
+      (err) => {
+        if (probeBtn) probeBtn.classList.remove('loading');
+        if (WM.ui && WM.ui.showToast) WM.ui.showToast('⚠️ Ошибка GPS: ' + err.message);
+      }
+    );
+  });
+
+  document.getElementById('btn-spoof-dismiss')?.addEventListener('click', () => {
+    WM.antiSpoof.reset();
+    if (WM.ui && WM.ui.showToast) WM.ui.showToast('Тревога глушения снята вручную');
+  });
+  // =========================================================================
+  // ОБНОВЛЕННАЯ СИСТЕМА ЗАЩИТЫ ОТ СПУФИНГА И ИНЕРЦИАЛЬНОЙ НАВИГАЦИИ (PDR)
+  // =========================================================================
+
+
+
+
+
+
+
+  function stopPdrTracking() {
+    WM.pdr.stop();
+    if (btnManualPdr) btnManualPdr.classList.remove('pdr-walking');
+  }
+
+
 
   // =========================================================================
   // МОДУЛЬ КОМПАСА И ОРИЕНТАЦИИ УСТРОЙСТВА (DEVICE ORIENTATION API)
@@ -1811,6 +1789,9 @@
 
     if (heading !== null && !isNaN(heading)) {
       pendingHeading = Math.round(heading);
+      if (WM.pdr && WM.pdr.updateExternalCompass) {
+        WM.pdr.updateExternalCompass(pendingHeading);
+      }
       // Не запускаем перерисовку чаще, чем частота кадра экрана
       if (!orientationRafId) {
         orientationRafId = requestAnimationFrame(() => {
@@ -2577,7 +2558,8 @@
     const targetLL = L.latLng(userLatLng[0], userLatLng[1]);
     const dist = center.distanceTo(targetLL);
 
-    const badgeLL = getVisibleSegmentPoint(map, targetLL, center, { left: 90, right: 90, top: 110, bottom: 120 });
+    // Всегда позиционируем строго в центре экрана (над перекрестием)
+    const badgeLL = center;
 
     const speed = (WM.gpsState && WM.gpsState.speed != null && WM.gpsState.speed >= 0) ? WM.gpsState.speed : 0;
     const speedKmh = speed * 3.6;
@@ -2592,7 +2574,6 @@
     let strokeColor = '#8b5cf6';
 
     if (isMotionVectorEnabled && motionCourse !== null) {
-      // Разница со знаком от -180° до +180°
       signedDiff = (motionCourse - bearingToCenter + 540) % 360 - 180;
       diffAngle = Math.abs(signedDiff);
 
@@ -2664,59 +2645,14 @@
 
     const distFormatted = fmtGpsDistance(dist);
     const speedFormatted = `${speedKmh.toFixed(1)} км/ч`;
+    const moveActionLabel = speedKmh > 6 ? 'Ещё ехать:' : 'Ещё идти:';
 
-    let badgeHtml = '';
-
-    if (isGpsDistCollapsed) {
-      // КОМПАКТНАЯ ВЕРСИЯ: только расстояние и скорость
-      badgeHtml = `
-        <div class="wm-gps-dist-badge col-badge compact ${colorClass}" title="Нажмите, чтобы развернуть">
-          <span class="wm-gdb-compact-val">${distFormatted}</span>
-          <span class="wm-gdb-compact-sep">·</span>
-          <span class="wm-gdb-compact-val">${speedFormatted}</span>
-          <button type="button" class="wm-gdb-toggle-btn" title="Развернуть подробности">▼</button>
-        </div>
-      `;
-    } else {
-      // ПОЛНАЯ ВЕРСИЯ: с временем прибытия, курсом и кнопкой сворачивания
-      badgeHtml = `
-        <div class="wm-gps-dist-badge col-badge ${colorClass}">
-          <div class="wm-gdb-head">
-            <span class="wm-gdb-icon">🧭</span>
-            <span class="wm-gdb-name">К центру экрана</span>
-            <button type="button" class="wm-gdb-toggle-btn" title="Свернуть подробности">▲</button>
-          </div>
-          <div class="wm-gdb-grid">
-            <div class="wm-gdb-row">
-              <span class="wm-gdb-lbl">Дистанция:</span>
-              <span class="wm-gdb-val">${distFormatted}</span>
-            </div>
-            <div class="wm-gdb-row">
-              <span class="wm-gdb-lbl">Скорость:</span>
-              <span class="wm-gdb-val">${speedFormatted}</span>
-            </div>
-            <div class="wm-gdb-row">
-              <span class="wm-gdb-lbl">В пути:</span>
-              <span class="wm-gdb-val ${isMovingAway ? 'negative' : ''}">${durationText}</span>
-            </div>
-            <div class="wm-gdb-row">
-              <span class="wm-gdb-lbl">Прибытие:</span>
-              <span class="wm-gdb-val ${isMovingAway ? 'negative' : ''}">${etaClock}</span>
-            </div>
-            <div class="wm-gdb-row">
-              <span class="wm-gdb-lbl">Курс:</span>
-              <span class="wm-gdb-val ${diffAngle > 55 ? 'negative' : ''}">${driftText}</span>
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
+    // Создание маркера при первом вызове
     if (!gpsDistBadgeMarker) {
       gpsDistBadgeMarker = L.marker(badgeLL, {
         icon: L.divIcon({
           className: 'wm-gps-badge-wrap',
-          html: badgeHtml,
+          html: '<div class="wm-gdb-root"></div>',
           iconSize: [0, 0],
           iconAnchor: [0, 0]
         }),
@@ -2724,19 +2660,102 @@
         zIndexOffset: 1400
       }).addTo(gpsDistLayer);
 
-      gpsDistBadgeMarker._lastHtml = badgeHtml;
       gpsDistBadgeMarker.on('click', toggleGpsDistCollapse);
+      gpsDistBadgeMarker._renderedMode = null;
     } else {
       gpsDistBadgeMarker.setLatLng(badgeLL);
-      if (gpsDistBadgeMarker._lastHtml !== badgeHtml) {
-        gpsDistBadgeMarker._lastHtml = badgeHtml;
-        const el = gpsDistBadgeMarker.getElement();
-        if (el) el.innerHTML = badgeHtml;
+    }
+
+    const containerEl = gpsDistBadgeMarker.getElement();
+    if (!containerEl) return;
+    const root = containerEl.querySelector('.wm-gdb-root') || containerEl;
+
+    const currentMode = isGpsDistCollapsed ? 'compact' : 'full';
+
+    // Перестраиваем структуру DOM ТОЛЬКО при смене режима свёрнут/развёрнут
+    if (gpsDistBadgeMarker._renderedMode !== currentMode) {
+      gpsDistBadgeMarker._renderedMode = currentMode;
+      if (isGpsDistCollapsed) {
+        root.innerHTML = `
+          <div class="wm-gps-dist-badge col-badge compact over-crosshair ${colorClass}" title="Нажмите, чтобы развернуть">
+            <div class="wm-gdb-compact-lines">
+              <span class="wm-gdb-compact-val js-dist">${distFormatted}</span>
+              <span class="wm-gdb-compact-sub js-speed">${speedFormatted}</span>
+            </div>
+            <button type="button" class="wm-gdb-toggle-btn" title="Развернуть подробности">▼</button>
+          </div>
+        `;
+      } else {
+        root.innerHTML = `
+          <div class="wm-gps-dist-badge col-badge over-crosshair ${colorClass}">
+            <div class="wm-gdb-head">
+              <span class="wm-gdb-icon">🧭</span>
+              <span class="wm-gdb-name">К центру экрана</span>
+              <button type="button" class="wm-gdb-toggle-btn" title="Свернуть подробности">▲</button>
+            </div>
+            <div class="wm-gdb-grid">
+              <div class="wm-gdb-row">
+                <span class="wm-gdb-lbl">Дистанция:</span>
+                <span class="wm-gdb-val js-dist">${distFormatted}</span>
+              </div>
+              <div class="wm-gdb-row">
+                <span class="wm-gdb-lbl">Скорость:</span>
+                <span class="wm-gdb-val js-speed">${speedFormatted}</span>
+              </div>
+              <div class="wm-gdb-row">
+                <span class="wm-gdb-lbl js-action-lbl">${moveActionLabel}</span>
+                <span class="wm-gdb-val js-duration ${isMovingAway ? 'negative' : ''}">${durationText}</span>
+              </div>
+              <div class="wm-gdb-row">
+                <span class="wm-gdb-lbl">Прибытие:</span>
+                <span class="wm-gdb-val js-eta ${isMovingAway ? 'negative' : ''}">${etaClock}</span>
+              </div>
+              <div class="wm-gdb-row">
+                <span class="wm-gdb-lbl">Курс:</span>
+                <span class="wm-gdb-val js-drift ${diffAngle > 55 ? 'negative' : ''}">${driftText}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    // Быстрое обновление текста БЕЗ перерисовки DOM (60 FPS)
+    const badgeEl = root.querySelector('.wm-gps-dist-badge');
+    if (badgeEl) {
+      badgeEl.className = `wm-gps-dist-badge col-badge ${currentMode} over-crosshair ${colorClass}`;
+    }
+
+    const elDist = root.querySelector('.js-dist');
+    if (elDist && elDist.textContent !== distFormatted) elDist.textContent = distFormatted;
+
+    const elSpeed = root.querySelector('.js-speed');
+    if (elSpeed && elSpeed.textContent !== speedFormatted) elSpeed.textContent = speedFormatted;
+
+    if (!isGpsDistCollapsed) {
+      const elAction = root.querySelector('.js-action-lbl');
+      if (elAction && elAction.textContent !== moveActionLabel) elAction.textContent = moveActionLabel;
+
+      const elDuration = root.querySelector('.js-duration');
+      if (elDuration) {
+        if (elDuration.textContent !== durationText) elDuration.textContent = durationText;
+        elDuration.classList.toggle('negative', isMovingAway);
+      }
+
+      const elEta = root.querySelector('.js-eta');
+      if (elEta) {
+        if (elEta.textContent !== etaClock) elEta.textContent = etaClock;
+        elEta.classList.toggle('negative', isMovingAway);
+      }
+
+      const elDrift = root.querySelector('.js-drift');
+      if (elDrift) {
+        if (elDrift.textContent !== driftText) elDrift.textContent = driftText;
+        elDrift.classList.toggle('negative', diffAngle > 55);
       }
     }
   }
-
-
 
   // =========================================================================
   // МОДУЛЬ НАВИГАЦИИ НА ВЫБРАННУЮ ЦЕЛЬ (TARGET NAVIGATION)
@@ -2745,6 +2764,7 @@
   let navTargetPolyline = null;
   let navTargetBadgeMarker = null;
   let activeNavTarget = null; // { id, lat, lng, title }
+
 
   // =========================================================================
   // ОБНОВЛЕНИЕ БЕЙДЖА: НАВИГАЦИЯ НА ЦЕЛЬ
@@ -2775,7 +2795,6 @@
     let strokeColor = '#8b5cf6';
 
     if (isMotionVectorEnabled && motionCourse !== null) {
-      // Разница со знаком от -180° до +180°
       signedDiff = (motionCourse - bearingToTarget + 540) % 360 - 180;
       diffAngle = Math.abs(signedDiff);
 
@@ -2848,59 +2867,13 @@
     const distFormatted = fmtGpsDistance(dist);
     const speedFormatted = `${speedKmh.toFixed(1)} км/ч`;
     const targetTitle = activeNavTarget.title ? escapeHtml(activeNavTarget.title) : 'Цель';
-
-    let badgeHtml = '';
-
-    if (isNavTargetCollapsed) {
-      // КОМПАКТНАЯ ВЕРСИЯ: только расстояние и скорость
-      badgeHtml = `
-        <div class="wm-gps-dist-badge col-badge compact ${colorClass}" title="Нажмите, чтобы развернуть">
-          <span class="wm-gdb-compact-val">${distFormatted}</span>
-          <span class="wm-gdb-compact-sep">·</span>
-          <span class="wm-gdb-compact-val">${speedFormatted}</span>
-          <button type="button" class="wm-gdb-toggle-btn" title="Развернуть подробности">▼</button>
-        </div>
-      `;
-    } else {
-      // ПОЛНАЯ ВЕРСИЯ: с временем прибытия, курсом и кнопкой сворачивания
-      badgeHtml = `
-        <div class="wm-gps-dist-badge col-badge ${colorClass}">
-          <div class="wm-gdb-head">
-            <span class="wm-gdb-icon">🎯</span>
-            <span class="wm-gdb-name" title="${targetTitle}">${targetTitle}</span>
-            <button type="button" class="wm-gdb-toggle-btn" title="Свернуть подробности">▲</button>
-          </div>
-          <div class="wm-gdb-grid">
-            <div class="wm-gdb-row">
-              <span class="wm-gdb-lbl">Дистанция:</span>
-              <span class="wm-gdb-val">${distFormatted}</span>
-            </div>
-            <div class="wm-gdb-row">
-              <span class="wm-gdb-lbl">Скорость:</span>
-              <span class="wm-gdb-val">${speedFormatted}</span>
-            </div>
-            <div class="wm-gdb-row">
-              <span class="wm-gdb-lbl">В пути:</span>
-              <span class="wm-gdb-val ${isMovingAway ? 'negative' : ''}">${durationText}</span>
-            </div>
-            <div class="wm-gdb-row">
-              <span class="wm-gdb-lbl">Прибытие:</span>
-              <span class="wm-gdb-val ${isMovingAway ? 'negative' : ''}">${etaClock}</span>
-            </div>
-            <div class="wm-gdb-row">
-              <span class="wm-gdb-lbl">Курс:</span>
-              <span class="wm-gdb-val ${diffAngle > 55 ? 'negative' : ''}">${driftText}</span>
-            </div>
-          </div>
-        </div>
-      `;
-    }
+    const moveActionLabel = speedKmh > 6 ? 'Ещё ехать:' : 'Ещё идти:';
 
     if (!navTargetBadgeMarker) {
       navTargetBadgeMarker = L.marker(badgeLL, {
         icon: L.divIcon({
           className: 'wm-gps-badge-wrap',
-          html: badgeHtml,
+          html: '<div class="wm-nav-root"></div>',
           iconSize: [0, 0],
           iconAnchor: [0, 0]
         }),
@@ -2908,17 +2881,103 @@
         zIndexOffset: 1450
       }).addTo(navTargetLayer);
 
-      navTargetBadgeMarker._lastHtml = badgeHtml;
       navTargetBadgeMarker.on('click', toggleNavTargetCollapse);
+      navTargetBadgeMarker._renderedMode = null;
     } else {
       navTargetBadgeMarker.setLatLng(badgeLL);
-      if (navTargetBadgeMarker._lastHtml !== badgeHtml) {
-        navTargetBadgeMarker._lastHtml = badgeHtml;
-        const el = navTargetBadgeMarker.getElement();
-        if (el) el.innerHTML = badgeHtml;
+    }
+
+    const containerEl = navTargetBadgeMarker.getElement();
+    if (!containerEl) return;
+    const root = containerEl.querySelector('.wm-nav-root') || containerEl;
+
+    const currentMode = isNavTargetCollapsed ? 'compact' : 'full';
+
+    if (navTargetBadgeMarker._renderedMode !== currentMode) {
+      navTargetBadgeMarker._renderedMode = currentMode;
+      if (isNavTargetCollapsed) {
+        root.innerHTML = `
+          <div class="wm-gps-dist-badge col-badge compact ${colorClass}" title="Нажмите, чтобы развернуть">
+            <div class="wm-gdb-compact-lines">
+              <span class="wm-gdb-compact-val js-dist">${distFormatted}</span>
+              <span class="wm-gdb-compact-sub js-speed">${speedFormatted}</span>
+            </div>
+            <button type="button" class="wm-gdb-toggle-btn" title="Развернуть подробности">▼</button>
+          </div>
+        `;
+      } else {
+        root.innerHTML = `
+          <div class="wm-gps-dist-badge col-badge ${colorClass}">
+            <div class="wm-gdb-head">
+              <span class="wm-gdb-icon">🎯</span>
+              <span class="wm-gdb-name" title="${targetTitle}">${targetTitle}</span>
+              <button type="button" class="wm-gdb-toggle-btn" title="Свернуть подробности">▲</button>
+            </div>
+            <div class="wm-gdb-grid">
+              <div class="wm-gdb-row">
+                <span class="wm-gdb-lbl">Дистанция:</span>
+                <span class="wm-gdb-val js-dist">${distFormatted}</span>
+              </div>
+              <div class="wm-gdb-row">
+                <span class="wm-gdb-lbl">Скорость:</span>
+                <span class="wm-gdb-val js-speed">${speedFormatted}</span>
+              </div>
+              <div class="wm-gdb-row">
+                <span class="wm-gdb-lbl js-action-lbl">${moveActionLabel}</span>
+                <span class="wm-gdb-val js-duration ${isMovingAway ? 'negative' : ''}">${durationText}</span>
+              </div>
+              <div class="wm-gdb-row">
+                <span class="wm-gdb-lbl">Прибытие:</span>
+                <span class="wm-gdb-val js-eta ${isMovingAway ? 'negative' : ''}">${etaClock}</span>
+              </div>
+              <div class="wm-gdb-row">
+                <span class="wm-gdb-lbl">Курс:</span>
+                <span class="wm-gdb-val js-drift ${diffAngle > 55 ? 'negative' : ''}">${driftText}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    const badgeEl = root.querySelector('.wm-gps-dist-badge');
+    if (badgeEl) {
+      badgeEl.className = `wm-gps-dist-badge col-badge ${currentMode} ${colorClass}`;
+    }
+
+    const elDist = root.querySelector('.js-dist');
+    if (elDist && elDist.textContent !== distFormatted) elDist.textContent = distFormatted;
+
+    const elSpeed = root.querySelector('.js-speed');
+    if (elSpeed && elSpeed.textContent !== speedFormatted) elSpeed.textContent = speedFormatted;
+
+    if (!isNavTargetCollapsed) {
+      const elAction = root.querySelector('.js-action-lbl');
+      if (elAction && elAction.textContent !== moveActionLabel) elAction.textContent = moveActionLabel;
+
+      const elDuration = root.querySelector('.js-duration');
+      if (elDuration) {
+        if (elDuration.textContent !== durationText) elDuration.textContent = durationText;
+        elDuration.classList.toggle('negative', isMovingAway);
+      }
+
+      const elEta = root.querySelector('.js-eta');
+      if (elEta) {
+        if (elEta.textContent !== etaClock) elEta.textContent = etaClock;
+        elEta.classList.toggle('negative', isMovingAway);
+      }
+
+      const elDrift = root.querySelector('.js-drift');
+      if (elDrift) {
+        if (elDrift.textContent !== driftText) elDrift.textContent = driftText;
+        elDrift.classList.toggle('negative', diffAngle > 55);
       }
     }
   }
+
+
+
 
   WM.navTarget = {
     set(target) {
@@ -3244,34 +3303,6 @@
     }
   };
 
-  document.getElementById('btn-location').onclick = () => {
-    if (WM.compass && WM.compass.start) {
-      WM.compass.start();
-    }
-
-    // ЗАЩИТА: Если активно глушение — НЕ переносим карту в координаты глушилки!
-    if (isSpoofed) {
-      if (userLatLng) {
-        map.setView(userLatLng, Math.max(map.getZoom(), 16));
-        if (WM.ui && WM.ui.showToast) {
-          WM.ui.showToast('⚠️ Показана безопасная точка (глушение активно)');
-        }
-      } else {
-        if (WM.ui && WM.ui.showToast) {
-          WM.ui.showToast('⚠️ GPS заглушен! Наведите прицел и нажмите «Я тут»');
-        }
-      }
-      return;
-    }
-
-    // Стандартный опрос при нормальном сигнале
-    acquireLocation(
-      (ll) => {
-        map.setView(ll, Math.max(map.getZoom(), 16));
-      },
-      (e) => alert('Ошибка геопозиции: ' + e.message)
-    );
-  };
 
   WM.view.render();
   WM.loader.update();
