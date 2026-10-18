@@ -14,6 +14,15 @@
 
   // Централизованный диспетчер обработки кнопки "Назад" со строгой очередью приоритетов
   function handleGlobalBackAction() {
+
+    // 0. Если активен выбор ориентира калибровки на карте — отменяем выбор и возвращаем модалку
+    const triPickerHud = $('triangle-picker-hud');
+    if (triPickerHud && !triPickerHud.hidden) {
+      if (window.cancelTrianglePointPicker) {
+        window.cancelTrianglePointPicker();
+        return true;
+      }
+    }
     // 0. Если скрыт UI — первое нажатие "Назад" возвращает интерфейс
     if (document.body.classList.contains('wm-ui-hidden')) {
       toggleHideUI(false);
@@ -23,6 +32,15 @@
     const lbEl = $('lightbox');
     if (lbEl && !lbEl.hidden) {
       closeLightbox(false);
+      return true;
+    }
+
+    const modalTri = $('modal-triangle-calib');
+    if (modalTri && modalTri.classList.contains('open')) {
+      if (WM.pdr && WM.pdr.isTriangleCalibrating()) {
+        WM.pdr.cancelTriangleCalibration();
+      }
+      modalTri.classList.remove('open');
       return true;
     }
 
@@ -4816,50 +4834,386 @@
     }
 
     // 5. Тест соосности (Alignment Walk)
-    if (btnAlign) {
-      btnAlign.onclick = async () => {
-        if (!WM.pdr) return;
-        if (WM.pdr.isAlignmentActive()) {
-          const res = WM.pdr.finishAlignmentWalk();
-          if (!isTesting) WM.pdr.stop(); // Останавливаем PDR, если параллельно не запущен тест шагов
-          btnAlign.textContent = '▶ Старт теста';
-          btnAlign.classList.remove('btn-danger');
-          btnAlign.classList.add('btn-primary');
-          if (res && resAlign) {
-            resAlign.textContent = (res.offset > 0 ? '+' : '') + res.offset + '°';
-            if (sliderOffset) sliderOffset.value = res.offset;
-            if (valOffset) valOffset.textContent = (res.offset > 0 ? '+' : '') + res.offset + '°';
-          }
-          showToast('Тест соосности завершён');
-        } else {
-          if (WM.pdr.requestPermissions) {
-            await WM.pdr.requestPermissions();
-          }
-          // Принудительно запускаем шагомер для обработки шагов соосности
-          WM.pdr.start(
-            (stride, head, count) => {
-              if (stepsAlign && WM.pdr.isAlignmentActive()) {
-                const prog = WM.pdr.getAlignmentProgress();
-                stepsAlign.textContent = `${prog.done} / ${prog.target}`;
-                if (prog.done >= prog.target) {
-                  btnAlign.click(); // Авто-завершение при 15 шагах
-                }
-              }
-            },
-            (h) => {
-              if (valHeading) valHeading.textContent = Math.round(h) + '°';
-            }
-          );
-          WM.pdr.startAlignmentWalk(15);
-          btnAlign.textContent = '⏹ Завершить';
-          btnAlign.classList.remove('btn-primary');
-          btnAlign.classList.add('btn-danger');
-          if (stepsAlign) stepsAlign.textContent = '0 / 15';
-          showToast('🚶 Пройдите 15 шагов строго по прямой линии');
+    // =========================================================================
+    // МАСТЕР КАЛИБРОВКИ ТРЕУГОЛЬНИКОМ (3 ТОЧКИ)
+    // =========================================================================
+    const modalSettings = $('modal');
+    const modalTri = $('modal-triangle-calib');
+    const btnOpenTri = $('btn-open-triangle-calib');
+    const btnCloseTriX = $('triangle-calib-close-x');
+    const btnCancelTri = $('btn-triangle-cancel');
+    const btnActionTri = $('btn-triangle-action');
+
+    const stepSetupEl = $('triangle-step-setup');
+    const stepWalkingEl = $('triangle-step-walking');
+    const stepResultEl = $('triangle-step-result');
+
+    const btnSetA = $('btn-triangle-set-a');
+    const btnSetB = $('btn-triangle-set-b');
+    const btnSetC = $('btn-triangle-set-c');
+    const lblA = $('lbl-triangle-pt-a');
+    const lblB = $('lbl-triangle-pt-b');
+    const lblC = $('lbl-triangle-pt-c');
+
+    const curStageText = $('triangle-current-stage-text');
+    const legDistText = $('triangle-leg-dist-text');
+    const liveWalkedEl = $('triangle-live-walked');
+    const resultDetailsEl = $('triangle-result-details');
+
+    // Элементы плавающего HUD на карте
+    const triPickerHud = $('triangle-picker-hud');
+    const triPickerBadge = $('tri-picker-badge');
+    const triPickerTitle = $('tri-picker-title');
+    const triPickerCoords = $('tri-picker-coords');
+    const btnTriPickerOk = $('btn-tri-picker-ok');
+    const btnTriPickerCancel = $('btn-tri-picker-cancel');
+
+    let points = { A: null, B: null, C: null };
+    let walkStage = 0;
+    let triLayer = null;
+    let wasPdrActiveBefore = false;
+    let triUiTimer = null;
+    let currentPickingChar = null; // 'A' | 'B' | 'C'
+    let previousCrosshairHidden = false;
+
+    function getCenterLL() {
+      return WM.map ? WM.map.getCenter() : { lat: 0, lng: 0 };
+    }
+
+    function calculateBearingDeg(from, to) {
+      const lat1 = from.lat * Math.PI / 180;
+      const lat2 = to.lat * Math.PI / 180;
+      const dLng = (to.lng - from.lng) * Math.PI / 180;
+      const y = Math.sin(dLng) * Math.cos(lat2);
+      const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+      return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+    }
+
+    function redrawTrianglePreview() {
+      if (!triLayer && WM.map) {
+        triLayer = L.layerGroup().addTo(WM.map);
+      }
+      if (triLayer) triLayer.clearLayers();
+
+      const charKeys = ['A', 'B', 'C'];
+      const pts = [];
+
+      charKeys.forEach(char => {
+        const pt = points[char];
+        if (pt) {
+          pts.push({ char, pt });
+          L.marker(pt, {
+            icon: L.divIcon({
+              className: 'wm-triangle-pin-icon',
+              html: `<div class="wm-triangle-pin-badge">${char}</div>`,
+              iconSize: [26, 26],
+              iconAnchor: [13, 13]
+            }),
+            interactive: false
+          }).addTo(triLayer);
         }
+      });
+
+      // Соединительные пунктирные линии и мерные плашки
+      if (points.A && points.B) {
+        drawLeg(points.A, points.B, 'AB');
+      }
+      if (points.B && points.C) {
+        drawLeg(points.B, points.C, 'BC');
+      }
+      if (points.C && points.A) {
+        drawLeg(points.C, points.A, 'CA');
+      }
+
+      function drawLeg(p1, p2, label) {
+        L.polyline([p1, p2], {
+          color: '#10b981',
+          dashArray: '6, 6',
+          weight: 2.5,
+          interactive: false
+        }).addTo(triLayer);
+
+        const mid = L.latLng((p1.lat + p2.lat) / 2, (p1.lng + p2.lng) / 2);
+        const distM = Math.round(p1.distanceTo(p2));
+        L.marker(mid, {
+          icon: L.divIcon({
+            className: 'wm-triangle-pin-icon',
+            html: `<div class="wm-triangle-leg-badge">${distM} м</div>`,
+            iconSize: [50, 20],
+            iconAnchor: [25, 10]
+          }),
+          interactive: false
+        }).addTo(triLayer);
+      }
+
+      if (btnActionTri) {
+        btnActionTri.disabled = !(points.A && points.B && points.C);
+      }
+    }
+
+    function updatePointsLabels() {
+      if (lblA) {
+        if (points.A) {
+          lblA.textContent = `${points.A.lat.toFixed(5)}, ${points.A.lng.toFixed(5)} ✓`;
+          lblA.style.color = '#10b981';
+        } else {
+          lblA.textContent = 'Не задана';
+          lblA.style.color = 'var(--text-muted)';
+        }
+      }
+      if (lblB) {
+        if (points.B) {
+          const d = points.A ? ` (${Math.round(points.A.distanceTo(points.B))} м)` : '';
+          lblB.textContent = `Установлена${d} ✓`;
+          lblB.style.color = '#10b981';
+        } else {
+          lblB.textContent = 'Не задана';
+          lblB.style.color = 'var(--text-muted)';
+        }
+      }
+      if (lblC) {
+        if (points.C) {
+          const d = points.B ? ` (${Math.round(points.B.distanceTo(points.C))} м)` : '';
+          lblC.textContent = `Установлена${d} ✓`;
+          lblC.style.color = '#10b981';
+        } else {
+          lblC.textContent = 'Не задана';
+          lblC.style.color = 'var(--text-muted)';
+        }
+      }
+    }
+
+    function onMapMoveTriPicker() {
+      if (!triPickerCoords || !WM.map) return;
+      const c = WM.map.getCenter();
+      triPickerCoords.textContent = `${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`;
+    }
+
+    function startTrianglePointPicker(char) {
+      currentPickingChar = char;
+      const pointTitles = {
+        A: 'Точка A (Старт)',
+        B: 'Точка B (Второй ориентир)',
+        C: 'Точка C (Третий ориентир)'
+      };
+
+      // Временно скрываем модальные окна, чтобы открыть обзор карты
+      if (modalTri) modalTri.classList.remove('open');
+      if (modalSettings) modalSettings.classList.remove('open');
+
+      // Показываем прицел в центре
+      const crosshair = $('crosshair');
+      if (crosshair) {
+        previousCrosshairHidden = crosshair.hidden;
+        crosshair.hidden = false;
+      }
+
+      // Если точка уже была выбрана ранее — центрируем карту на ней
+      if (points[char] && WM.map) {
+        WM.map.panTo(points[char]);
+      }
+
+      // Обновляем плашку HUD
+      if (triPickerBadge) triPickerBadge.textContent = `Точка ${char}`;
+      if (triPickerTitle) triPickerTitle.textContent = pointTitles[char] || `Ориентир ${char}`;
+      onMapMoveTriPicker();
+
+      if (WM.map) WM.map.on('move', onMapMoveTriPicker);
+      if (triPickerHud) triPickerHud.hidden = false;
+
+      redrawTrianglePreview();
+      showToast(`🎯 Наведите прицел на ${pointTitles[char]} и нажмите «OK»`);
+    }
+
+    function cancelTrianglePointPicker() {
+      if (WM.map) WM.map.off('move', onMapMoveTriPicker);
+      if (triPickerHud) triPickerHud.hidden = true;
+
+      const crosshair = $('crosshair');
+      if (crosshair) crosshair.hidden = previousCrosshairHidden;
+
+      // Возвращаем модальные окна обратно
+      if (modalSettings) modalSettings.classList.add('open');
+      if (modalTri) modalTri.classList.add('open');
+      currentPickingChar = null;
+    }
+    window.cancelTrianglePointPicker = cancelTrianglePointPicker;
+
+    function confirmTrianglePointPicker() {
+      if (!currentPickingChar) return;
+      const c = getCenterLL();
+      points[currentPickingChar] = L.latLng(c.lat, c.lng);
+
+      if (WM.map) WM.map.off('move', onMapMoveTriPicker);
+      if (triPickerHud) triPickerHud.hidden = true;
+
+      const crosshair = $('crosshair');
+      if (crosshair) crosshair.hidden = previousCrosshairHidden;
+
+      redrawTrianglePreview();
+      updatePointsLabels();
+
+      // Возвращаем модальные окна
+      if (modalSettings) modalSettings.classList.add('open');
+      if (modalTri) modalTri.classList.add('open');
+
+      showToast(`✅ Точка ${currentPickingChar} успешно зафиксирована`);
+      currentPickingChar = null;
+    }
+
+    // Слушатели кнопок выбора ориентиров A, B, C
+    if (btnSetA) btnSetA.onclick = () => startTrianglePointPicker('A');
+    if (btnSetB) btnSetB.onclick = () => startTrianglePointPicker('B');
+    if (btnSetC) btnSetC.onclick = () => startTrianglePointPicker('C');
+
+    // Кнопки управления в плавающем HUD на карте
+    if (btnTriPickerOk) btnTriPickerOk.onclick = confirmTrianglePointPicker;
+    if (btnTriPickerCancel) btnTriPickerCancel.onclick = cancelTrianglePointPicker;
+
+    function closeTriangleModal() {
+      if (triUiTimer) {
+        clearInterval(triUiTimer);
+        triUiTimer = null;
+      }
+      if (modalTri) modalTri.classList.remove('open');
+      if (triLayer) triLayer.clearLayers();
+      if (WM.pdr && WM.pdr.isTriangleCalibrating()) {
+        WM.pdr.cancelTriangleCalibration();
+      }
+      if (!wasPdrActiveBefore && WM.pdr && WM.pdr.isActive()) {
+        WM.pdr.stop();
+      }
+      walkStage = 0;
+    }
+
+    if (btnOpenTri) {
+      btnOpenTri.onclick = () => {
+        points = { A: null, B: null, C: null };
+        walkStage = 0;
+        updatePointsLabels();
+        if (stepSetupEl) stepSetupEl.hidden = false;
+        if (stepWalkingEl) stepWalkingEl.hidden = true;
+        if (stepResultEl) stepResultEl.hidden = true;
+        if (btnActionTri) {
+          btnActionTri.textContent = 'Начать калибровку';
+          btnActionTri.disabled = true;
+        }
+        if (modalTri) modalTri.classList.add('open');
+        redrawTrianglePreview();
       };
     }
 
+    if (btnCloseTriX) btnCloseTriX.onclick = closeTriangleModal;
+    if (btnCancelTri) btnCancelTri.onclick = closeTriangleModal;
+
+    if (btnActionTri) {
+      btnActionTri.onclick = async () => {
+        // 1. Старт из точки A в сторону B
+        if (walkStage === 0) {
+          if (WM.pdr && WM.pdr.requestPermissions) await WM.pdr.requestPermissions();
+          wasPdrActiveBefore = WM.pdr && WM.pdr.isActive();
+          if (WM.pdr && !WM.pdr.isActive()) {
+            WM.pdr.start(() => updateLiveWalkedUI());
+          }
+
+          walkStage = 1;
+          if (stepSetupEl) stepSetupEl.hidden = true;
+          if (stepWalkingEl) stepWalkingEl.hidden = false;
+
+          if (curStageText) curStageText.textContent = '1/3: Идите в точку B';
+          const dAB = Math.round(points.A.distanceTo(points.B));
+          if (legDistText) legDistText.textContent = `${dAB} м по карте`;
+
+          btnActionTri.textContent = 'Я прибыл в точку B ✓';
+          WM.pdr.startTriangleLeg();
+          updateLiveWalkedUI();
+          triUiTimer = setInterval(updateLiveWalkedUI, 500);
+          showToast('🚶 Начните естественное движение к ориентиру B');
+        }
+        // 2. Дошли до B, начинаем отрезок B -> C
+        else if (walkStage === 1) {
+          const dAB = points.A.distanceTo(points.B);
+          const bAB = calculateBearingDeg(points.A, points.B);
+          WM.pdr.finishTriangleLeg(dAB, bAB);
+
+          walkStage = 2;
+          if (curStageText) curStageText.textContent = '2/3: Идите в точку C';
+          const dBC = Math.round(points.B.distanceTo(points.C));
+          if (legDistText) legDistText.textContent = `${dBC} м по карте`;
+
+          btnActionTri.textContent = 'Я прибыл в точку C ✓';
+          WM.pdr.startTriangleLeg();
+          updateLiveWalkedUI();
+          showToast('🚶 Начните движение к ориентиру C');
+        }
+        // 3. Дошли до C, возвращаемся C -> A
+        else if (walkStage === 2) {
+          const dBC = points.B.distanceTo(points.C);
+          const bBC = calculateBearingDeg(points.B, points.C);
+          WM.pdr.finishTriangleLeg(dBC, bBC);
+
+          walkStage = 3;
+          if (curStageText) curStageText.textContent = '3/3: Возвращайтесь в точку A';
+          const dCA = Math.round(points.C.distanceTo(points.A));
+          if (legDistText) legDistText.textContent = `${dCA} м по карте`;
+
+          btnActionTri.textContent = 'Я вернулся в точку A ✓';
+          WM.pdr.startTriangleLeg();
+          updateLiveWalkedUIUI();
+          showToast('🚶 Замкните контур, вернувшись в точку A');
+        }
+        // 4. Завершение и расчет
+        else if (walkStage === 3) {
+          if (triUiTimer) clearInterval(triUiTimer);
+          const dCA = points.C.distanceTo(points.A);
+          const bCA = calculateBearingDeg(points.C, points.A);
+          WM.pdr.finishTriangleLeg(dCA, bCA);
+
+          const res = WM.pdr.computeTriangleCalibration();
+          walkStage = 4;
+
+          if (stepWalkingEl) stepWalkingEl.hidden = true;
+          if (stepResultEl) stepResultEl.hidden = false;
+          btnActionTri.textContent = 'Применить и закрыть';
+
+          if (res) {
+            if (resultDetailsEl) {
+              resultDetailsEl.innerHTML = `
+                <div>• Дистанция ориентиров: <b>${res.totalGroundDist} м</b></div>
+                <div>• Зафиксировано шагов: <b>${res.totalSteps}</b></div>
+                <div>• Новая длина шага: <b>${Math.round(res.newStep * 100)} см</b> (было ${Math.round(res.oldStep * 100)} см)</div>
+                <div>• Поправка соосности: <b>${res.offsetApplied > 0 ? '+' : ''}${res.offsetApplied}°</b> (итог: ${res.finalOffset}°)</div>
+              `;
+            }
+
+            const sliderStep = $('pdr-step-length-slider');
+            const valStep = $('pdr-step-length-val');
+            if (sliderStep && valStep) {
+              const cm = Math.round(res.newStep * 100);
+              sliderStep.value = cm;
+              valStep.textContent = cm + ' см';
+            }
+            const sliderOff = $('pdr-alignment-offset-slider');
+            const valOff = $('pdr-alignment-offset-val');
+            if (sliderOff && valOff) {
+              sliderOff.value = res.finalOffset;
+              valOff.textContent = (res.finalOffset > 0 ? '+' : '') + res.finalOffset + '°';
+            }
+          } else {
+            if (resultDetailsEl) {
+              resultDetailsEl.innerHTML = `
+                <div style="color:var(--danger);">⚠️ Недостаточно данных о шагах. Убедитесь, что датчики включены, и повторите калибровку.</div>
+              `;
+            }
+          }
+        }
+        // 5. Закрытие после подтверждения
+        else if (walkStage === 4) {
+          closeTriangleModal();
+          showToast('✅ Новые параметры навигации применены');
+        }
+      };
+    }
     // 6. Телеметрия через requestAnimationFrame
     let telemRaf = 0;
     let latestTelem = null;
