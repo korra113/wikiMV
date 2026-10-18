@@ -99,12 +99,12 @@
   let hasGravityInit = false;
 
   function calculateMagneticDeclination(lat, lng) {
-    const radLat = lat * Math.PI / 180;
-    const radLng = lng * Math.PI / 180;
-    const dec = 12.5 * Math.sin(radLng - 0.2) + 4.2 * Math.cos(radLat * 1.5) - 3.1 * Math.sin(radLat * 2.2);
-    return Math.max(-35, Math.min(35, Math.round(dec * 10) / 10));
+    // Для европейской части РФ склонение около +11°...+13°
+    if (lat >= 53 && lat <= 60 && lng >= 34 && lng <= 42) {
+      return 12.3;
+    }
+    return 0;
   }
-
   function updateRegionCoordinates(lat, lng) {
     if (lat && lng) {
       lastLat = lat;
@@ -198,32 +198,27 @@
       return;
     }
 
-    // 1. Сначала рассчитываем разницу и угловую скорость гироскопа
     const compassDelta = ((compassDeg - (lastExternalCompass || compassDeg) + 540) % 360) - 180;
     lastExternalCompass = compassDeg;
 
     const gyroYawRateDeg = Math.abs(currentGyroMag) * (180 / Math.PI);
-    const isNearSouth = (compassDeg > 150 && compassDeg < 210);
+    const isJerk = Math.abs(compassDelta) > 60 && gyroYawRateDeg < 6;
 
-    // 2. Детектор аномалий
-    if (!isNearSouth && Math.abs(compassDelta) > 35 && gyroYawRateDeg < 10) {
+    if (isJerk) {
       magneticAnomalyActive = true;
-      anomalyCooldownTimer = now + 2500;
+      anomalyCooldownTimer = now + 500;
+    } else if (now > anomalyCooldownTimer) {
+      magneticAnomalyActive = false;
     }
 
+    // Вес фильтра: при аномалии берем минимальный вес, в норме — по настройке
+    let filterWeight = CONFIG.headingDamping === 'high' ? 0.08 : (CONFIG.headingDamping === 'low' ? 0.25 : 0.15);
     if (magneticAnomalyActive) {
-      if (now > anomalyCooldownTimer) {
-        magneticAnomalyActive = false;
-      } else {
-        return; // Пропускаем сбойные показания при аномалии
-      }
+      filterWeight = 0.02;
     }
 
-    // 3. Комплементарный фильтр: компас возвращает курс к реальности
     const diff = ((compassDeg - fusedHeading + 540) % 360) - 180;
-    // Увеличиваем вес компаса при ходьбе, чтобы гироскоп не успевал утянуть трек
-    const alpha = CONFIG.headingDamping === 'high' ? 0.08 : (CONFIG.headingDamping === 'low' ? 0.25 : 0.15);
-    fusedHeading = (fusedHeading + diff * alpha + 360) % 360;
+    fusedHeading = (fusedHeading + diff * filterWeight + 360) % 360;
   }
 
   function getFusedHeading() {
@@ -335,11 +330,10 @@
     if (isAtRest) {
       restFramesCount++;
       if (restFramesCount > 8) {
-        // Плавно подтягиваем смещение нуля гироскопа
-        const biasLearnRate = 0.03;
+        const biasLearnRate = 0.02;
         biasGx += biasLearnRate * (rawGx - biasGx);
         biasGy += biasLearnRate * (rawGy - biasGy);
-        biasGz += biasLearnRate * (rawGz - biasGz);
+        biasGz += biasLearnRate * (rawGz - biasGz); // РАСКОММЕНТИРОВАТЬ!
       }
     } else {
       restFramesCount = 0;
@@ -349,14 +343,23 @@
     const cleanGx = rawGx - biasGx;
     const cleanGy = rawGy - biasGy;
     const cleanGz = rawGz - biasGz;
+    const worldGyroZ = 2 * (qX * qZ - qW * qY) * cleanGx + 
+                   2 * (qY * qZ + qW * qX) * cleanGy + 
+                   (qW * qW - qX * qX - qY * qY + qZ * qZ) * cleanGz;
 
     madgwickUpdate(cleanGx, cleanGy, cleanGz, rawAx, rawAy, rawAz, dt);
+                   
 
-    // Интегрируем дельту гироскопа в сшитый курс
     if (fusedHeading !== null) {
-      const gyroYawStepDeg = -(cleanGz * (180 / Math.PI)) * dt;
-      fusedHeading = (fusedHeading + gyroYawStepDeg + 360) % 360;
+      const gyroYawRate = Math.abs(worldGyroZ * (180 / Math.PI));
+      // Снижаем порог чувствительности гироскопа: 12°/сек -> 3°/сек (человек идет плавно!)
+      if (gyroYawRate > 3) {
+        const gyroYawStepDeg = -(worldGyroZ * (180 / Math.PI)) * dt;
+        fusedHeading = (fusedHeading + gyroYawStepDeg + 360) % 360;
+      }
     }
+
+
 
     const enu = rotateDeviceToWorldENU(rawAx, rawAy, rawAz, qW, qX, qY, qZ);
     aEast = enu.e; aNorth = enu.n; aUp = enu.u;
