@@ -60,6 +60,7 @@
   // Мировые ускорения ENU
   let aEast = 0, aNorth = 0, aUp = 0;
   let currentGyroMag = 0;
+  let cleanGx = 0, cleanGy = 0, cleanGz = 0; // <-- ДОБАВИТЬ ЭТУ СТРОКУ
 
   // Детектор покоя (ZUPT)
   const ZUPT_WINDOW = 25;
@@ -92,6 +93,12 @@
   let barometerAvailable = false;
   let pressureSensorInstance = null;
   let stairCounter = 0;
+
+  let isTriangleCalibrating = false;
+  let triangleLegs = []; // [{ fromLL, toLL, groundDist, groundBearing, pdrDist, pdrSteps, headings: [] }]
+  let currentLegHeadings = [];
+  let currentLegPdrDist = 0;
+  let currentLegSteps = 0;
 
   // Склонение
   let magneticDeclinationDeg = 0;
@@ -201,6 +208,9 @@
   let gyroZeroOrDupeCount = 0;
 
   // --- ОБНОВЛЕНИЕ ВНЕШНЕГО КОМПАСА С УМНЫМ ДЕТЕКТОРОМ АНОМАЛИЙ ---
+  // Буфер недавних замеров компаса для подавления единичных шумов на бюджетных устройствах
+  const compassHistory = [];
+
   function updateExternalCompass(compassDeg) {
     if (compassDeg === null || isNaN(compassDeg)) return;
     const now = performance.now();
@@ -211,41 +221,54 @@
       return;
     }
 
-    // 1. Кратчайшая дельта нового замера компаса к прошлому замеру
+    // Кратчайшая угловая дельта [-180, 180]
+    const diff = ((compassDeg - fusedHeading + 540) % 360) - 180;
     const compassDelta = ((compassDeg - (lastExternalCompass || compassDeg) + 540) % 360) - 180;
     lastExternalCompass = compassDeg;
 
-    // 2. Детектор аномалий: скачок более 55° без соответствующего вращения планшета
-    const isWindows = navigator.userAgent.includes('Windows');
-    const isJerk = Math.abs(compassDelta) > 55 && !isWindows;
-    if (isJerk) {
-      magneticAnomalyActive = true;
-      anomalyCooldownTimer = now + 400;
-    } else if (now > anomalyCooldownTimer) {
+    // Детектор реальной магнитной аномалии:
+    // Подавляем ложное срабатывание, если скачок произошел во время быстрого наклона (pitch rate > 20°/с)
+    const gyroYawRateDeg = Math.abs(currentGyroMag * (180 / Math.PI));
+    const isRapidPitching = Math.abs(cleanGx * (180 / Math.PI)) > 20.0;
+
+    if (hasTrueHardwareGyro && !isRapidPitching) {
+      if (Math.abs(compassDelta) > 50 && gyroYawRateDeg < 20) {
+        magneticAnomalyActive = true;
+        anomalyCooldownTimer = now + 500;
+      } else if (now > anomalyCooldownTimer) {
+        magneticAnomalyActive = false;
+      }
+    } else {
       magneticAnomalyActive = false;
     }
 
-    // 3. Распределение веса в фильтре:
+    // Адаптивный вес фильтра сшивки:
+    // Не позволяет курсу «залипать» при отставании гироскопа
     let filterWeight;
+    const absDiff = Math.abs(diff);
+
     if (magneticAnomalyActive) {
-      // При магнитной аномалии почти не доверяем компасу
-      filterWeight = 0.02;
+      filterWeight = 0.05; // При реальной аномалии мягко демпфируем, но не блокируем намертво
     } else if (hasTrueHardwareGyro) {
-      // НА ФЛАГМАНЕ: высокочастотные повороты уже рассчитаны гироскопом в handleDeviceMotion,
-      // компас лишь плавно и незаметно устраняет медленный дрейф нуля:
-      filterWeight = (CONFIG.headingDamping === 'high') ? 0.03 : 0.06;
+      if (absDiff > 40) {
+        filterWeight = 0.35; // Быстрая подтяжка при отставании сшивки
+      } else if (absDiff > 15) {
+        filterWeight = 0.18;
+      } else {
+        filterWeight = (CONFIG.headingDamping === 'high') ? 0.05 : 0.09;
+      }
     } else {
-      // НА БЮДЖЕТНОМ УСТРОЙСТВЕ: компас — основной источник.
-      // Используем адаптивное кольцевое сглаживание:
-      const diff = Math.abs(((compassDeg - fusedHeading + 540) % 360) - 180);
-      if (diff > 30) filterWeight = 0.28;       // Резкий разворот человека
-      else if (diff > 10) filterWeight = 0.16;  // Обычный шаг/поворот
-      else filterWeight = 0.07;                 // Стояние на месте / дрожание рук
+      // Бюджетные устройства без аппаратного гироскопа
+      if (absDiff > 45) {
+        filterWeight = 0.45;
+      } else if (absDiff > 15) {
+        filterWeight = 0.25;
+      } else {
+        filterWeight = 0.10;
+      }
     }
 
-    // 4. Корректный поворот кольцевого угла без сингулярности 0°/360°
-    const diffAngle = ((compassDeg - fusedHeading + 540) % 360) - 180;
-    fusedHeading = (fusedHeading + diffAngle * filterWeight + 360) % 360;
+    fusedHeading = (fusedHeading + diff * filterWeight + 360) % 360;
   }
 
   function getFusedHeading() {
@@ -348,7 +371,7 @@
     }
 
     // Если синтетический гироскоп выдал дикий артефакт (>12 рад/с ≈ 700°/с), принудительно гасим его
-    if (currentGyroMag > 12.0) {
+    if (currentGyroMag > 16.0) {
       hasTrueHardwareGyro = false;
       gyroEvaluated = true;
     }
@@ -378,9 +401,9 @@
       restFramesCount = 0;
     }
 
-    const cleanGx = rawGx - (hasTrueHardwareGyro ? biasGx : 0);
-    const cleanGy = rawGy - (hasTrueHardwareGyro ? biasGy : 0);
-    const cleanGz = rawGz - (hasTrueHardwareGyro ? biasGz : 0);
+    cleanGx = rawGx - (hasTrueHardwareGyro ? biasGx : 0);
+    cleanGy = rawGy - (hasTrueHardwareGyro ? biasGy : 0);
+    cleanGz = rawGz - (hasTrueHardwareGyro ? biasGz : 0);
 
     // Единичный вектор «Вверх» против силы тяжести
     const gNorm = Math.hypot(lpfGravity.x, lpfGravity.y, lpfGravity.z) || 9.80665;
@@ -388,19 +411,24 @@
     const upY = lpfGravity.y / gNorm;
     const upZ = lpfGravity.z / gNorm;
 
-    // 7. Интеграция курса гироскопом
+    // 7. Интеграция курса гироскопом с защитой от паразитного рыскания при наклонах
     const isWindowsDesktop = navigator.userAgent.includes('Windows');
 
-    // На Windows/Surface оси гироскопа в браузере часто перепутаны драйвером,
-    // а встроенный компас Windows уже аппаратно сглажен — интеграцию гироскопа по Z на Windows отключаем:
     if (hasTrueHardwareGyro && !isWindowsDesktop) {
       madgwickUpdate(cleanGx, cleanGy, cleanGz, rawAx, rawAy, rawAz, dt);
 
-      const worldGyroZ = cleanGx * upX + cleanGy * upY + cleanGz * upZ;
+      // Если идет активный наклон устройства вперед-назад (|cleanGx| высок),
+      // уменьшаем вес проекции по X, чтобы запаздывающий вектор gravity LPF
+      // не вносил ложное курсовое вращение (yaw) в горизонтальную плоскость
+      const pitchRateDeg = Math.abs(cleanGx * (180 / Math.PI));
+      const effectiveUpX = pitchRateDeg > 25.0 ? (upX * 0.2) : upX;
+
+      const worldGyroZ = cleanGx * effectiveUpX + cleanGy * upY + cleanGz * upZ;
 
       if (fusedHeading !== null) {
         const gyroYawRateDeg = Math.abs(worldGyroZ * (180 / Math.PI));
-        if (gyroYawRateDeg > 2.2 && gyroYawRateDeg < 380.0) {
+        // Фильтруем шумы покоя (< 2.2°/с) и физически невозможные выбросы (> 400°/с)
+        if (gyroYawRateDeg > 2.2 && gyroYawRateDeg < 400.0) {
           const gyroYawStepDeg = -(worldGyroZ * (180 / Math.PI)) * dt;
           fusedHeading = (fusedHeading + gyroYawStepDeg + 360) % 360;
         }
@@ -548,7 +576,7 @@
     }
   }
 
-  
+
   function commitStep(strideMeters, headingDeg, deltaAltStep, bodyImpulseAngle) {
     if (isAlignmentTesting) {
       alignmentStepsDone++;
@@ -558,6 +586,13 @@
         deviceYaw: headingDeg
       });
       if (alignmentStepsDone >= alignmentStepsTarget) finishAlignmentWalk();
+    }
+
+    // НАКОПЛЕНИЕ ДАННЫХ ДЛЯ КАЛИБРОВКИ ТРЕУГОЛЬНИКОМ
+    if (isTriangleCalibrating) {
+      currentLegHeadings.push(headingDeg);
+      currentLegPdrDist += strideMeters;
+      currentLegSteps++;
     }
 
     playStepAudioCue();
@@ -784,6 +819,104 @@
         this.stop();
       }
     },
+
+    startTriangleLeg() {
+      currentLegHeadings = [];
+      currentLegPdrDist = 0;
+      currentLegSteps = 0;
+      isTriangleCalibrating = true;
+    },
+
+    finishTriangleLeg(groundDist, groundBearing) {
+      const avgHeading = currentLegHeadings.length
+        ? currentLegHeadings.reduce((a, b) => a + b, 0) / currentLegHeadings.length
+        : 0;
+      triangleLegs.push({
+        groundDist,
+        groundBearing,
+        pdrDist: currentLegPdrDist,
+        pdrSteps: currentLegSteps,
+        avgHeading
+      });
+      currentLegHeadings = [];
+      currentLegPdrDist = 0;
+      currentLegSteps = 0;
+    },
+
+    getTriangleCurrentLegStats() {
+      return {
+        steps: currentLegSteps,
+        dist: currentLegPdrDist
+      };
+    },
+
+    computeTriangleCalibration() {
+      isTriangleCalibrating = false;
+      if (triangleLegs.length < 2) return null;
+
+      let totalGroundDist = 0;
+      let totalPdrDist = 0;
+      let totalSteps = 0;
+
+      let bearingDiffSin = 0;
+      let bearingDiffCos = 0;
+
+      triangleLegs.forEach(leg => {
+        totalGroundDist += leg.groundDist;
+        totalPdrDist += leg.pdrDist;
+        totalSteps += leg.pdrSteps;
+
+        const diffRad = ((leg.groundBearing - leg.avgHeading + 540) % 360 - 180) * (Math.PI / 180);
+        bearingDiffSin += Math.sin(diffRad) * leg.groundDist;
+        bearingDiffCos += Math.cos(diffRad) * leg.groundDist;
+      });
+
+      // Защита от деления на 0 при отсутствии зарегистрированных шагов
+      if (totalSteps < 4 || totalPdrDist < 1.0) {
+        triangleLegs = [];
+        return null;
+      }
+
+      // 1. Поправочный коэффициент длины шага
+      const scaleCorrection = totalGroundDist / Math.max(0.1, totalPdrDist);
+      const newBaseStep = Math.max(0.45, Math.min(1.25, CONFIG.baseStepLength * scaleCorrection));
+
+      // 2. Угловая поправка соосности компаса
+      const angularCorrection = Math.round(Math.atan2(bearingDiffSin, bearingDiffCos) * 180 / Math.PI);
+      const newOffset = ((CONFIG.alignmentOffset + angularCorrection + 540) % 360) - 180;
+
+      const oldStep = CONFIG.baseStepLength;
+      CONFIG.baseStepLength = Math.round(newBaseStep * 100) / 100;
+      CONFIG.alignmentOffset = newOffset;
+
+      try {
+        localStorage.setItem('wm_pdr_step_length', CONFIG.baseStepLength.toString());
+        localStorage.setItem('wm_pdr_alignment_offset', newOffset.toString());
+      } catch (e) {}
+
+      const report = {
+        legsDone: triangleLegs.length,
+        totalGroundDist: Math.round(totalGroundDist),
+        totalSteps,
+        oldStep,
+        newStep: CONFIG.baseStepLength,
+        offsetApplied: angularCorrection,
+        finalOffset: newOffset
+      };
+
+      triangleLegs = [];
+      return report;
+    },
+
+    cancelTriangleCalibration() {
+      isTriangleCalibrating = false;
+      triangleLegs = [];
+      currentLegHeadings = [];
+      currentLegPdrDist = 0;
+      currentLegSteps = 0;
+    },
+
+    isTriangleCalibrating: () => isTriangleCalibrating,
 
     startAlignmentWalk,
     finishAlignmentWalk,
