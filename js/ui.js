@@ -4817,10 +4817,11 @@
 
     // 5. Тест соосности (Alignment Walk)
     if (btnAlign) {
-      btnAlign.onclick = () => {
+      btnAlign.onclick = async () => {
         if (!WM.pdr) return;
         if (WM.pdr.isAlignmentActive()) {
           const res = WM.pdr.finishAlignmentWalk();
+          if (!isTesting) WM.pdr.stop(); // Останавливаем PDR, если параллельно не запущен тест шагов
           btnAlign.textContent = '▶ Старт теста';
           btnAlign.classList.remove('btn-danger');
           btnAlign.classList.add('btn-primary');
@@ -4829,8 +4830,26 @@
             if (sliderOffset) sliderOffset.value = res.offset;
             if (valOffset) valOffset.textContent = (res.offset > 0 ? '+' : '') + res.offset + '°';
           }
-          showToast('Тест соосности завершён вручную');
+          showToast('Тест соосности завершён');
         } else {
+          if (WM.pdr.requestPermissions) {
+            await WM.pdr.requestPermissions();
+          }
+          // Принудительно запускаем шагомер для обработки шагов соосности
+          WM.pdr.start(
+            (stride, head, count) => {
+              if (stepsAlign && WM.pdr.isAlignmentActive()) {
+                const prog = WM.pdr.getAlignmentProgress();
+                stepsAlign.textContent = `${prog.done} / ${prog.target}`;
+                if (prog.done >= prog.target) {
+                  btnAlign.click(); // Авто-завершение при 15 шагах
+                }
+              }
+            },
+            (h) => {
+              if (valHeading) valHeading.textContent = Math.round(h) + '°';
+            }
+          );
           WM.pdr.startAlignmentWalk(15);
           btnAlign.textContent = '⏹ Завершить';
           btnAlign.classList.remove('btn-primary');
