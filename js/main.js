@@ -1773,7 +1773,7 @@
   let pendingHeading = null;
 
   function computeCleanHeading(e) {
-    // 1. iOS: готовый курс
+    // 1. iOS Safari: готовый аппаратный True North курс
     if (typeof e.webkitCompassHeading === 'number') {
       return (e.webkitCompassHeading + 360) % 360;
     }
@@ -1781,45 +1781,55 @@
     if (e.alpha === null || e.alpha === undefined) return null;
 
     const degToRad = Math.PI / 180;
-    const alpha = (e.alpha || 0) * degToRad; // Yaw (Z)
-    let beta    = (e.beta  || 0) * degToRad; // Pitch (X)
-    let gamma   = (e.gamma || 0) * degToRad; // Roll (Y)
-
-    // На Windows планшетах (Surface) alpha уже является готовым аппаратно сглаженным курсом.
-    // Защита от переворота через 90° (когда планшет отклонён от себя назад):
-    if (Math.abs(e.beta) > 90) {
-      beta = Math.sign(e.beta) * (180 - Math.abs(e.beta)) * degToRad;
-      gamma = (gamma > 0 ? gamma - Math.PI : gamma + Math.PI);
-    }
+    const alpha = (e.alpha || 0) * degToRad; // Yaw [0, 2PI]
+    const beta  = (e.beta  || 0) * degToRad; // Pitch [-PI, PI]
+    const gamma = (e.gamma || 0) * degToRad; // Roll [-PI/2, PI/2]
 
     const cA = Math.cos(alpha), sA = Math.sin(alpha);
     const cB = Math.cos(beta),  sB = Math.sin(beta);
     const cG = Math.cos(gamma), sG = Math.sin(gamma);
 
-    // Матрица поворота Rz(alpha) * Rx(beta) * Ry(gamma)
-    const r11 =  cA * cG - sA * sB * sG;
-    const r21 =  sA * cG + cA * sB * sG;
-    const r12 = -sA * cB;
-    const r22 =  cA * cB;
+    // Матрица поворота W3C (Z-X'-Y'')
+    // Столбец 0: ось +X (вправо), Столбец 1: ось +Y (вверх экрана), Столбец 2: ось +Z (из экрана)
+    // Вектор нормали к сагиттальной плоскости устройства в горизонте мира ENU:
+    // Позволяет построить идеальный азимут направления взгляда при любом наклоне (0°..180°)
+    // без влияния бокового завала телефона (gamma).
+    
+    // Горизонтальные компоненты направления верха телефона:
+    let hEast, hNorth;
 
-    const screenAngleDeg = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
-    const screenAngleRad = screenAngleDeg * degToRad;
+    // При сильном наклоне назад/вперед (когда телефон поднят вертикально к глазам, |beta| > 65°)
+    // вектор взгляда плавно переходит от оси +Y к обратной нормали экрана -Z (взгляд сквозь камеру)
+    const absBetaDeg = Math.abs(e.beta || 0);
 
-    const vx = -Math.sin(screenAngleRad);
-    const vy =  Math.cos(screenAngleRad);
+    if (absBetaDeg < 65) {
+      // Телефон ближе к горизонтальному положению: ориентируемся по оси +Y
+      // с честной компенсацией бокового крена (roll)
+      hEast  = -sA * cG - cA * sB * sG;
+      hNorth =  cA * cG - sA * sB * sG;
+    } else {
+      // Телефон поднят вертикально: объединяем сагиттальные оси +Y и -Z
+      // исключая сингулярность при beta = 90°
+      const yE = -sA * cB;
+      const yN =  cA * cB;
+      const zE =  cA * sG + sA * sB * cG;
+      const zN =  sA * sG - cA * sB * cG;
 
-    const yEast  = vx * r11 + vy * r12;
-    const yNorth = vx * r21 + vy * r22;
-
-    if (Math.hypot(yEast, yNorth) < 0.06) {
-      // Планшет строго перпендикулярен земле — используем азимут задней крышки
-      const r13 =  cA * sG + sA * sB * cG;
-      const r23 =  sA * sG - cA * sB * cG;
-      let headingVert = Math.atan2(-r13, -r23) * (180 / Math.PI);
-      return (headingVert + 360) % 360;
+      // Нормализованная проекция вперед вдоль взгляда пользователя
+      const signBeta = (e.beta >= 0) ? 1 : -1;
+      hEast  = yE * cB - zE * sB * signBeta;
+      hNorth = yN * cB - zN * sB * signBeta;
     }
 
-    let heading = Math.atan2(yEast, yNorth) * (180 / Math.PI);
+    // Учет ориентации дисплея (портретная / альбомная)
+    const screenAngle = ((screen.orientation && screen.orientation.angle) || window.orientation || 0) * degToRad;
+    const cosS = Math.cos(screenAngle);
+    const sinS = Math.sin(screenAngle);
+
+    const worldEast  = hEast * cosS - hNorth * sinS;
+    const worldNorth = hEast * sinS + hNorth * cosS;
+
+    let heading = Math.atan2(worldEast, worldNorth) * (180 / Math.PI);
     return (heading + 360) % 360;
   }
 
