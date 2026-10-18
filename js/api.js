@@ -196,7 +196,13 @@
 
   function routeOrder() {
     const mode = WM.api.netMode;
-    let list = mode === 'direct' ? ['direct'] : mode === 'proxy' ? ['corsproxy', 'allorigins'] : ['corsproxy', 'direct', 'allorigins'];
+    // ИСПРАВЛЕНО: в режиме 'auto' сначала пробуем прямое соединение, и только при сбое идем в прокси
+    let list = mode === 'direct' 
+      ? ['direct'] 
+      : mode === 'proxy' 
+        ? ['corsproxy', 'allorigins'] 
+        : ['direct', 'corsproxy', 'allorigins'];
+
     if (lastGood && list.includes(lastGood)) {
       list = [lastGood, ...list.filter(r => r !== lastGood)];
     }
