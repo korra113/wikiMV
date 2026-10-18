@@ -504,6 +504,7 @@
               </div>
             </details>
 
+
             <!-- Фильтр типов объектов -->
             <details class="spoiler sub-spoiler">
               <summary class="spoiler-title sub-spoiler-title">
@@ -674,6 +675,339 @@
             </details>
 
 
+
+          </div>
+        </details>
+
+        <!-- НОВЫЙ ВЛОЖЕННЫЙ СПОЙЛЕР: НАВИГАЦИЯ ПРИ ГЛУШЕНИИ И PDR -->
+        <details class="spoiler sub-spoiler" id="spoiler-pdr-settings">
+          <summary class="spoiler-title sub-spoiler-title">
+            <span>🛡️ Навигация при глушении GPS и шагомер (PDR)</span>
+            <span class="chevron">▼</span>
+          </summary>
+
+          <div class="spoiler-body pdr-spoiler-container">
+
+            
+
+            
+            <!-- Памятка об особенностях и точности автономного режима (PDR) -->
+            <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 12px;">
+              <div class="guide-tip-title">⚠️ Точность автономной навигации (PDR)</div>
+              <p style="margin: 0 0 6px; font-size: 11.5px; line-height: 1.45;">
+                При движении без GPS навигация по датчикам неизбежно <b>накапливает погрешность</b> дистанции и курса. По возможности периодически сверяйтесь с местностью и уточняйте положение по ориентирам кнопкой <b>«🧲 Я тут»</b> или через прицел перекрестия.
+              </p>
+              <p style="margin: 0; font-size: 11.5px; line-height: 1.45;">
+                Электронный компас со временем подвержен магнитным помехам: для поддержания точности курса периодически калибруйте смартфон в воздухе <b>«восьмёркой» (знаком ∞)</b> с поворотом кисти.
+              </p>
+            </div>
+
+            <!-- 1. ОБЩИЕ ПРЕСЕТЫ ДВИЖЕНИЯ -->
+            <div class="pdr-presets-wrap">
+              <div class="pdr-block-header">
+                <span class="pdr-block-title">🚀 Режим движения (пресет):</span>
+                <span id="pdr-preset-current-label" class="pdr-preset-tag">Пешком</span>
+              </div>
+              <p class="hint-text" style="margin: 0 0 8px;">
+                Выберите тип движения для автоматической оптимизации всех параметров. Повторный клик сбрасывает настройки пресета к исходным.
+              </p>
+              <div class="pdr-presets-grid" id="pdr-presets-grid">
+                <button type="button" class="pdr-preset-btn active" data-preset="walk">
+                  <span class="pdr-preset-icon">🚶</span>
+                  <span class="pdr-preset-name">Пешком</span>
+                  <span class="pdr-preset-sub">Город / Лес</span>
+                </button>
+                <button type="button" class="pdr-preset-btn" data-preset="run">
+                  <span class="pdr-preset-icon">🏃</span>
+                  <span class="pdr-preset-name">Бег / Марш</span>
+                  <span class="pdr-preset-sub">Быстрый шаг</span>
+                </button>
+                <button type="button" class="pdr-preset-btn" data-preset="bike">
+                  <span class="pdr-preset-icon">🚲</span>
+                  <span class="pdr-preset-name">Велосипед</span>
+                  <span class="pdr-preset-sub">Самокат / Руль</span>
+                </button>
+                <button type="button" class="pdr-preset-btn" data-preset="car">
+                  <span class="pdr-preset-icon">🚗</span>
+                  <span class="pdr-preset-name">Автомобиль</span>
+                  <span class="pdr-preset-sub">Курс без тряски</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 2. БЫСТРЫЕ СИСТЕМНЫЕ ОПЦИИ И ПИТАНИЕ -->
+            <div class="pdr-card-box">
+              <div class="pdr-card-header">⚡ Экран, звук и работа приложения</div>
+
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight:600; display:block;">🔊 Звуковой щелчок (бип) при шаге</span>
+                  <small class="hint-text">Акустический отклик генератором звука при регистрации каждого толчка.</small>
+                </div>
+                <input type="checkbox" id="toggle-pdr-step-sound" checked>
+                <span class="toggle-switch"></span>
+              </label>
+
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight:600; display:block;">🔆 Не гасить экран при навигации</span>
+                  <small class="hint-text">Держит экран включённым (Screen Wake Lock), пока открыта карта или шагомер.</small>
+                </div>
+                <input type="checkbox" id="toggle-pdr-wakelock" checked>
+                <span class="toggle-switch"></span>
+              </label>
+
+              <label class="toggle-item">
+                <div>
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span style="font-weight:600;">🔋 Работать в фоновом режиме</span>
+                    <span class="badge-apk-only">Только в APK</span>
+                  </div>
+                  <small class="hint-text">Продолжает вести трек и считать шаги при заблокированном экране телефона.</small>
+                </div>
+                <input type="checkbox" id="toggle-pdr-background">
+                <span class="toggle-switch"></span>
+              </label>
+            </div>
+
+            <!-- 3. ЗАЩИТА ОТ ГЛУШЕНИЯ И АВТОМАТИКА -->
+            <div class="pdr-card-box">
+              <div class="pdr-card-header">🛡️ Защита от глушения GPS и триггеры</div>
+
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight:600; display:block;">Фильтр спуфинга и глушения GPS</span>
+                  <small class="hint-text">Блокирует резкие телепортации, аэропортовый спуфинг (&gt;180 км/ч) и прыжки высоты.</small>
+                </div>
+                <input type="checkbox" id="toggle-anti-spoof" checked>
+                <span class="toggle-switch"></span>
+              </label>
+
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight:600; display:block;">Авто-переход на шагомер при глушении</span>
+                  <small class="hint-text">При потере/подмене GPS плавно перехватывает ведение точки по инерциальным датчикам.</small>
+                </div>
+                <input type="checkbox" id="toggle-pdr-auto-engage" checked>
+                <span class="toggle-switch"></span>
+              </label>
+
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight:600; display:block;">Кнопка «Поместить GPS сюда (🧲)» на экране</span>
+                  <small class="hint-text">Плавающая кнопка на карте для ручной привязки точки и старта шагомера в любой момент.</small>
+                </div>
+                <input type="checkbox" id="toggle-ui-manualpdr">
+                <span class="toggle-switch"></span>
+              </label>
+            </div>
+
+            <!-- 4. КИНЕМАТИКА И БИОМЕХАНИКА ШАГА -->
+            <div class="pdr-card-box">
+              <div class="pdr-card-header">🏃 Биомеханика шага и стабилизация</div>
+
+              <!-- Положение устройства -->
+              <div class="form-group" style="margin-bottom: 8px;">
+                <label for="pdr-carrying-mode" style="font-weight: 700; color: var(--text-main); margin-bottom: 4px;">
+                  📱 Положение устройства при ходьбе:
+                </label>
+                <select id="pdr-carrying-mode" class="styled-select">
+                  <option value="hand" selected>✋ В руке (экран перед глазами)</option>
+                  <option value="pocket">👖 В кармане брюк (маятник бедра)</option>
+                </select>
+                <small class="hint-text">В режиме «В кармане» активируется фильтр раскачки курса и меняется детектор фазы шага.</small>
+              </div>
+
+              <!-- Длина шага -->
+              <div class="style-row" style="margin-top: 6px; margin-bottom: 8px;">
+                <label for="pdr-step-length-slider" style="display:flex; justify-content:space-between; font-weight:600;">
+                  <span>Базовая длина шага:</span>
+                  <b id="pdr-step-length-val" style="color:var(--accent);">75 см</b>
+                </label>
+                <input type="range" id="pdr-step-length-slider" min="45" max="120" step="1" value="75" class="styled-range">
+                <small class="hint-text">Обычно составляет: Рост (см) × 0.415 для мужчин или Рост × 0.413 для женщин.</small>
+              </div>
+
+              <!-- Динамическая длина шага -->
+              <label class="toggle-item" style="margin-bottom: 8px;">
+                <div>
+                  <span style="font-weight:600; display:block;">Динамическая длина шага (Weinberg DSP)</span>
+                  <small class="hint-text">Автоматически удлиняет шаг при быстром шаге/беге и укорачивает при осторожной ходьбе.</small>
+                </div>
+                <input type="checkbox" id="toggle-pdr-dynamic-stride" checked>
+                <span class="toggle-switch"></span>
+              </label>
+
+              <!-- Чувствительность датчика шагов -->
+              <div class="form-group" style="margin-bottom: 8px;">
+                <label for="pdr-sensitivity-select" style="font-weight: 700; color: var(--text-main); margin-bottom: 4px;">
+                  🎯 Чувствительность шагомера:
+                </label>
+                <select id="pdr-sensitivity-select" class="styled-select">
+                  <option value="high">Высокая (мягкая обувь, бесшумный шаг, ковры/песок)</option>
+                  <option value="normal" selected>Стандартная (город, кроссовки, обычный шаг)</option>
+                  <option value="low">Грубая (активный бег, жесткая подошва, берцы)</option>
+                </select>
+              </div>
+
+              <!-- Стабилизация компаса -->
+              <div class="form-group" style="margin-bottom: 4px;">
+                <label for="pdr-damping-select" style="font-weight: 700; color: var(--text-main); margin-bottom: 4px;">
+                  🧭 Стабилизация курса (сглаживание рывков):
+                </label>
+                <select id="pdr-damping-select" class="styled-select">
+                  <option value="low">Минимальная (мгновенный поворот, возможен тремор)</option>
+                  <option value="medium" selected>Оптимальная (плавный ход без рывков)</option>
+                  <option value="high">Тяжелая инерция (для бега, руля и сильной тряски)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 5. ВЛОЖЕННЫЙ СПОЙЛЕР: СООСНОСТЬ, КОМПАС И ВЫСОТА 3D -->
+            <details class="spoiler sub-spoiler" id="spoiler-pdr-alignment">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🧭 Соосность (Alignment Walk), компас и высота 3D</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body">
+                <!-- Alignment Walk -->
+                <div class="pdr-tester-box" style="margin-bottom: 10px;">
+                  <div class="pdr-tester-head">
+                    <span style="font-weight:700; font-size:12.5px;">🚶 Тест соосности (Alignment Walk)</span>
+                    <button type="button" id="btn-alignment-test-toggle" class="btn btn-primary pdr-btn-test">▶ Старт теста</button>
+                  </div>
+                  <p class="hint-text" style="margin: 0 0 8px;">
+                    Пройдите 15 шагов прямо, глядя на экран. Алгоритм сравнит угол экрана с фактическим горизонтальным вектором и устранит косину.
+                  </p>
+                  <div class="pdr-test-display" style="padding: 6px 10px; margin-bottom: 6px;">
+                    <div style="text-align: center;">
+                      <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">ПРОЙДЕНО</div>
+                      <b id="alignment-test-steps" style="font-size: 20px; color: var(--accent);">0 / 15</b>
+                    </div>
+                    <div style="text-align: center;">
+                      <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">ПОПРАВКА СООСНОСТИ</div>
+                      <b id="alignment-test-result" style="font-size: 20px; color: #10b981;">0°</b>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Ручной угол смещения -->
+                <div class="style-row" style="margin-bottom: 8px;">
+                  <label for="pdr-alignment-offset-slider" style="display:flex; justify-content:space-between; font-weight:600;">
+                    <span>Ручной угол смещения экрана:</span>
+                    <b id="pdr-alignment-offset-val" style="color:var(--accent);">0°</b>
+                  </label>
+                  <input type="range" id="pdr-alignment-offset-slider" min="-180" max="180" step="1" value="0" class="styled-range">
+                </div>
+
+                <!-- True North -->
+                <label class="toggle-item" style="margin-bottom: 8px;">
+                  <div>
+                    <span style="font-weight:600; display:block;">Геомагнитное склонение (True North)</span>
+                    <small class="hint-text" id="pdr-magnetic-declination-text">Вычисляется авто-поправка к истинному географическому Северу (~+11.2°)</small>
+                  </div>
+                  <input type="checkbox" id="toggle-pdr-declination" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <div class="guide-tip-box" style="margin-top: 4px; margin-bottom: 8px;">
+                  <div class="guide-tip-title">💡 Калибровка компаса от аномалий (Восьмёрка)</div>
+                  <p style="margin: 0; font-size: 11.5px; line-height: 1.4;">
+                    Если стрелка дёргается около металла: опишите смартфоном в воздухе <b>знак бесконечности (∞)</b> три раза с поворотом кисти на 360°.
+                  </p>
+                </div>
+
+                <div style="font-size: 12px; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">⛰️ Вертикальная 3D-кинематика (Высота):</div>
+
+                <label class="toggle-item" style="margin-bottom: 6px;">
+                  <div>
+                    <span style="font-weight:600; display:block;">Детектор ступеней лестниц (±16.5 см)</span>
+                    <small class="hint-text">Укорачивает шаг на 30% и фиксирует набор/спуск этажей по форме импульса.</small>
+                  </div>
+                  <input type="checkbox" id="toggle-pdr-stairs" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item" style="margin-bottom: 6px;">
+                  <div>
+                    <span style="font-weight:600; display:block;">Детектор лифтов и эскалаторов</span>
+                    <small class="hint-text">Фиксирует перегрузку без шагов при движении в кабине лифта.</small>
+                  </div>
+                  <input type="checkbox" id="toggle-pdr-elevator" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+              </div>
+            </details>
+
+            <!-- 6. ВЛОЖЕННЫЙ СПОЙЛЕР: ДИАГНОСТИКА И ТЕСТЕР ШАГОВ -->
+            <details class="spoiler sub-spoiler" id="spoiler-pdr-diagnostics">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🔬 Диагностика датчиков и калибровка шагов</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body">
+                <div class="pdr-perm-box" id="pdr-perm-box">
+                  <div class="pdr-perm-status" id="pdr-perm-status">Статус датчиков: проверка…</div>
+                  <button type="button" id="btn-pdr-request-perms" class="btn btn-primary" style="width: 100%; margin-top: 6px; font-size: 12px; padding: 6px 10px;">
+                    🔑 Запросить доступ к датчикам (iOS / Android)
+                  </button>
+                </div>
+
+                <div class="pdr-telemetry-grid">
+                  <div class="pdr-telem-card">
+                    <span class="pdr-telem-lbl">Акселерометр:</span>
+                    <b class="pdr-telem-val" id="pdr-val-accel">X: 0 | Y: 0 | Z: 0</b>
+                  </div>
+                  <div class="pdr-telem-card">
+                    <span class="pdr-telem-lbl">Всплеск (Mag):</span>
+                    <b class="pdr-telem-val" id="pdr-val-mag">0.00 м/с²</b>
+                  </div>
+                  <div class="pdr-telem-card">
+                    <span class="pdr-telem-lbl">Азимут компаса:</span>
+                    <b class="pdr-telem-val" id="pdr-val-heading">--°</b>
+                  </div>
+                  <div class="pdr-telem-card">
+                    <span class="pdr-telem-lbl">Наклон (β / γ):</span>
+                    <b class="pdr-telem-val" id="pdr-val-tilt">0° / 0°</b>
+                  </div>
+                </div>
+
+                <div class="pdr-tester-box">
+                  <div class="pdr-tester-head">
+                    <span style="font-weight:700; font-size:12.5px;">🚶 Тестирование шагомера</span>
+                    <button type="button" id="btn-pdr-test-toggle" class="btn btn-primary pdr-btn-test">▶ Старт теста</button>
+                  </div>
+
+                  <div class="pdr-test-display">
+                    <div class="pdr-step-badge" id="pdr-step-badge">
+                      <span class="pdr-step-num" id="pdr-test-step-count">0</span>
+                      <span class="pdr-step-unit">шагов</span>
+                      <span class="pdr-step-flash" id="pdr-step-flash">ШАГ!</span>
+                    </div>
+                    <div class="pdr-test-stats">
+                      <div>Шаг: <b id="pdr-test-stride">-- см</b></div>
+                      <div>Темп: <b id="pdr-test-cadence">0 ш/мин</b></div>
+                      <div>Курс: <b id="pdr-test-bearing">--°</b></div>
+                    </div>
+                  </div>
+
+                  <div class="pdr-gauge-wrap">
+                    <div class="pdr-gauge-labels">
+                      <span>Сила толчка (всплеск)</span>
+                      <span id="pdr-gauge-val">0.0 м/с²</span>
+                    </div>
+                    <div class="pdr-gauge-track">
+                      <div class="pdr-gauge-fill" id="pdr-gauge-fill"></div>
+                      <div class="pdr-gauge-threshold" id="pdr-gauge-threshold" title="Порог регистрации шага"></div>
+                    </div>
+                  </div>
+
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                    <button type="button" id="btn-pdr-test-reset" class="btn-link" style="font-size: 11.5px;">↺ Сброс счёта</button>
+                  </div>
+                </div>
+              </div>
+            </details>
 
           </div>
         </details>
@@ -1756,6 +2090,7 @@
 
       <!-- Нижний ряд: ключевой метраж и быстрые действия -->
       <div class="measure-hud-bottom">
+        <button id="btn-measure-nav-play" class="measure-hud-btn nav-play-btn" title="Начать навигацию по маршруту">▶</button>
         <div class="measure-hud-stats">
           <div class="measure-hud-dist"><span id="measure-total-dist">0 м</span></div>
           <div class="measure-hud-sub">
@@ -1763,7 +2098,6 @@
           </div>
         </div>
         <div class="measure-hud-ctrls">
-          <button id="btn-measure-nav-play" class="measure-hud-btn nav-play-btn" title="Начать навигацию по маршруту">▶</button>
           <button id="btn-measure-undo" class="measure-hud-btn undo" title="Отменить последний узел">↩</button>
           <button id="btn-measure-clear" class="measure-hud-btn danger" title="Удалить выбранное измерение">🗑️</button>
           <button id="btn-measure-finish" class="measure-hud-btn primary" title="Зафиксировать измерение">✓ Готово</button>
@@ -2123,6 +2457,8 @@
   <script src="js/quickMeasure.js"></script>
   <script src="js/rangeRing.js"></script>
   <script src="js/shadowHeight.js"></script>
+  <!-- ПОДКЛЮЧАЕМ ДВИЖОК ШАГОМЕРА PDR: -->
+  <script src="js/pdrEngine.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
