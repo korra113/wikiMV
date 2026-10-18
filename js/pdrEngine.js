@@ -75,11 +75,6 @@
   let minValleySinceLastPeak = Infinity;
   let stepCount = 0;
 
-  let stepState = 'WAITING_VALLEY';
-  let valleyVal = 0;
-  let valleyTime = 0;
-  let dynamicNoiseFloor = 0.25;
-
   // Двухшаговый валидатор
   let walkingState = 'IDLE';
   let pendingStepCandidate = null;
@@ -472,140 +467,136 @@
     if (!isRunning || CONFIG.navigationType === 'vehicular') return;
 
     // 10. Пиковый детектор шагов
-    // В кармане анализируем поперечные оси, в руке — вертикальное ускорение вдоль силы тяжести
-    const stepWaveform = (CONFIG.carryingMode === 'pocket') ? Math.hypot(dynY, dynZ) : aUp;
-    accelWindow.push(stepWaveform);
+    // 1. Инвариантное динамическое ускорение (абсолютно нечувствительно к наклонам и вращению кисти)
+    const rawTotalNorm = Math.hypot(rawAx, rawAy, rawAz);
+    const motionWaveform = rawTotalNorm - 9.80665; // В покое ВСЕГДА около 0, при шаге: яма (-1.5) -> удар (+2.0)
+
+    // 2. Скользящее окно пикового детектора
+    accelWindow.push(motionWaveform);
     if (accelWindow.length > ACCEL_WINDOW_SIZE) accelWindow.shift();
     if (accelWindow.length < ACCEL_WINDOW_SIZE) return;
 
     const midIdx = Math.floor(ACCEL_WINDOW_SIZE / 2);
     const midVal = accelWindow[midIdx];
 
-    // Вычисляем горизонтальную составляющую ускорения (чистый вектор поступательного хода)
-    const horizMag = Math.sqrt(Math.max(0, (dynMagTotal * dynMagTotal) - (aUp * aUp)));
+    // Отслеживаем минимальное проседание (разгрузка тела перед ударом)
+    if (midVal < minValleySinceLastPeak) {
+      minValleySinceLastPeak = midVal;
+    }
 
-    // Медленно подстраиваем шумовую полку под фон (руки, дыхание)
-    dynamicNoiseFloor = 0.95 * dynamicNoiseFloor + 0.05 * Math.max(0.15, dynMagTotal * 0.25);
-
-    const minStepIntervalMs = 280;   // Самый быстрый бег / прыжки по кочкам (~3.5 шага/сек)
-    const maxStepIntervalMs = 1600;  // Осторожное прощупывание грунта / перешагивание валежника
-    const timeSinceLastPeak = now - lastPeakTime;
-
-    // --- ФАЗА 1: Поиск разгрузки (тело опускается / перенос ноги) ---
-    if (stepState === 'WAITING_VALLEY') {
-      if (aUp < -0.18) {
-        if (aUp < valleyVal) {
-          valleyVal = aUp;
-          valleyTime = now;
-        }
-      }
-      // Если яма найдена и ускорение пошло вверх — ждем удар стопы
-      if (valleyVal < -0.18 && aUp > 0.0) {
-        stepState = 'WAITING_PEAK';
-      }
-      if (valleyTime > 0 && (now - valleyTime > 900)) {
-        valleyVal = 0;
+    // Проверка на локальный максимум в окне
+    let isLocalPeak = true;
+    for (let i = 0; i < ACCEL_WINDOW_SIZE; i++) {
+      if (i !== midIdx && accelWindow[i] >= midVal) {
+        isLocalPeak = false;
+        break;
       }
     }
 
-    // --- ФАЗА 2: Поиск контакта с грунтом (постановка ноги / приземление) ---
-    if (stepState === 'WAITING_PEAK') {
-      let isLocalPeak = true;
-      for (let i = 0; i < ACCEL_WINDOW_SIZE; i++) {
-        if (i !== midIdx && accelWindow[i] >= midVal) { isLocalPeak = false; break; }
-      }
+    const timeSinceLastPeak = now - lastPeakTime;
+    const minStepIntervalMs = 310;  // Максимальный темп бега в лесу (не более ~3.2 шагов в сек)
+    const maxStepIntervalMs = 1450; // Максимальная пауза между шагами в серии
 
-      const peakProminence = aUp - valleyVal;
+    // Пороги для лесной ходьбы (улавливают мягкие шаги, но отсекают мелкий тремор руки):
+    // Реальный шаг дает пик от +0.8 м/с² и размах волны (peak-to-valley) от 1.2 м/с²
+    const PEAK_THRESHOLD = 0.75;
+    const PROMINENCE_THRESHOLD = 1.15;
 
-      if (isLocalPeak && aUp > 0.25 && peakProminence >= Math.max(0.40, dynamicNoiseFloor)) {
-        if (timeSinceLastPeak >= minStepIntervalMs && timeSinceLastPeak <= maxStepIntervalMs) {
+    if (isLocalPeak && midVal >= PEAK_THRESHOLD) {
+      const peakProminence = midVal - minValleySinceLastPeak;
+
+      // 1. Защита от высокочастотной тряски рукой:
+      // Если удары происходят быстрее 310 мс — это физически невозможно для шага, это тряска
+      if (timeSinceLastPeak >= minStepIntervalMs && peakProminence >= PROMINENCE_THRESHOLD) {
+
+        // ГАРАНТИЯ ОТ ЗАВИСАНИЯ: время последнего пика обновляется ВСЕГДА при валидном ударе
+        const isContinuousPace = (timeSinceLastPeak <= maxStepIntervalMs);
+        lastPeakTime = now;
+        minValleySinceLastPeak = midVal; // Сброс ямы для следующего шага
+
+        // Вычисляем горизонтальную составляющую (защита от топтания на месте)
+        const horizAccel = Math.hypot(dynX, dynY);
+
+        // 2. Адаптивный расчет длины шага (модель Вайнберга):
+        let actualStrideMeters = CONFIG.baseStepLength;
+        if (CONFIG.useDynamicStride) {
+          const bounceFactor = Math.pow(Math.max(0.5, peakProminence), 0.25);
           
-          // 1. Фильтр чистого кручения телефоном (если есть аппаратный гироскоп)
-          const gyroInterference = hasTrueHardwareGyro ? (currentGyroMag > 5.5 && horizMag < 0.2) : false;
-          
-          // 2. Длительность фазы разгрузки (отсекает мелкий тремор рук < 70 мс)
-          const unweightingDuration = now - valleyTime;
-          const validHumanTiming = unweightingDuration >= 70 && unweightingDuration <= 850;
+          // При топтании на месте horizAccel близок к 0 -> уменьшаем длину шага
+          const forwardEfficiency = Math.min(1.2, Math.max(0.35, horizAccel / 1.4));
+          actualStrideMeters = CONFIG.baseStepLength * (bounceFactor / 1.12) * forwardEfficiency;
 
-          if (!gyroInterference && validHumanTiming && !isAtRest) {
-            lastPeakTime = now;
-
-            // --- РАСЧЁТ ДИНАМИЧЕСКОЙ ДЛИНЫ ШАГА (ДЛЯ ЛЕСА) ---
-            let actualStrideMeters = CONFIG.baseStepLength;
-
-            if (CONFIG.useDynamicStride) {
-              const rawBounce = Math.pow(Math.max(0.2, peakProminence), 0.28);
-              
-              // Защита от топтания на месте:
-              // Если стоим и крутимся на месте -> horizMag мал -> forwardRatio жмётся к 0.25
-              // При уверенном шаге вперед -> forwardRatio 1.0..1.2
-              const forwardRatio = Math.min(1.3, Math.max(0.25, horizMag / (Math.abs(aUp) + 0.1)));
-
-              actualStrideMeters = CONFIG.baseStepLength * (rawBounce / 1.15) * forwardRatio;
-
-              // Диапазон: от 0.15 м (микрошаг сквозь ветки) до 1.55 м (прыжок через канаву)
-              actualStrideMeters = Math.max(0.15, Math.min(1.55, actualStrideMeters));
-            }
-
-            const bodyImpulseAngle = (Math.atan2(dynX, dynY) * 180 / Math.PI + 360) % 360;
-
-            // Распознавание уклонов / оврагов / ступеней
-            let deltaAltStep = 0;
-            if (CONFIG.stairDetection) {
-              if (peakProminence > 2.2 && aUp > 0.9) deltaAltStep = 0.18;
-              else if (peakProminence > 2.0 && aUp < -0.85) deltaAltStep = -0.18;
-            }
-
-            // Двухшаговый подтверждающий фильтр (одиночный случайный мах рукой отсекается)
-            if (walkingState === 'IDLE') {
-              if (!pendingStepCandidate) {
-                pendingStepCandidate = {
-                  stride: actualStrideMeters,
-                  heading: currentHeading,
-                  deltaAlt: deltaAltStep,
-                  bodyImpulseAngle,
-                  time: now
-                };
-              } else {
-                const pairInterval = now - pendingStepCandidate.time;
-                if (pairInterval >= minStepIntervalMs && pairInterval <= maxStepIntervalMs) {
-                  walkingState = 'WALKING';
-                  lastConfirmedStepTime = now;
-                  stepCount++;
-                  commitStep(pendingStepCandidate.stride, pendingStepCandidate.heading, pendingStepCandidate.deltaAlt, pendingStepCandidate.bodyImpulseAngle);
-                  stepCount++;
-                  commitStep(actualStrideMeters, currentHeading, deltaAltStep, bodyImpulseAngle);
-                  pendingStepCandidate = null;
-                } else {
-                  pendingStepCandidate = { stride: actualStrideMeters, heading: currentHeading, deltaAlt: deltaAltStep, bodyImpulseAngle, time: now };
-                }
-              }
-            } else {
-              const pairInterval = now - lastConfirmedStepTime;
-              if (pairInterval >= minStepIntervalMs && pairInterval <= maxStepIntervalMs) {
-                lastConfirmedStepTime = now;
-                stepCount++;
-                commitStep(actualStrideMeters, currentHeading, deltaAltStep, bodyImpulseAngle);
-              } else if (pairInterval > maxStepIntervalMs) {
-                walkingState = 'IDLE';
-                pendingStepCandidate = { stride: actualStrideMeters, heading: currentHeading, deltaAlt: deltaAltStep, bodyImpulseAngle, time: now };
-              }
-            }
-          }
+          // Лесные границы: от 0.20 м (осторожный шаг через ветку) до 1.40 м (прыжок через лужу)
+          actualStrideMeters = Math.max(0.20, Math.min(1.40, actualStrideMeters));
         }
 
-        // Возврат автомата в поиск новой разгрузки
-        stepState = 'WAITING_VALLEY';
-        valleyVal = 0;
-      } else if (aUp < valleyVal) {
-        valleyVal = aUp;
-        valleyTime = now;
-      } else if (now - valleyTime > 1200) {
-        stepState = 'WAITING_VALLEY';
-        valleyVal = 0;
+        const bodyImpulseAngle = (Math.atan2(dynX, dynY) * 180 / Math.PI + 360) % 360;
+
+        // Распознавание лестниц и крутых склонов
+        let deltaAltStep = 0;
+        if (CONFIG.stairDetection) {
+          if (peakProminence > 2.4 && aUp > 0.9) deltaAltStep = 0.17;
+          else if (peakProminence > 2.0 && aUp < -0.85) deltaAltStep = -0.17;
+        }
+
+        // 3. Двухшаговый валидатор темпа (отсекает единичные случайные движения):
+        // Одиночное случайное движение фиксируется как кандидат, но не отправляется на карту,
+        // пока человек не сделает второй ритмичный шаг.
+        if (walkingState === 'IDLE') {
+          if (!pendingStepCandidate) {
+            // Первый пробный шаг после паузы
+            pendingStepCandidate = {
+              stride: actualStrideMeters,
+              heading: currentHeading,
+              deltaAlt: deltaAltStep,
+              bodyImpulseAngle,
+              time: now
+            };
+          } else {
+            // Проверяем интервал между первым кандидатом и текущим ударом
+            const pairInterval = now - pendingStepCandidate.time;
+            if (pairInterval >= minStepIntervalMs && pairInterval <= maxStepIntervalMs) {
+              // Ритм подтвержден: регистрируем оба шага
+              walkingState = 'WALKING';
+              lastConfirmedStepTime = now;
+              stepCount++;
+              commitStep(pendingStepCandidate.stride, pendingStepCandidate.heading, pendingStepCandidate.deltaAlt, pendingStepCandidate.bodyImpulseAngle);
+              stepCount++;
+              commitStep(actualStrideMeters, currentHeading, deltaAltStep, bodyImpulseAngle);
+              pendingStepCandidate = null;
+            } else {
+              // Ритм сбился — обновляем кандидата на текущий шаг
+              pendingStepCandidate = {
+                stride: actualStrideMeters,
+                heading: currentHeading,
+                deltaAlt: deltaAltStep,
+                bodyImpulseAngle,
+                time: now
+              };
+            }
+          }
+        } else {
+          // Уже находимся в процессе ходьбы
+          if (isContinuousPace) {
+            lastConfirmedStepTime = now;
+            stepCount++;
+            commitStep(actualStrideMeters, currentHeading, deltaAltStep, bodyImpulseAngle);
+          } else {
+            // Шаг произошел после слишком долгой паузы — сбрасываем в IDLE и ждем подтверждения темпа
+            walkingState = 'IDLE';
+            pendingStepCandidate = {
+              stride: actualStrideMeters,
+              heading: currentHeading,
+              deltaAlt: deltaAltStep,
+              bodyImpulseAngle,
+              time: now
+            };
+          }
+        }
       }
     }
   }
+
 
 
   function commitStep(strideMeters, headingDeg, deltaAltStep, bodyImpulseAngle) {
@@ -800,11 +791,6 @@
       onStepCallback = stepCb;
       if (headingCb) onHeadingCallback = headingCb;
       if (altCb) onAltitudeCallback = altCb;
-
-      stepState = 'WAITING_VALLEY';
-      valleyVal = 0;
-      valleyTime = 0;
-      dynamicNoiseFloor = 0.25;
 
       walkingState = 'IDLE';
       pendingStepCandidate = null;
