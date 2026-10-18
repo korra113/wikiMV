@@ -14,7 +14,8 @@
     useMagneticDeclination: true, // учёт магнитного склонения (True North)
     altitudeSource: 'auto',       // 'auto' | 'barometer' | 'dem' | 'imu'
     stairDetection: true,         // распознавание ступеней лестниц
-    elevatorDetection: true       // распознавание лифтов/эскалаторов
+    elevatorDetection: true,      // распознавание лифтов/эскалаторов
+    stepVibration: true           // виброотклик при обычном шаге
   };
 
   const SENSITIVITY_TABLE = {
@@ -197,30 +198,31 @@
       return;
     }
 
-    // Разница показаний компаса за последний шаг
+    // 1. Сначала рассчитываем разницу и угловую скорость гироскопа
     const compassDelta = ((compassDeg - (lastExternalCompass || compassDeg) + 540) % 360) - 180;
     lastExternalCompass = compassDeg;
 
-    // Оценка поворота гироскопа вокруг вертикали (рад/с -> град/с)
     const gyroYawRateDeg = Math.abs(currentGyroMag) * (180 / Math.PI);
+    const isNearSouth = (compassDeg > 150 && compassDeg < 210);
 
-    // Детектор аномалий: компас резко дернулся (>25°), а гироскоп подтверждает покой/малый поворот
-    if (Math.abs(compassDelta) > 25 && gyroYawRateDeg < 15) {
+    // 2. Детектор аномалий
+    if (!isNearSouth && Math.abs(compassDelta) > 35 && gyroYawRateDeg < 10) {
       magneticAnomalyActive = true;
-      anomalyCooldownTimer = now + 3500; // бракуем компас на 3.5 секунды
+      anomalyCooldownTimer = now + 2500;
     }
 
     if (magneticAnomalyActive) {
       if (now > anomalyCooldownTimer) {
         magneticAnomalyActive = false;
       } else {
-        return; // Игнорируем показания аномального компаса
+        return; // Пропускаем сбойные показания при аномалии
       }
     }
 
-    // Мягкая комплементарная сшивка (Alpha 0.04): компас плавно правит дрейф гироскопа без рывков
+    // 3. Комплементарный фильтр: компас возвращает курс к реальности
     const diff = ((compassDeg - fusedHeading + 540) % 360) - 180;
-    const alpha = CONFIG.headingDamping === 'high' ? 0.02 : (CONFIG.headingDamping === 'low' ? 0.08 : 0.04);
+    // Увеличиваем вес компаса при ходьбе, чтобы гироскоп не успевал утянуть трек
+    const alpha = CONFIG.headingDamping === 'high' ? 0.08 : (CONFIG.headingDamping === 'low' ? 0.25 : 0.15);
     fusedHeading = (fusedHeading + diff * alpha + 360) % 360;
   }
 
@@ -502,7 +504,7 @@
     }
 
     playStepAudioCue();
-    if (navigator.vibrate) {
+    if (CONFIG.stepVibration && navigator.vibrate) {
       try { navigator.vibrate(25); } catch (err) {}
     }
 
@@ -608,6 +610,9 @@
 
       const vSpeed = parseFloat(localStorage.getItem('wm_pdr_vehicular_speed'));
       if (vSpeed && vSpeed >= 3 && vSpeed <= 160) CONFIG.vehicularSpeedKmh = vSpeed;
+
+      const sVibe = localStorage.getItem('wm_pdr_step_vibe');
+      if (sVibe !== null) CONFIG.stepVibration = (sVibe === 'true');
 
       const dyn = localStorage.getItem('wm_pdr_dynamic_stride');
       if (dyn !== null) CONFIG.useDynamicStride = (dyn === 'true');
@@ -747,6 +752,10 @@
         if (newCfg.carryingMode) localStorage.setItem('wm_pdr_mode', newCfg.carryingMode);
         if (newCfg.baseStepLength) localStorage.setItem('wm_pdr_step_length', newCfg.baseStepLength.toString());
         if (newCfg.vehicularSpeedKmh) localStorage.setItem('wm_pdr_vehicular_speed', newCfg.vehicularSpeedKmh.toString());
+        if (newCfg.stepVibration !== undefined) {
+          CONFIG.stepVibration = !!newCfg.stepVibration;
+          try { localStorage.setItem('wm_pdr_step_vibe', CONFIG.stepVibration ? 'true' : 'false'); } catch (e) {}
+        }
         if (newCfg.useDynamicStride !== undefined) localStorage.setItem('wm_pdr_dynamic_stride', newCfg.useDynamicStride ? 'true' : 'false');
         if (newCfg.sensitivity) localStorage.setItem('wm_pdr_sensitivity', newCfg.sensitivity);
         if (newCfg.headingDamping) localStorage.setItem('wm_pdr_damping', newCfg.headingDamping);
