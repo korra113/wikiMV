@@ -780,7 +780,7 @@
           stopVehicularLoop();
         }
       }
-    }
+    }, // <-- Добавлена запятая
     getDebugSnapshot() {
       return {
         fused: fusedHeading !== null ? Math.round(fusedHeading * 10) / 10 : null,
@@ -796,7 +796,6 @@
         dynMag: Math.round(smoothDynMag * 100) / 100,
         upAccel: Math.round(aUp * 100) / 100
       };
-    },
-
+    }
   };
 })();
