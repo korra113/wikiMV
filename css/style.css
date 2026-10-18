@@ -5324,12 +5324,6 @@ body.sheet-open .measure-hud {
   gap: 10px;
 }
 
-.measure-hud-stats {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
 
 .measure-hud-dist {
   font-size: 17px;
@@ -5543,10 +5537,21 @@ body.sheet-open .measure-hud {
   background: var(--accent-bg);
   color: var(--accent);
   border-color: var(--accent);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
-  width: 34px;
+  width: 36px;
+  height: 34px;
   padding: 0;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.measure-hud-stats {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  margin-left: 6px; /* Небольшой отступ от кнопки Play */
 }
 
 .measure-hud-btn.nav-play-btn:hover:not(:disabled) {
@@ -6188,7 +6193,397 @@ body.sheet-open .measure-hud {
   white-space: pre-line;
   word-break: break-word;
 }
+/* =========================================================================
+   PDR & ANTI-SPOOFING ADVANCED STYLES
+   ========================================================================= */
 
+#btn-manual-pdr.pdr-walking {
+  animation: pdrWalkPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes pdrWalkPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(2, 132, 199, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(2, 132, 199, 0); }
+}
+
+.pdr-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+[data-theme="night-vision"] #btn-manual-pdr.pdr-walking {
+  animation: pdrWalkPulseNV 1.2s infinite ease-in-out;
+}
+
+@keyframes pdrWalkPulseNV {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
+
+/* =========================================================================
+   PDR ДИАГНОСТИКА И КАЛИБРОВКА ШАГОМЕРА
+   ========================================================================= */
+
+.pdr-perm-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.pdr-perm-status {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.pdr-telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.pdr-telem-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pdr-telem-lbl {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.pdr-telem-val {
+  font-size: 11.5px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdr-tester-box {
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.pdr-tester-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.pdr-btn-test {
+  padding: 5px 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 6px;
+}
+
+.pdr-test-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
+.pdr-step-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.pdr-step-num {
+  font-size: 32px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.pdr-step-unit {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.pdr-step-flash {
+  position: absolute;
+  top: -8px;
+  right: -26px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 5px;
+  border-radius: 10px;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.1s ease, transform 0.1s ease;
+  pointer-events: none;
+}
+
+.pdr-step-flash.active {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.pdr-test-stats {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.pdr-test-stats b {
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Шкала всплеска с порогом */
+.pdr-gauge-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pdr-gauge-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.pdr-gauge-track {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  background: var(--border-strong);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.pdr-gauge-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #10b981 0%, #38bdf8 60%, #ef4444 100%);
+  border-radius: 4px;
+  transition: width 0.08s ease-out;
+}
+
+.pdr-gauge-threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #ffffff;
+  box-shadow: 0 0 4px #000;
+  z-index: 2;
+}
+
+/* Индикатор блокировки ZUPT (отсечение кручения телефона на месте) */
+.pdr-zupt-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  transition: all 0.15s ease;
+}
+
+.pdr-zupt-indicator.blocked {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border-color: #f59e0b;
+}
+
+/* Статус Alignment Walk */
+.alignment-walking {
+  animation: pulseTopBtn 1.2s infinite ease-in-out;
+}
+
+/* =========================================================================
+   ОБНОВЛЁННЫЙ БЛОК PDR И НАВИГАЦИИ БЕЗ GPS
+   ========================================================================= */
+
+.pdr-spoiler-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+/* Карточки-секции */
+.pdr-card-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pdr-card-header {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+
+/* Блок заголовка пресетов */
+.pdr-presets-wrap {
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-md, 12px);
+  padding: 12px 14px;
+}
+
+.pdr-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.pdr-block-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.pdr-preset-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+/* Сетка пресетов 2x2 или 4 в ряд */
+.pdr-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+@media (min-width: 480px) {
+  .pdr-presets-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.pdr-preset-btn {
+  background: var(--bg-primary);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 10px 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.pdr-preset-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  transform: translateY(-1px);
+}
+
+.pdr-preset-btn:active {
+  transform: scale(0.96);
+}
+
+.pdr-preset-btn.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg), 0 2px 8px rgba(2, 132, 199, 0.25);
+}
+
+.pdr-preset-icon {
+  font-size: 22px;
+  line-height: 1.1;
+  margin-bottom: 2px;
+}
+
+.pdr-preset-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+
+.pdr-preset-sub {
+  font-size: 9.5px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+/* Бейдж APK Only */
+.badge-apk-only {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #d97706;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .badge-apk-only {
+  background: #451a03;
+  color: #fde68a;
+  border-color: #78350f;
+}
+
+[data-theme="night-vision"] .badge-apk-only {
+  background: #2b0505;
+  color: #ef4444;
+  border-color: #5c0f0f;
+}
+
+[data-theme="night-vision"] .pdr-preset-btn.active {
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.15) !important;
+}
 /* =========================================================================
    КОМПАКТНАЯ АТРИБУЦИЯ КАРТЫ (ATTRIBUTION)
    ========================================================================= */
@@ -6237,26 +6632,109 @@ body.sheet-open .measure-hud {
 /* =========================================================================
    БЕЙДЖ И ЛИНИЯ РАССТОЯНИЯ ДО GPS
    ========================================================================= */
+/* =========================================================================
+   БЕЙДЖ И ЛИНИЯ РАССТОЯНИЯ ДО GPS / ЦЕЛИ
+   ========================================================================= */
 .wm-gps-badge-wrap {
   background: transparent !important;
   border: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: visible !important;
 }
 
-.wm-gps-dist-badge {
+.wm-gps-dist-badge.col-badge {
+  position: absolute;
+  transform: translate(-50%, -50%);
   background: var(--bg-glass-strong);
-  border: 1.5px solid #8b5cf6;
   color: var(--text-main);
-  font-size: 11.5px;
-  font-weight: 700;
-  padding: 3px 9px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md, 12px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  border: 1.5px solid #8b5cf6;
+  min-width: 155px;
+  max-width: 220px;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  user-select: none;
+  z-index: 1500;
+  box-sizing: border-box;
+  will-change: transform;
+  contain: layout style;
+}
+
+/* Привязка строго НАД перекрестием в центре (радиус прицела 22px + зазор 6px = 28px) */
+.wm-gps-dist-badge.col-badge.over-crosshair {
+  transform: translate(-50%, calc(-100% - 28px)) !important;
+}
+
+/* Компактный режим: 2 строки с расстоянием и скоростью */
+.wm-gps-dist-badge.col-badge.compact {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  min-width: auto;
+  max-width: none;
+  padding: 4px 8px;
   border-radius: 12px;
-  box-shadow: var(--shadow-float);
+  gap: 7px;
   white-space: nowrap;
-  pointer-events: none;
+  cursor: pointer;
+}
+
+.wm-gdb-compact-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  line-height: 1.15;
+}
+
+.wm-gdb-compact-val {
+  font-size: 12px;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+}
+
+.wm-gdb-compact-sub {
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.wm-gdb-toggle-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  font-size: 9px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 3px 6px;
+  margin-left: auto;
+  line-height: 1;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.wm-gdb-toggle-btn:hover {
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+
+.wm-gps-dist-badge.col-badge.compact .wm-gdb-toggle-btn {
+  padding: 3px 5px;
+  font-size: 8.5px;
+  border-radius: 6px;
 }
 
 [data-theme="dark"] .wm-gps-dist-badge {
@@ -6271,7 +6749,7 @@ body.sheet-open .measure-hud {
   position: absolute;
   top: calc(140px + env(safe-area-inset-top, 0px)); /* Строго под кнопками зума Leaflet */
   left: calc(10px + env(safe-area-inset-left, 0px));
-  z-index: 1000;
+  z-index: 1200; /* БЫЛО: 1000 — поднято над кнопками левого нижнего угла */
   width: 220px;
   max-width: calc(100vw - 80px);
   background: var(--bg-glass-strong);
@@ -6284,7 +6762,6 @@ body.sheet-open .measure-hud {
   flex-direction: column;
   overflow: hidden;
   user-select: none;
-  /* Плавная анимация сворачивания ширины влево */
   transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1),
               box-shadow 0.2s ease,
               border-color 0.2s ease,
@@ -6639,52 +7116,7 @@ body.sheet-open .info-hud {
   overflow: visible !important;
 }
 
-.wm-gps-dist-badge.col-badge {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  background: var(--bg-glass-strong);
-  color: var(--text-main);
-  padding: 6px 10px;
-  border-radius: var(--radius-md, 12px);
-  box-shadow: var(--shadow-float);
-  border: 1.5px solid #8b5cf6;
-  min-width: 155px;
-  max-width: 215px;
-  pointer-events: auto; /* Разрешаем клики по кнопкам сворачивания */
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  user-select: none;
-  z-index: 1500;
-  box-sizing: border-box;
-}
 
-/* Компактный режим: бейдж в одну узкую строчку */
-.wm-gps-dist-badge.col-badge.compact {
-  flex-direction: row;
-  align-items: center;
-  min-width: auto;
-  max-width: none;
-  padding: 4px 8px;
-  border-radius: 20px;
-  gap: 5px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.wm-gdb-compact-val {
-  font-size: 11px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-main);
-}
-
-.wm-gdb-compact-val.negative {
-  color: var(--danger);
-}
 
 .wm-gdb-compact-sep {
   color: var(--text-muted);
@@ -6692,43 +7124,9 @@ body.sheet-open .info-hud {
   font-weight: bold;
 }
 
-/* Кнопка сворачивания / разворачивания */
-.wm-gdb-toggle-btn {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  color: var(--text-main);
-  font-size: 9px;
-  font-weight: 800;
-  cursor: pointer;
-  padding: 3px 6px;
-  margin-left: auto;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  transition: all 0.15s ease;
-  user-select: none;
-  flex-shrink: 0;
-}
 
-.wm-gdb-toggle-btn:hover {
-  color: var(--accent);
-  background: var(--accent-bg);
-  border-color: var(--accent);
-}
 
-.wm-gdb-toggle-btn:active {
-  transform: scale(0.88);
-}
 
-/* Компактный вид стрелочки внутри свёрнутой плашки */
-.wm-gps-dist-badge.col-badge.compact .wm-gdb-toggle-btn {
-  padding: 2px 5px;
-  font-size: 8.5px;
-  border-radius: 8px;
-  margin-left: 3px;
-}
 .wm-gdb-head {
   display: flex;
   align-items: center;
