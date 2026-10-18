@@ -6766,6 +6766,235 @@ body.sheet-open .measure-hud {
   resize: vertical;
 }
 
+/* =========================================================================
+   HUD ВЫБОРА ТОЧКИ КАЛИБРОВКИ ТРЕУГОЛЬНИКОМ
+   ========================================================================= */
+.triangle-picker-hud {
+  position: absolute;
+  bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2500;
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1.5px solid #10b981;
+  border-radius: var(--radius-lg);
+  padding: 8px 14px;
+  box-shadow: 0 6px 24px rgba(16, 185, 129, 0.25), var(--shadow-float);
+  width: calc(100vw - 32px);
+  max-width: 380px;
+  user-select: none;
+  animation: toastFade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+.tri-picker-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tri-picker-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.tri-picker-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tri-picker-badge {
+  background: #10b981;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.tri-picker-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tri-picker-sub {
+  font-size: 10.5px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tri-picker-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tri-picker-btn {
+  height: 34px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.tri-picker-btn.cancel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 0 10px;
+}
+
+.tri-picker-btn.cancel:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.tri-picker-btn.ok {
+  background: #10b981;
+  border: 1px solid #10b981;
+  color: #ffffff;
+  padding: 0 14px;
+}
+
+.tri-picker-btn.ok:hover {
+  background: #059669;
+  border-color: #059669;
+}
+
+.tri-picker-btn:active {
+  transform: scale(0.93);
+}
+
+/* Метки ориентиров и мерные плашки на карте */
+.wm-triangle-pin-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.wm-triangle-pin-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #10b981;
+  color: #ffffff;
+  border: 2px solid #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 13px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+.wm-triangle-leg-badge {
+  background: var(--bg-glass-strong);
+  border: 1.5px solid #10b981;
+  color: var(--text-main);
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+
+[data-theme="night-vision"] .triangle-picker-hud {
+  background: rgba(18, 3, 3, 0.94);
+  border-color: #ef4444;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.4);
+}
+
+[data-theme="night-vision"] .tri-picker-badge {
+  background: #ef4444;
+}
+
+[data-theme="night-vision"] .tri-picker-btn.ok {
+  background: #ef4444;
+  border-color: #ef4444;
+}
+
+[data-theme="night-vision"] .wm-triangle-pin-badge {
+  background: #ef4444;
+}
+
+[data-theme="night-vision"] .wm-triangle-leg-badge {
+  border-color: #ef4444;
+}
+
+/* =========================================================================
+   ОБНОВЛЕННАЯ СТРУКТУРА PDR
+   ========================================================================= */
+.pdr-sub-body {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-primary);
+}
+
+.pdr-calib-card {
+  border: 1.5px solid #10b981 !important;
+  background: rgba(16, 185, 129, 0.05) !important;
+}
+
+[data-theme="dark"] .pdr-calib-card {
+  background: rgba(16, 185, 129, 0.1) !important;
+  border-color: #059669 !important;
+}
+
+[data-theme="night-vision"] .pdr-calib-card {
+  background: rgba(239, 68, 68, 0.08) !important;
+  border-color: #ef4444 !important;
+}
+
+.pdr-card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.pdr-btn-calib-start {
+  font-size: 11.5px;
+  padding: 5px 12px;
+  background: #10b981;
+  border-color: #10b981;
+  white-space: nowrap;
+}
+
+.pdr-btn-calib-start:hover {
+  background: #059669;
+  border-color: #059669;
+}
+
+[data-theme="night-vision"] .pdr-btn-calib-start {
+  background: #ef4444 !important;
+  border-color: #ef4444 !important;
+}
+
 [data-theme="night-vision"] .imu-log-live-box {
   border-color: #ef4444;
 }
