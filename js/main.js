@@ -1582,15 +1582,25 @@
   function onPdrStepTaken(strideMeters, headingDeg, count, deltaAlt, currentAlt) {
     if (!userLatLng) return;
 
-    // headingDeg уже фильтруется алгоритмом Маджвика + ZUPT bias + защитой от магнитных аномалий
-    const effectiveHeading = (headingDeg !== null && !isNaN(headingDeg)) 
-      ? headingDeg 
-      : (currentHeading || 0);
+    // Если доступен аппаратный компас (по которому ориентирован конус),
+    // берем его напрямую либо fusedHeading с защитой от рассинхрона
+    let effectiveHeading = currentHeading !== null ? currentHeading : headingDeg;
+    if (headingDeg !== null && !isNaN(headingDeg)) {
+      if (currentHeading !== null) {
+        // Защита от закручивания: если угол PDR разошелся с реальным компасом более чем на 30°,
+        // принудительно возвращаем шаг к направлению конуса
+        const diff = Math.abs(((headingDeg - currentHeading + 540) % 360) - 180);
+        effectiveHeading = diff > 30 ? currentHeading : headingDeg;
+      } else {
+        effectiveHeading = headingDeg;
+      }
+    }
 
     const rad = (effectiveHeading * Math.PI) / 180;
     const dLat = (strideMeters * Math.cos(rad)) / 111320;
     const cosLat = Math.cos((userLatLng[0] * Math.PI) / 180) || 1;
     const dLng = (strideMeters * Math.sin(rad)) / (111320 * cosLat);
+
 
     const nextLL = [userLatLng[0] + dLat, userLatLng[1] + dLng];
     
@@ -1736,11 +1746,13 @@
     return current + diff;
   }
 
+  let smoothVx = 0, smoothVy = 0;
+
   function getCompassHeadingFromAngles(alpha, beta, gamma) {
     const degToRad = Math.PI / 180;
-    const _x = beta ? beta * degToRad : 0;
-    const _y = gamma ? gamma * degToRad : 0;
-    const _z = alpha ? alpha * degToRad : 0;
+    const _x = (beta || 0) * degToRad;
+    const _y = (gamma || 0) * degToRad;
+    const _z = (alpha || 0) * degToRad;
 
     const cX = Math.cos(_x), sX = Math.sin(_x);
     const cY = Math.cos(_y), sY = Math.sin(_y);
@@ -1749,7 +1761,11 @@
     const Vx = -cZ * sY - sZ * sX * cY;
     const Vy = -sZ * sY + cZ * sX * cY;
 
-    let heading = Math.atan2(Vx, Vy) * (180 / Math.PI);
+    // Сглаживание компонент убирает дребезг около нуля на Юге
+    smoothVx += 0.25 * (Vx - smoothVx);
+    smoothVy += 0.25 * (Vy - smoothVy);
+
+    let heading = Math.atan2(smoothVx, smoothVy) * (180 / Math.PI);
     if (heading < 0) heading += 360;
     return heading;
   }
@@ -1832,10 +1848,10 @@
     const granted = await requestOrientationPermission();
     if (!granted) return;
 
+    // Слушаем ТОЛЬКО absolute, если он поддерживается
     if ('ondeviceorientationabsolute' in window) {
       window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
-    }
-    if ('ondeviceorientation' in window) {
+    } else if ('ondeviceorientation' in window) {
       window.addEventListener('deviceorientation', onDeviceOrientation, true);
     }
     isOrientationListening = true;
@@ -2561,8 +2577,12 @@
     let strokeColor = '#8b5cf6';
 
     if (isMotionVectorEnabled && motionCourse !== null) {
-      signedDiff = (motionCourse - bearingToCenter + 540) % 360 - 180;
+      signedDiff = (motionCourse - bearingToTarget + 540) % 360 - 180;
       diffAngle = Math.abs(signedDiff);
+
+      if (WM.navVibro && activeNavTarget && speed >= 0.35) {
+        WM.navVibro.triggerNavigationVibration(signedDiff, diffAngle, speed);
+      }
 
       if (speed >= 0.35) {
         if (diffAngle <= 5) {
@@ -2784,6 +2804,10 @@
     if (isMotionVectorEnabled && motionCourse !== null) {
       signedDiff = (motionCourse - bearingToTarget + 540) % 360 - 180;
       diffAngle = Math.abs(signedDiff);
+
+      if (WM.navVibro && activeNavTarget && speed >= 0.35) {
+        WM.navVibro.triggerNavigationVibration(signedDiff, diffAngle, speed);
+      }
 
       if (speed >= 0.35) {
         if (diffAngle <= 5) {
