@@ -1772,21 +1772,67 @@
   let orientationRafId = 0;
   let pendingHeading = null;
 
-  function onDeviceOrientation(e) {
-    let heading = null;
-    window._wmSensorEventsCount = (window._wmSensorEventsCount || 0) + 1;
-
+  function computeCleanHeading(e) {
+    // 1. iOS: готовый курс
     if (typeof e.webkitCompassHeading === 'number') {
-      // iOS CoreMotion уже скомпенсирован аппаратно
-      heading = e.webkitCompassHeading;
-    } else if (e.alpha !== null && e.beta !== null && e.gamma !== null) {
-      // Android: передаем все три угла для компенсации наклона
-      heading = computeTiltCompensatedHeading(e.alpha, e.beta, e.gamma);
+      return (e.webkitCompassHeading + 360) % 360;
     }
 
-    if (heading !== null && !isNaN(heading)) {
-      pendingHeading = Math.round(heading);
+    if (e.alpha === null || e.alpha === undefined) return null;
 
+    const degToRad = Math.PI / 180;
+    const alpha = (e.alpha || 0) * degToRad; // Yaw (Z)
+    let beta    = (e.beta  || 0) * degToRad; // Pitch (X)
+    let gamma   = (e.gamma || 0) * degToRad; // Roll (Y)
+
+    // На Windows планшетах (Surface) alpha уже является готовым аппаратно сглаженным курсом.
+    // Защита от переворота через 90° (когда планшет отклонён от себя назад):
+    if (Math.abs(e.beta) > 90) {
+      beta = Math.sign(e.beta) * (180 - Math.abs(e.beta)) * degToRad;
+      gamma = (gamma > 0 ? gamma - Math.PI : gamma + Math.PI);
+    }
+
+    const cA = Math.cos(alpha), sA = Math.sin(alpha);
+    const cB = Math.cos(beta),  sB = Math.sin(beta);
+    const cG = Math.cos(gamma), sG = Math.sin(gamma);
+
+    // Матрица поворота Rz(alpha) * Rx(beta) * Ry(gamma)
+    const r11 =  cA * cG - sA * sB * sG;
+    const r21 =  sA * cG + cA * sB * sG;
+    const r12 = -sA * cB;
+    const r22 =  cA * cB;
+
+    const screenAngleDeg = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+    const screenAngleRad = screenAngleDeg * degToRad;
+
+    const vx = -Math.sin(screenAngleRad);
+    const vy =  Math.cos(screenAngleRad);
+
+    const yEast  = vx * r11 + vy * r12;
+    const yNorth = vx * r21 + vy * r22;
+
+    if (Math.hypot(yEast, yNorth) < 0.06) {
+      // Планшет строго перпендикулярен земле — используем азимут задней крышки
+      const r13 =  cA * sG + sA * sB * cG;
+      const r23 =  sA * sG - cA * sB * cG;
+      let headingVert = Math.atan2(-r13, -r23) * (180 / Math.PI);
+      return (headingVert + 360) % 360;
+    }
+
+    let heading = Math.atan2(yEast, yNorth) * (180 / Math.PI);
+    return (heading + 360) % 360;
+  }
+
+  // Заменяем обработчик onDeviceOrientation в main.js:
+  function onDeviceOrientation(e) {
+    window._wmSensorEventsCount = (window._wmSensorEventsCount || 0) + 1;
+
+    const heading = computeCleanHeading(e);
+
+    if (heading !== null && !isNaN(heading)) {
+      pendingHeading = Math.round(heading * 10) / 10;
+
+      // Передаем очищенный компас в PDR движок
       if (WM.pdr && WM.pdr.updateExternalCompass) {
         WM.pdr.updateExternalCompass(pendingHeading);
       }
@@ -1794,7 +1840,6 @@
       if (!orientationRafId) {
         orientationRafId = requestAnimationFrame(() => {
           orientationRafId = 0;
-          // Конус теперь берет сглаженный отфильтрованный курс PDR вместо сырых прыгающих показаний
           const effectiveH = (WM.pdr && WM.pdr.getHeading) ? WM.pdr.getHeading() : pendingHeading;
           if (effectiveH !== null && effectiveH !== currentHeading) {
             currentHeading = effectiveH;
