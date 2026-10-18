@@ -1628,11 +1628,6 @@
     if (btnManualPdr) btnManualPdr.classList.add('pdr-walking');
   }
 
-  function stopPdrTracking() {
-    if (!WM.pdr) return;
-    WM.pdr.stop();
-    if (btnManualPdr) btnManualPdr.classList.remove('pdr-walking');
-  }
 
   // Ручной режим PDR (привязка точки к центру экрана)
   WM.manualPdr = {
@@ -1718,14 +1713,6 @@
 
 
 
-
-
-
-
-  function stopPdrTracking() {
-    WM.pdr.stop();
-    if (btnManualPdr) btnManualPdr.classList.remove('pdr-walking');
-  }
 
 
 
@@ -3080,19 +3067,29 @@
   }
 
   function setGpsCoords(ll, coords, timestamp, isPdrBypass = false) {
-    // Если активен ручной режим датчиков — игнорируем любые входящие спутниковые сигналы
     if (isManualPdrActive && !isPdrBypass) {
       return;
     }
 
     const targetLL = L.latLng(ll[0], ll[1]);
 
-    // Если это сырые данные со спутников — проверяем их антиспуфингом
     if (!isPdrBypass && !validateGpsPoint(targetLL, coords, timestamp)) {
-      return; // Точка отсеяна глушилкой, не смещаем маркер
+      return;
     }
 
     userLatLng = ll;
+
+    // ИСПРАВЛЕНО: актуализируем WM.gpsState для всех модулей (measure, HUD, navTarget)
+    WM.gpsState = {
+      lat: ll[0],
+      lng: ll[1],
+      accuracy: (coords && coords.accuracy != null) ? coords.accuracy : 5,
+      altitude: (coords && coords.altitude != null) ? coords.altitude : (WM.gpsState ? WM.gpsState.altitude : null),
+      speed: (coords && coords.speed != null) ? coords.speed : 0,
+      heading: (coords && coords.heading != null && !isNaN(coords.heading)) ? coords.heading : (currentHeading || 0),
+      timestamp: timestamp || Date.now()
+    };
+
     if (me) {
       me.setLatLng(ll);
     } else {
@@ -3103,32 +3100,26 @@
       }).addTo(map);
     }
 
-    // 1. Записываем точку в буфер
     updateMotionHistory(ll, coords, timestamp);
-
-    // 2. ДОБАВИТЬ ЭТУ СТРОКУ: принудительно обновляем сглаженный курс
     updateSmoothedCourse(timestamp);
 
     if (WM.motionTail) {
       WM.motionTail.addPoint(ll, coords, timestamp);
     }
 
-    if (isMotionVectorEnabled) {
-      updateMotionVectorVisuals();
-    }
-    if (isGpsDistEnabled) {
-      updateGpsDistVisuals();
-    }
-    if (activeNavTarget) {
-      updateNavTargetVisuals();
-    }
-    if (WM.compass) {
-      updateCompassVisuals();
-    }
-    // <-- ДОБАВИТЬ ЭТУ СТРОКУ:
+    if (isMotionVectorEnabled) updateMotionVectorVisuals();
+    if (isGpsDistEnabled) updateGpsDistVisuals();
+    if (activeNavTarget) updateNavTargetVisuals();
+    if (WM.compass) updateCompassVisuals();
     if (WM.measure && WM.measure.onGpsUpdate) {
       WM.measure.onGpsUpdate(ll, coords);
     }
+  }
+
+  // Оставьте ТОЛЬКО одну безопасную версию этой функции (дубликат ниже удалите):
+  function stopPdrTracking() {
+    if (WM.pdr && WM.pdr.stop) WM.pdr.stop();
+    if (btnManualPdr) btnManualPdr.classList.remove('pdr-walking');
   }
 
   // Непрерывное отслеживание движения:
