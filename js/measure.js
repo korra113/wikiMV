@@ -31,6 +31,33 @@
   let lastVibroAlertTime = 0;
   let lastNavCourse = null;
 
+  // Screen Wake Lock (предотвращение засыпания экрана во время навигации)
+  let wakeLockSentinel = null;
+
+  async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        wakeLockSentinel.addEventListener('release', () => {
+          wakeLockSentinel = null;
+        });
+      } catch (e) {}
+    }
+  }
+
+  function releaseWakeLock() {
+    if (wakeLockSentinel) {
+      try { wakeLockSentinel.release(); } catch (e) {}
+      wakeLockSentinel = null;
+    }
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && isNavigating && !wakeLockSentinel) {
+      requestWakeLock();
+    }
+  });
+
   // Слои Leaflet
   let otherTracksLayer = null;
   let activeLineLayer = null;
@@ -219,6 +246,16 @@
 
   function findSmartInitialTargetIndex(pts, uLL) {
     if (!pts || pts.length < 2) return 0;
+
+    const p0 = L.latLng(pts[0].lat, pts[0].lng);
+    const p1 = L.latLng(pts[1].lat, pts[1].lng);
+    const proj0 = projectPointToSegmentMeters(uLL, p0, p1);
+
+    // Если находимся до первого узла и движемся к нему
+    if (proj0.t <= 0.05 && uLL.distanceTo(p0) < uLL.distanceTo(p1)) {
+      return 0;
+    }
+
     let bestDist = Infinity;
     let bestSeg = 0;
     let bestT = 0;
@@ -234,17 +271,16 @@
       }
     }
 
-    // Если находимся до первой точки маршрута (t <= 0.05 на первом отрезке)
+    // Если стоим между узлом bestSeg и bestSeg + 1, узел bestSeg уже сзади,
+    // значит цель — узел bestSeg + 1 (в сторону финиша)!
     if (bestSeg === 0 && bestT <= 0.05) {
       return 0;
     }
-    // Если находимся на любом отрезке — цель узел впереди по направлению движения
     return Math.min(pts.length - 1, bestSeg + 1);
   }
 
   function getNodeArrivalRadius(pts, targetIdx) {
     const { total } = computeTrackDistances(pts);
-    // Для маршрута 1 км -> ~32 м; для 10 км и более -> ~140 м
     const norm = Math.max(0, Math.min(1, (total - 1000) / 9000));
     const baseR = 32 + norm * 108; // 32м .. 140м
 
@@ -259,8 +295,77 @@
       segLen = p0.distanceTo(p1);
     }
 
-    // Не даём радиусу превышать 42% сегмента, чтобы не перепрыгивать близкие повороты
     return Math.max(22, Math.min(baseR, segLen * 0.42));
+  }
+
+  // Интеллектуальный контроль прогресса и автопропуск пройденных узлов
+  function checkAndAdvanceRouteNodes(pts, uLL) {
+    const totalNodes = pts.length;
+    if (navTargetIndex >= totalNodes) return false;
+
+    let advanced = false;
+    const prevTarget = navTargetIndex;
+
+    // 1. Проверка взятия текущего целевого узла
+    const targetPt = pts[navTargetIndex];
+    const targetLL = L.latLng(targetPt.lat, targetPt.lng);
+    const distToCur = uLL.distanceTo(targetLL);
+    const arrivalRadius = getNodeArrivalRadius(pts, navTargetIndex);
+
+    if (distToCur <= arrivalRadius) {
+      navTargetIndex++;
+      advanced = true;
+    }
+
+    // 2. Сканирование сегментов вперед: определяем, не ушёл ли пользователь вперёд при отключенном GPS
+    const startScanSeg = Math.max(0, navTargetIndex - 1);
+    let bestForwardSeg = -1;
+    let minForwardDist = Infinity;
+
+    for (let k = startScanSeg; k < totalNodes - 1; k++) {
+      const aLL = L.latLng(pts[k].lat, pts[k].lng);
+      const bLL = L.latLng(pts[k + 1].lat, pts[k + 1].lng);
+      const proj = projectPointToSegmentMeters(uLL, aLL, bLL);
+      const segArrivalR = getNodeArrivalRadius(pts, k + 1);
+      const maxAllowedCorridor = Math.max(48, segArrivalR * 1.7);
+
+      // Пользователь находится вдоль сегмента k (t >= 0.1) в пределах допустимого коридора
+      if (proj.t >= 0.1 && proj.dist <= maxAllowedCorridor) {
+        if (k > startScanSeg || proj.dist < minForwardDist) {
+          minForwardDist = proj.dist;
+          bestForwardSeg = k;
+        }
+      } else if (k === startScanSeg && proj.t > 1.05 && uLL.distanceTo(bLL) < uLL.distanceTo(aLL)) {
+        // Перелетели целевой узел дальше по направлению
+        bestForwardSeg = Math.min(totalNodes - 2, startScanSeg + 1);
+      }
+    }
+
+    if (bestForwardSeg > startScanSeg) {
+      const candidateTarget = Math.min(totalNodes - 1, bestForwardSeg + 1);
+      if (candidateTarget > navTargetIndex) {
+        navTargetIndex = candidateTarget;
+        advanced = true;
+      }
+    }
+
+    if (advanced) {
+      const skippedCount = navTargetIndex - prevTarget;
+      if (skippedCount > 0) {
+        if (navigator.vibrate) navigator.vibrate([120, 80, 120]);
+        if (WM.ui && WM.ui.showToast) {
+          if (navTargetIndex >= totalNodes) {
+            WM.ui.showToast('🏁 Финишный узел достигнут! Маршрут завершён.', 3500);
+          } else if (skippedCount > 1) {
+            WM.ui.showToast(`⏩ Пройдено узлов в пути: ${skippedCount}. Цель: узел #${navTargetIndex + 1}`, 2600);
+          } else {
+            WM.ui.showToast(`✓ Узел #${prevTarget + 1} пройден!`, 1800);
+          }
+        }
+      }
+      return true;
+    }
+    return false;
   }
 
   // =========================================================================
@@ -580,7 +685,6 @@
     if (!active || !activeLineLayer) return;
 
     if (isNavigating) {
-      // В навигации делим полилинию: пройденные участки (серые) и оставшиеся (цветные)
       activeLineLayer.clearLayers();
       const pts = active.points.map(p => [p.lat, p.lng]);
       if (pts.length < 2) return;
@@ -720,7 +824,10 @@
     offCourseStartTime = 0;
     lastVibroAlertTime = 0;
 
-    // Автоматически определяем целевой узел (если стоим посреди маршрута)
+    // Включаем бодрствование экрана
+    requestWakeLock();
+
+    // Автоматически определяем правильный начальный узел
     if (uLL) {
       navTargetIndex = findSmartInitialTargetIndex(active.points, uLL);
     } else {
@@ -747,6 +854,8 @@
     if (!isNavigating) return;
     isNavigating = false;
     offCourseStartTime = 0;
+
+    releaseWakeLock();
 
     if (navGuideLayer) navGuideLayer.clearLayers();
 
@@ -786,24 +895,20 @@
     if (!navVibroEnabled || !navigator.vibrate) return;
     const now = Date.now();
 
-    // Частота повтора сигналов зависит от величины отклонения
-    let minInterval = 13000; // небольшое отклонение: раз в 13 сек
+    let minInterval = 13000;
     if (absDiff > 110) {
-      minInterval = 3800;    // противоположное движение / резкий уход: раз в 3.8 сек
+      minInterval = 3800;
     } else if (absDiff > 65) {
-      minInterval = 7500;    // среднее отклонение: раз в 7.5 сек
+      minInterval = 7500;
     }
 
     if (now - lastVibroAlertTime < minInterval) return;
     lastVibroAlertTime = now;
 
-    // Влево (против часовой стрелки): одиночный импульс
     if (signedDiff < 0) {
-      navigator.vibrate(220);
-    } 
-    // Вправо (по часовой стрелке): двойной импульс
-    else {
-      navigator.vibrate([130, 90, 130]);
+      navigator.vibrate(220); // Влево: один импульс
+    } else {
+      navigator.vibrate([130, 90, 130]); // Вправо: двойной импульс
     }
   }
 
@@ -816,7 +921,16 @@
     const pts = active.points;
     const totalNodes = pts.length;
 
-    // Достигли ли финиша?
+    // Автопроверка и автопропуск пройденных узлов при каждом обновлении геопозиции
+    if (uLL) {
+      const advanced = checkAndAdvanceRouteNodes(pts, uLL);
+      if (advanced) {
+        updateDisplay();
+        return;
+      }
+    }
+
+    // Финиш достигнут
     if (navTargetIndex >= totalNodes) {
       if (navGuideLayer) navGuideLayer.clearLayers();
       const titleEl = $('measure-nav-target-title');
@@ -844,40 +958,6 @@
 
     if (uLL) {
       distToNode = uLL.distanceTo(targetLL);
-
-      // Проверка взятия узла
-      const arrivalRadius = getNodeArrivalRadius(pts, navTargetIndex);
-      if (distToNode <= arrivalRadius) {
-        navTargetIndex++;
-        if (navigator.vibrate) navigator.vibrate([120, 80, 120]);
-        if (WM.ui && WM.ui.showToast) {
-          if (navTargetIndex >= totalNodes) {
-            WM.ui.showToast('🏁 Финишный узел достигнут! Маршрут завершён.', 3500);
-          } else {
-            WM.ui.showToast(`✓ Узел #${navTargetIndex} пройден!`, 2000);
-          }
-        }
-        updateDisplay();
-        return;
-      }
-
-      // Проверка срезания угла (пользователь уже на следующем сегменте)
-      if (navTargetIndex < totalNodes - 1) {
-        const nextPt = pts[navTargetIndex + 1];
-        const nextLL = L.latLng(nextPt.lat, nextPt.lng);
-        const proj = projectPointToSegmentMeters(uLL, targetLL, nextLL);
-        if (proj.t >= 0.18 && proj.dist <= arrivalRadius * 1.6) {
-          navTargetIndex++;
-          if (navigator.vibrate) navigator.vibrate([80, 50, 80]);
-          if (WM.ui && WM.ui.showToast) {
-            WM.ui.showToast(`✓ Переход к узлу #${navTargetIndex + 1}`, 1800);
-          }
-          updateDisplay();
-          return;
-        }
-      }
-
-      // Оставшаяся дистанция по маршруту от текущего узла до финиша
       distToTotal = distToNode;
       for (let k = navTargetIndex; k < totalNodes - 1; k++) {
         const pA = L.latLng(pts[k].lat, pts[k].lng);
@@ -893,7 +973,6 @@
     const distTotalEl = $('measure-nav-dist-total');
     if (distTotalEl) distTotalEl.textContent = fmtDistance(distToTotal);
 
-    // Скорость и время прибытия (ETA)
     const speed = (WM.gpsState && WM.gpsState.speed != null && WM.gpsState.speed >= 0) ? WM.gpsState.speed : 0;
     const speedKmh = speed * 3.6;
     const speedEl = $('measure-nav-speed');
@@ -901,7 +980,7 @@
 
     let etaNode = '--:--';
     let etaTotal = '--:--';
-    const effectiveSpeed = speed >= 0.4 ? speed : 1.35; // если стоим, считаем средний шаг 4.8 км/ч
+    const effectiveSpeed = speed >= 0.4 ? speed : 1.35;
 
     if (distToNode > 0) etaNode = fmtEta(distToNode / effectiveSpeed);
     if (distToTotal > 0) etaTotal = fmtEta(distToTotal / effectiveSpeed);
@@ -912,14 +991,12 @@
     const etaTotalEl = $('measure-nav-eta-total');
     if (etaTotalEl) etaTotalEl.textContent = `Финиш: ${etaTotal}`;
 
-    // Анализ отклонения курса
     let driftText = 'Стоянка';
     let driftSub = 'Ожидание шага';
     let signedDiff = 0;
     let absDiff = 0;
     let guideColor = '#0284c7';
 
-    // Получаем текущий сглаженный вектор курса из системы
     let course = (WM.motionVector && WM.motionVector.getCourse) ? WM.motionVector.getCourse() : null;
     if (course === null && WM.gpsState && WM.gpsState.heading != null && !isNaN(WM.gpsState.heading)) {
       course = WM.gpsState.heading;
@@ -927,7 +1004,6 @@
     if (course !== null) lastNavCourse = course;
 
     if (uLL && lastNavCourse !== null && speed >= 0.45) {
-      // Разница от -180° до +180°
       signedDiff = ((lastNavCourse - bearingToNode + 540) % 360) - 180;
       absDiff = Math.abs(signedDiff);
 
@@ -935,13 +1011,12 @@
         driftText = '🟢 По курсу';
         driftSub = `Азимут: ${Math.round(bearingToNode)}°`;
         guideColor = '#10b981';
-        offCourseStartTime = 0; // На курсе — сбрасываем таймер ошибки
+        offCourseStartTime = 0;
       } else {
         const sideText = signedDiff > 0 ? 'вправо' : 'влево';
         driftText = `Крен ${sideText} ${Math.round(absDiff)}°`;
         guideColor = absDiff > 75 ? '#ef4444' : '#f59e0b';
 
-        // Защита от кочек/ямок: требуем устойчивого отклонения не менее 15 секунд
         const now = Date.now();
         if (!offCourseStartTime) {
           offCourseStartTime = now;
@@ -974,7 +1049,6 @@
       statusSubEl.textContent = uLL ? (speed >= 0.45 ? 'Движение' : 'Остановка') : 'Поиск GPS…';
     }
 
-    // Отрисовка направляющей линии от текущей геопозиции к целевому узлу
     if (navGuideLayer) {
       navGuideLayer.clearLayers();
       if (uLL) {
