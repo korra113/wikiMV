@@ -1094,7 +1094,6 @@
     }
     if (course !== null) lastNavCourse = course;
 
-    const cone = WM.navVibro ? WM.navVibro.getCone() : 30;
 
     const cone = WM.navVibro ? WM.navVibro.getCone() : 30;
 
