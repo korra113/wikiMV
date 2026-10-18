@@ -44,6 +44,13 @@
   let biasGx = 0.0, biasGy = 0.0, biasGz = 0.0;
   let restFramesCount = 0;
 
+  let hasTrueHardwareGyro = false;     // True, если подтвержден физический качественный гироскоп
+  let gyroEvaluated = false;           // Флаг завершения автокалибровки типа сенсора
+  let gyroEvaluationFrames = 0;
+  let gyroValidMotionFrames = 0;
+
+
+
   // --- ДЕТЕКТОР МАГНИТНЫХ АНОМАЛИЙ И СШИВКА КУРСА ---
   let fusedHeading = null;
   let lastExternalCompass = null;
@@ -188,6 +195,12 @@
   }
 
   // --- ОБНОВЛЕНИЕ ВНЕШНЕГО КОМПАСА С ДЕТЕКТОРОМ АНОМАЛИЙ ---
+  // Флаг обнаружения виртуального/нестабильного гироскопа
+  let isSyntheticGyro = false;
+  let gyroCheckSamples = 0;
+  let gyroZeroOrDupeCount = 0;
+
+  // --- ОБНОВЛЕНИЕ ВНЕШНЕГО КОМПАСА С УМНЫМ ДЕТЕКТОРОМ АНОМАЛИЙ ---
   function updateExternalCompass(compassDeg) {
     if (compassDeg === null || isNaN(compassDeg)) return;
     const now = performance.now();
@@ -198,27 +211,41 @@
       return;
     }
 
+    // 1. Кратчайшая дельта нового замера компаса к прошлому замеру
     const compassDelta = ((compassDeg - (lastExternalCompass || compassDeg) + 540) % 360) - 180;
     lastExternalCompass = compassDeg;
 
-    const gyroYawRateDeg = Math.abs(currentGyroMag) * (180 / Math.PI);
-    const isJerk = Math.abs(compassDelta) > 60 && gyroYawRateDeg < 6;
-
+    // 2. Детектор аномалий: скачок более 55° без соответствующего вращения планшета
+    const isWindows = navigator.userAgent.includes('Windows');
+    const isJerk = Math.abs(compassDelta) > 55 && !isWindows;
     if (isJerk) {
       magneticAnomalyActive = true;
-      anomalyCooldownTimer = now + 500;
+      anomalyCooldownTimer = now + 400;
     } else if (now > anomalyCooldownTimer) {
       magneticAnomalyActive = false;
     }
 
-    // Вес фильтра: при аномалии берем минимальный вес, в норме — по настройке
-    let filterWeight = CONFIG.headingDamping === 'high' ? 0.08 : (CONFIG.headingDamping === 'low' ? 0.25 : 0.15);
+    // 3. Распределение веса в фильтре:
+    let filterWeight;
     if (magneticAnomalyActive) {
+      // При магнитной аномалии почти не доверяем компасу
       filterWeight = 0.02;
+    } else if (hasTrueHardwareGyro) {
+      // НА ФЛАГМАНЕ: высокочастотные повороты уже рассчитаны гироскопом в handleDeviceMotion,
+      // компас лишь плавно и незаметно устраняет медленный дрейф нуля:
+      filterWeight = (CONFIG.headingDamping === 'high') ? 0.03 : 0.06;
+    } else {
+      // НА БЮДЖЕТНОМ УСТРОЙСТВЕ: компас — основной источник.
+      // Используем адаптивное кольцевое сглаживание:
+      const diff = Math.abs(((compassDeg - fusedHeading + 540) % 360) - 180);
+      if (diff > 30) filterWeight = 0.28;       // Резкий разворот человека
+      else if (diff > 10) filterWeight = 0.16;  // Обычный шаг/поворот
+      else filterWeight = 0.07;                 // Стояние на месте / дрожание рук
     }
 
-    const diff = ((compassDeg - fusedHeading + 540) % 360) - 180;
-    fusedHeading = (fusedHeading + diff * filterWeight + 360) % 360;
+    // 4. Корректный поворот кольцевого угла без сингулярности 0°/360°
+    const diffAngle = ((compassDeg - fusedHeading + 540) % 360) - 180;
+    fusedHeading = (fusedHeading + diffAngle * filterWeight + 360) % 360;
   }
 
   function getFusedHeading() {
@@ -265,18 +292,17 @@
   // --- ОБРАБОТЧИК ДАТЧИКОВ ДВИЖЕНИЯ ---
   function handleDeviceMotion(e) {
     const now = performance.now();
-    const dt = Math.min(0.06, Math.max(0.005, (now - (lastSensorTime || now)) / 1000));
+    // Ограничиваем dt в разумных пределах (от 5 до 80 мс) на случай подвисания потока браузера
+    const dt = Math.min(0.08, Math.max(0.005, (now - (lastSensorTime || now)) / 1000));
     lastSensorTime = now;
 
-    let rawAx = 0, rawAy = 0, rawAz = 0;
-    if (e.accelerationIncludingGravity && e.accelerationIncludingGravity.x !== null) {
-      rawAx = e.accelerationIncludingGravity.x || 0;
-      rawAy = e.accelerationIncludingGravity.y || 0;
-      rawAz = e.accelerationIncludingGravity.z || 0;
-    }
+    // 1. Сырые ускорения с гравитацией
+    let rawAx = (e.accelerationIncludingGravity && e.accelerationIncludingGravity.x) || 0;
+    let rawAy = (e.accelerationIncludingGravity && e.accelerationIncludingGravity.y) || 0;
+    let rawAz = (e.accelerationIncludingGravity && e.accelerationIncludingGravity.z) || 0;
 
-    // Выделение вектора гравитации LPF
-    const alphaGravity = Math.min(0.985, Math.max(0.90, Math.exp(-dt / 0.45)));
+    // 2. Выделение гравитационного вектора через фильтр нижних частот (LPF)
+    const alphaGravity = Math.min(0.985, Math.max(0.85, Math.exp(-dt / 0.40)));
     if (!hasGravityInit) {
       lpfGravity = { x: rawAx, y: rawAy, z: rawAz };
       hasGravityInit = true;
@@ -286,94 +312,112 @@
       lpfGravity.z = alphaGravity * lpfGravity.z + (1 - alphaGravity) * rawAz;
     }
 
-    let dynX = rawAx - lpfGravity.x;
-    let dynY = rawAy - lpfGravity.y;
-    let dynZ = rawAz - lpfGravity.z;
-    let dynMagTotal = Math.hypot(dynX, dynY, dynZ);
-
-    if (e.acceleration && e.acceleration.x !== null) {
-      const hwX = e.acceleration.x || 0;
-      const hwY = e.acceleration.y || 0;
-      const hwZ = e.acceleration.z || 0;
-      const hwMag = Math.hypot(hwX, hwY, hwZ);
-      if (hwMag > 0.08 && hwMag > dynMagTotal * 0.7) {
-        dynX = hwX; dynY = hwY; dynZ = hwZ;
-        dynMagTotal = hwMag;
-      }
-    }
+    // 3. Динамическое ускорение (чистое движение человека без силы тяжести)
+    const dynX = rawAx - lpfGravity.x;
+    const dynY = rawAy - lpfGravity.y;
+    const dynZ = rawAz - lpfGravity.z;
+    const dynMagTotal = Math.hypot(dynX, dynY, dynZ);
 
     const alphaSmooth = Math.min(0.65, Math.max(0.12, dt / (0.055 + dt)));
     smoothDynMag += alphaSmooth * (dynMagTotal - smoothDynMag);
 
+    // 4. Чтение угловых скоростей (W3C standard)
     const rot = e.rotationRate || {};
-    // ИСПРАВЛЕНО: оси приведены к строгому стандарту W3C DeviceMotionEvent
-    let rawGx = (rot.beta || 0) * (Math.PI / 180);   // X = Pitch (наклон вперед/назад)
-    let rawGy = (rot.gamma || 0) * (Math.PI / 180);  // Y = Roll (крен влево/вправо)
-    let rawGz = (rot.alpha || 0) * (Math.PI / 180);  // Z = Yaw (рыскание / поворот курса)
-
+    const rawGx = (rot.beta || 0) * (Math.PI / 180);   // X = Pitch rate (рад/с)
+    const rawGy = (rot.gamma || 0) * (Math.PI / 180);  // Y = Roll rate (рад/с)
+    const rawGz = (rot.alpha || 0) * (Math.PI / 180);  // Z = Yaw rate (рад/с)
     currentGyroMag = Math.hypot(rawGx, rawGy, rawGz);
+
+    // 5. Безопасная автодетекция физического гироскопа:
+    // Оцениваем сенсор ТОЛЬКО когда в руках есть реальное движение (dynMagTotal > 0.15)
+    // чтобы телефон, лежащий неподвижно на столе при запуске, не был сочтен "бюджетным".
+    if (!gyroEvaluated && dynMagTotal > 0.15) {
+      gyroEvaluationFrames++;
+      // Физический MEMS-гироскоп при движении в руке показывает реалистичные угловые скорости
+      // (от 0.03 до 8.0 рад/с). Эмулятор бюджетника либо дает нули, либо прыгает до 15+ рад/с.
+      if (currentGyroMag > 0.03 && currentGyroMag < 8.0) {
+        gyroValidMotionFrames++;
+      }
+      if (gyroEvaluationFrames >= 60) {
+        hasTrueHardwareGyro = (gyroValidMotionFrames / gyroEvaluationFrames) > 0.65;
+        gyroEvaluated = true;
+        if (!hasTrueHardwareGyro) {
+          console.info('[PDR] Обнаружен виртуальный гироскоп. Включен адаптивный режим повышенной стабильности компаса.');
+        }
+      }
+    }
+
+    // Если синтетический гироскоп выдал дикий артефакт (>12 рад/с ≈ 700°/с), принудительно гасим его
+    if (currentGyroMag > 12.0) {
+      hasTrueHardwareGyro = false;
+      gyroEvaluated = true;
+    }
+
     const sensCfg = getActiveThresholds();
 
-    // Буфер покоя (ZUPT)
+    // 6. Буфер покоя (ZUPT): на бюджетных опираемся строго на отсутствие ускорения
     zuptBuffer.push(currentGyroMag);
     if (zuptBuffer.length > ZUPT_WINDOW) zuptBuffer.shift();
 
     zuptAccelBuffer.push(smoothDynMag);
     if (zuptAccelBuffer.length > ZUPT_WINDOW) zuptAccelBuffer.shift();
 
-    const avgGyro = zuptBuffer.reduce((a, b) => a + b, 0) / zuptBuffer.length;
     const avgAccel = zuptAccelBuffer.reduce((a, b) => a + b, 0) / zuptAccelBuffer.length;
+    const isAtRest = avgAccel < (sensCfg.minPeak * 0.35);
 
-    const isAtRest = (avgAccel < sensCfg.minPeak * 0.40 && avgGyro < 0.35);
-
-    // --- СОВЕТ 2: КАЛИБРОВКА НУЛЯ ГИРОСКОПА (ZUPT BIAS CORRECTION) ---
-    if (isAtRest) {
+    // Калибровка нуля (Bias): выполняется ТОЛЬКО на подтвержденном аппаратном гироскопе
+    if (hasTrueHardwareGyro && isAtRest) {
       restFramesCount++;
-      if (restFramesCount > 8) {
-        const biasLearnRate = 0.02;
+      if (restFramesCount > 10) {
+        const biasLearnRate = 0.015;
         biasGx += biasLearnRate * (rawGx - biasGx);
         biasGy += biasLearnRate * (rawGy - biasGy);
-        biasGz += biasLearnRate * (rawGz - biasGz); // РАСКОММЕНТИРОВАТЬ!
+        biasGz += biasLearnRate * (rawGz - biasGz);
       }
     } else {
       restFramesCount = 0;
     }
 
-    // Вычитаем смещение нуля из всех последующих вращений
-    const cleanGx = rawGx - biasGx;
-    const cleanGy = rawGy - biasGy;
-    const cleanGz = rawGz - biasGz;
+    const cleanGx = rawGx - (hasTrueHardwareGyro ? biasGx : 0);
+    const cleanGy = rawGy - (hasTrueHardwareGyro ? biasGy : 0);
+    const cleanGz = rawGz - (hasTrueHardwareGyro ? biasGz : 0);
+
+    // Единичный вектор «Вверх» против силы тяжести
     const gNorm = Math.hypot(lpfGravity.x, lpfGravity.y, lpfGravity.z) || 9.80665;
     const upX = lpfGravity.x / gNorm;
     const upY = lpfGravity.y / gNorm;
     const upZ = lpfGravity.z / gNorm;
 
-    // Скалярное произведение вектора угловой скорости на вектор "Вверх"
-    const worldGyroZ = cleanGx * upX + cleanGy * upY + cleanGz * upZ;
+    // 7. Интеграция курса гироскопом
+    const isWindowsDesktop = navigator.userAgent.includes('Windows');
 
-    madgwickUpdate(cleanGx, cleanGy, cleanGz, rawAx, rawAy, rawAz, dt);
+    // На Windows/Surface оси гироскопа в браузере часто перепутаны драйвером,
+    // а встроенный компас Windows уже аппаратно сглажен — интеграцию гироскопа по Z на Windows отключаем:
+    if (hasTrueHardwareGyro && !isWindowsDesktop) {
+      madgwickUpdate(cleanGx, cleanGy, cleanGz, rawAx, rawAy, rawAz, dt);
 
+      const worldGyroZ = cleanGx * upX + cleanGy * upY + cleanGz * upZ;
 
-    if (fusedHeading !== null) {
-      const gyroYawRate = Math.abs(worldGyroZ * (180 / Math.PI));
-      // Снижаем порог чувствительности гироскопа: 12°/сек -> 3°/сек (человек идет плавно!)
-      if (gyroYawRate > 3) {
-        const gyroYawStepDeg = -(worldGyroZ * (180 / Math.PI)) * dt;
-        fusedHeading = (fusedHeading + gyroYawStepDeg + 360) % 360;
+      if (fusedHeading !== null) {
+        const gyroYawRateDeg = Math.abs(worldGyroZ * (180 / Math.PI));
+        if (gyroYawRateDeg > 2.2 && gyroYawRateDeg < 380.0) {
+          const gyroYawStepDeg = -(worldGyroZ * (180 / Math.PI)) * dt;
+          fusedHeading = (fusedHeading + gyroYawStepDeg + 360) % 360;
+        }
       }
     }
 
+    // 8. Вертикальное ускорение шага вдоль оси тяжести: a_up = (a · g)/|g| - |g|
+    aUp = (rawAx * lpfGravity.x + rawAy * lpfGravity.y + rawAz * lpfGravity.z) / gNorm - gNorm;
 
-
-    const enu = rotateDeviceToWorldENU(rawAx, rawAy, rawAz, qW, qX, qY, qZ);
-    aEast = enu.e; aNorth = enu.n; aUp = enu.u;
-
-    const isStationaryManipulating = (avgGyro > sensCfg.maxGyroNoise && Math.abs(aUp) < 0.30);
     const currentHeading = getFusedHeading();
+    const isStationaryManipulating = (currentGyroMag > sensCfg.maxGyroNoise && Math.abs(aUp) < 0.25);
 
+    // Сброс зависших кандидатов шага по таймауту
     if (pendingStepCandidate && (now - pendingStepCandidate.time > 1350)) pendingStepCandidate = null;
     if (walkingState === 'WALKING' && (now - lastConfirmedStepTime > 1500)) walkingState = 'IDLE';
 
+    // 9. Телеметрия для графиков и HUD
     if (onTelemetryCallback) {
       try {
         onTelemetryCallback({
@@ -385,15 +429,17 @@
           altitude: currentAltitude,
           isBlockedByZupt: isAtRest || isStationaryManipulating || (walkingState === 'IDLE' && !pendingStepCandidate),
           threshold: sensCfg.peakValleyDiff,
-          magneticAnomaly: magneticAnomalyActive
+          magneticAnomaly: magneticAnomalyActive,
+          hasHardwareGyro: hasTrueHardwareGyro
         });
       } catch (err) {}
     }
 
-    // Если активен vehicular-режим (вело/авто), шагомер пропускаем
+    // В vehicular-режиме (вело/авто) физический шагомер пропускаем
     if (!isRunning || CONFIG.navigationType === 'vehicular') return;
 
-    let stepWaveform = (CONFIG.carryingMode === 'pocket') ? Math.hypot(dynY, dynZ) : smoothDynMag;
+    // 10. Пиковый детектор шагов
+    const stepWaveform = (CONFIG.carryingMode === 'pocket') ? Math.hypot(dynY, dynZ) : smoothDynMag;
     accelWindow.push(stepWaveform);
     if (accelWindow.length > ACCEL_WINDOW_SIZE) accelWindow.shift();
     if (accelWindow.length < ACCEL_WINDOW_SIZE) return;
@@ -408,28 +454,29 @@
 
     minValleySinceLastPeak = Math.min(minValleySinceLastPeak, midVal);
 
-    const minStepIntervalMs = CONFIG.carryingMode === 'pocket' ? 300 : 320;
+    const minStepIntervalMs = CONFIG.carryingMode === 'pocket' ? 290 : 310;
     const maxStepIntervalMs = 1350;
 
-    if (isLocalPeak && midVal >= sensCfg.minPeak && !isStationaryManipulating) {
+    if (isLocalPeak && midVal >= sensCfg.minPeak && !isStationaryManipulating && !isAtRest) {
       const peakValleyDiff = midVal - minValleySinceLastPeak;
       const timeSinceLastPeak = now - lastPeakTime;
-      const minVert = sensCfg.minVertical || 0.25;
-      const hasVerticalGaitDynamics = (Math.abs(aUp) >= minVert) || (Math.hypot(dynY, dynZ) >= (minVert * 1.5));
+      const minVert = sensCfg.minVertical || 0.22;
+      const hasVerticalGait = (Math.abs(aUp) >= minVert) || (Math.hypot(dynY, dynZ) >= (minVert * 1.3));
 
-      if (peakValleyDiff >= sensCfg.peakValleyDiff && timeSinceLastPeak >= minStepIntervalMs && hasVerticalGaitDynamics) {
+      if (peakValleyDiff >= sensCfg.peakValleyDiff && timeSinceLastPeak >= minStepIntervalMs && hasVerticalGait) {
         lastPeakTime = now;
         minValleySinceLastPeak = midVal;
 
+        // Распознавание ступеней
         let deltaAltStep = 0;
         let isStairs = false;
-        if (CONFIG.stairDetection && peakValleyDiff > 2.0 && aUp > 0.9) {
+        if (CONFIG.stairDetection && peakValleyDiff > 2.0 && aUp > 0.85) {
           stairCounter++;
           if (stairCounter >= 2) {
             isStairs = true; deltaAltStep = 0.165; currentAltitude += deltaAltStep;
             if (onAltitudeCallback) onAltitudeCallback(currentAltitude, deltaAltStep, 'stairs_up');
           }
-        } else if (CONFIG.stairDetection && peakValleyDiff > 1.8 && aUp < -0.8) {
+        } else if (CONFIG.stairDetection && peakValleyDiff > 1.8 && aUp < -0.80) {
           stairCounter++;
           if (stairCounter >= 2) {
             isStairs = true; deltaAltStep = -0.165; currentAltitude += deltaAltStep;
@@ -439,16 +486,18 @@
           stairCounter = 0;
         }
 
+        // Расчет длины шага (модель Вайнберга)
         let actualStrideMeters = CONFIG.baseStepLength;
         if (CONFIG.useDynamicStride) {
           const bounceFactor = Math.pow(Math.max(0.4, peakValleyDiff), 0.25);
           actualStrideMeters = CONFIG.baseStepLength * (bounceFactor / 1.10);
           if (isStairs) actualStrideMeters *= 0.70;
-          actualStrideMeters = Math.max(CONFIG.baseStepLength * 0.55, Math.min(CONFIG.baseStepLength * 1.5, actualStrideMeters));
+          actualStrideMeters = Math.max(CONFIG.baseStepLength * 0.50, Math.min(CONFIG.baseStepLength * 1.45, actualStrideMeters));
         }
 
         const bodyImpulseAngle = (Math.atan2(dynX, dynY) * 180 / Math.PI + 360) % 360;
 
+        // Двухшаговый валидатор от случайных одиночных встряхиваний
         if (walkingState === 'IDLE') {
           if (!pendingStepCandidate) {
             pendingStepCandidate = {
@@ -499,6 +548,7 @@
     }
   }
 
+  
   function commitStep(strideMeters, headingDeg, deltaAltStep, bodyImpulseAngle) {
     if (isAlignmentTesting) {
       alignmentStepsDone++;
