@@ -1,8 +1,9 @@
-const SHELL_CACHE = 'wm-shell-v50'; // обновляем версию
+const SHELL_CACHE = 'wm-shell-v52'; // Обновляем версию для сброса кэша
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
 const TILE_TIMEOUT_MS = 7500;
+
 
 let noTrimTiles = false;
 
@@ -49,14 +50,15 @@ const ASSETS_TO_CACHE = [
   'js/picker.js',
   'js/ui.js',
   'js/markers.js',
-  'js/sharedMarkers.js', // добавлен!
+  'js/sharedMarkers.js',
   'js/geocaching.js',
   'js/suncalc.js',
   'js/quickMeasure.js',
   'js/measure.js',
   'js/shadowHeight.js',
-  'js/rangeRing.js', // добавлен!
+  'js/rangeRing.js',
   'js/imageOverlay.js',
+  'js/pdrEngine.js', // <-- ОБЯЗАТЕЛЬНО ДОБАВИТЬ СЮДА
   'js/main.js'
 ];
 self.addEventListener('install', (event) => {
