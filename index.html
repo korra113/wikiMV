@@ -993,6 +993,7 @@
                 <span>🔬 Диагностика датчиков и калибровка шагов</span>
                 <span class="chevron">▼</span>
               </summary>
+
               <div class="spoiler-body">
                 <div class="pdr-perm-box" id="pdr-perm-box">
                   <div class="pdr-perm-status" id="pdr-perm-status">Статус датчиков: проверка…</div>
@@ -1018,6 +1019,18 @@
                     <span class="pdr-telem-lbl">Наклон (β / γ):</span>
                     <b class="pdr-telem-val" id="pdr-val-tilt">0° / 0°</b>
                   </div>
+                </div>
+
+                <div class="pdr-tester-box" style="margin-bottom: 10px; border-color: #8b5cf6;">
+                  <div class="pdr-tester-head">
+                    <span style="font-weight:700; font-size:12.5px;">🧪 Чёрный ящик сенсоров (IMU)</span>
+                    <button type="button" id="btn-open-imu-logger" class="btn btn-primary" style="background:#8b5cf6; border-color:#8b5cf6; font-size:11.5px; padding:5px 10px;">
+                      🚀 Собрать данные
+                    </button>
+                  </div>
+                  <p class="hint-text" style="margin: 0;">
+                    Запись пошаговых сценариев (4 стороны света, наклоны экрана) для выявления причин дрожания и сбития курса.
+                  </p>
                 </div>
 
                 <div class="pdr-tester-box">
@@ -2507,6 +2520,70 @@
   <script src="js/shadowHeight.js"></script>
   <!-- ПОДКЛЮЧАЕМ ДВИЖОК ШАГОМЕРА PDR: -->
   <script src="js/pdrEngine.js"></script>
+  <script src="js/imuLogger.js"></script>
   <script src="js/main.js"></script>
+
+
+  <div id="modal-imu-logger" class="modal-overlay">
+    <div class="modal-box modal-box-large">
+      <div class="modal-header">
+        <h3>🧪 Сбор телеметрии IMU и компаса</h3>
+        <button class="modal-close-x" id="imu-log-close-x">✕</button>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 8px;">
+        <label for="imu-log-scenario-select">Сценарий тестирования:</label>
+        <select id="imu-log-scenario-select" class="styled-select">
+          <option value="cardinal" selected>🧭 4 стороны света (по 5 секунд: Сев → Вост → Юг → Зап)</option>
+          <option value="pitch_tilt">📐 Тест наклонов вперед-назад (Pitch, 20 сек)</option>
+          <option value="free">🚶 Свободная запись (Ручной старт и стоп)</option>
+        </select>
+        <small class="hint-text" id="imu-log-scenario-desc" style="margin-top: 4px;">
+          Идите по 5 секунд в каждую сторону света, слегка покачивая смартфон вперед-назад.
+        </small>
+      </div>
+
+      <!-- БЛОК АКТИВНОЙ ЗАПИСИ (ОТОБРАЖАЕТСЯ ВО ВРЕМЯ ТЕСТА) -->
+      <div id="imu-log-live-box" class="imu-log-live-box" hidden>
+        <div class="imu-log-phase-badge" id="imu-log-phase-prompt">Подготовка...</div>
+        <div class="imu-log-countdown" id="imu-log-timer">20.0 с</div>
+        
+        <div class="imu-log-progress-track">
+          <div id="imu-log-progress-fill" class="imu-log-progress-fill"></div>
+        </div>
+
+        <div id="imu-log-live-telem" class="imu-log-live-telem">
+          Ожидание показаний датчиков…
+        </div>
+      </div>
+
+      <!-- БЛОК РЕЗУЛЬТАТОВ (ОТОБРАЖАЕТСЯ ПОСЛЕ ОКОНЧАНИЯ) -->
+      <div id="imu-log-result-box" class="imu-log-result-box" hidden>
+        <div id="imu-log-stats-summary" class="imu-log-stats-summary"></div>
+        
+        <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; display: block;">
+          Сформированный лог и задание (готово для отправки в нейросеть):
+        </label>
+        <textarea id="imu-log-output" class="styled-input imu-log-textarea" rows="7" readonly></textarea>
+
+        <div class="modal-actions" style="margin-top: 8px; justify-content: space-between;">
+          <button type="button" id="imu-log-btn-download" class="btn btn-secondary">💾 Скачать JSON</button>
+          <button type="button" id="imu-log-btn-copy" class="btn btn-primary" style="background:#8b5cf6; border-color:#8b5cf6;">
+            📋 Скопировать лог
+          </button>
+        </div>
+      </div>
+
+      <!-- КНОПКИ УПРАВЛЕНИЯ -->
+      <div class="modal-actions" style="margin-top: 12px; justify-content: space-between;">
+        <button type="button" id="imu-log-btn-close" class="btn btn-secondary">Закрыть</button>
+        
+        <div style="display:flex; gap:8px;">
+          <button type="button" id="imu-log-btn-start" class="btn btn-primary">▶ Начать запись</button>
+          <button type="button" id="imu-log-btn-stop" class="btn btn-danger-outline" hidden>⏹ Завершить (Стоп)</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
