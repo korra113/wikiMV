@@ -309,9 +309,10 @@
     smoothDynMag += alphaSmooth * (dynMagTotal - smoothDynMag);
 
     const rot = e.rotationRate || {};
-    let rawGx = (rot.alpha || 0) * (Math.PI / 180);
-    let rawGy = (rot.beta || 0) * (Math.PI / 180);
-    let rawGz = (rot.gamma || 0) * (Math.PI / 180);
+    // ИСПРАВЛЕНО: оси приведены к строгому стандарту W3C DeviceMotionEvent
+    let rawGx = (rot.beta || 0) * (Math.PI / 180);   // X = Pitch (наклон вперед/назад)
+    let rawGy = (rot.gamma || 0) * (Math.PI / 180);  // Y = Roll (крен влево/вправо)
+    let rawGz = (rot.alpha || 0) * (Math.PI / 180);  // Z = Yaw (рыскание / поворот курса)
 
     currentGyroMag = Math.hypot(rawGx, rawGy, rawGz);
     const sensCfg = getActiveThresholds();
