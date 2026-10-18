@@ -343,9 +343,13 @@
     const cleanGx = rawGx - biasGx;
     const cleanGy = rawGy - biasGy;
     const cleanGz = rawGz - biasGz;
-    const worldGyroZ = 2 * (qX * qZ - qW * qY) * cleanGx + 
-                   2 * (qY * qZ + qW * qX) * cleanGy + 
-                   (qW * qW - qX * qX - qY * qY + qZ * qZ) * cleanGz;
+    const gNorm = Math.hypot(lpfGravity.x, lpfGravity.y, lpfGravity.z) || 9.80665;
+    const upX = lpfGravity.x / gNorm;
+    const upY = lpfGravity.y / gNorm;
+    const upZ = lpfGravity.z / gNorm;
+
+    // Скалярное произведение вектора угловой скорости на вектор "Вверх"
+    const worldGyroZ = cleanGx * upX + cleanGy * upY + cleanGz * upZ;
 
     madgwickUpdate(cleanGx, cleanGy, cleanGz, rawAx, rawAy, rawAz, dt);
 
