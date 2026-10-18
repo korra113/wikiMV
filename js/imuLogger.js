@@ -258,8 +258,9 @@
       }
       if (s.anom) anomalyCount++;
       if (s.fused !== null && prev.fused !== null) {
-        const diff = Math.abs(((s.fused - prev.fused + 540) % 360) - 180);
-        if (diff > 15) headingJumps++;
+        // Кратчайшая угловая дуга с корректным переходом через 0°/360°
+        const delta = Math.abs(((s.fused - prev.fused + 540) % 360) - 180);
+        if (delta > 15) headingJumps++;
       }
     }
 
