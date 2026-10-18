@@ -189,6 +189,13 @@
 
   function isObjectAllowed(o, optZoom, optMapSize, optDensity) {
     if (!o) return false;
+
+    // ЕСЛИ основной слой полигонов выключен, но выбран тег:
+    // пропускаем ИСКЛЮЧИТЕЛЬНО объекты с этим тегом, игнорируя фильтры размеров
+    if (!isVectorVisible && activeTag) {
+      return objectMatchesTag(o, activeTag);
+    }
+
     if (filters.hideBuildings && o.is_building) return false;
     if (filters.hideRegions && o.is_region) return false;
     if (filters.hideDeleted && o.is_deleted) return false;
@@ -390,7 +397,20 @@
     },
 
     render() {
-      if (!map || !isVectorVisible || isZooming) return;
+      if (!map || isZooming) return;
+
+      // Если выключен и слой полигонов, и нет активного тега — очищаем холст и выходим
+      if (!isVectorVisible && !activeTag) {
+        if (shown.size > 0) {
+          for (const [id, s] of shown) {
+            map.removeLayer(s.poly);
+          }
+          shown.clear();
+        }
+        if (hl.hover && hl.hover.poly) { map.removeLayer(hl.hover.poly); hl.hover.poly = null; hl.hover.id = null; }
+        if (hl.selected && hl.selected.poly) { map.removeLayer(hl.selected.poly); hl.selected.poly = null; hl.selected.id = null; }
+        return;
+      }
 
       const zoom = map.getZoom();
       const degPerPx = 360 / (256 * 2 ** zoom);
@@ -408,20 +428,26 @@
 
       for (let i = 0; i < candidates.length; i++) {
         const o = candidates[i];
-        if (!isObjectAllowed(o, zoom, mapSize, density)) continue;
+        const isTagMatched = activeTag && objectMatchesTag(o, activeTag);
+
+        // Если векторный слой отключен — отбираем ТОЛЬКО объекты с выбранным тегом
+        if (!isVectorVisible && !isTagMatched) continue;
+
+        // Обычные объекты проверяем через фильтры (а совпавшие по тегу всегда отображаем)
+        if (!isTagMatched && !isObjectAllowed(o, zoom, mapSize, density)) continue;
+
         const ob = o.bbox;
         if (ob.w > ve || ob.e < vw || ob.s > vn || ob.n < vs) continue;
 
         const wpx = (ob.e - ob.w) / degPerPx;
         const hpx = (ob.n - ob.s) / cosLat / degPerPx;
 
-        if (zoom >= 17 && (wpx > mapSize.x * 1.5 || hpx > mapSize.y * 1.5)) {
+        if (zoom >= 17 && !isTagMatched && (wpx > mapSize.x * 1.5 || hpx > mapSize.y * 1.5)) {
           continue;
         }
 
         const maxPx = wpx > hpx ? wpx : hpx;
-        // На зумах 14+ понижаем порог, чтобы микро-объекты физически попадали в рендер
-        const minPxLimit = zoom >= 16 ? 1 : (zoom >= 14 ? 2 : (C.MIN_PX || 5));
+        const minPxLimit = isTagMatched ? 1 : (zoom >= 16 ? 1 : (zoom >= 14 ? 2 : (C.MIN_PX || 5)));
         if (maxPx >= minPxLimit) {
           vis.push({ o, maxPx });
         }
@@ -462,15 +488,17 @@
         }
       }
 
+      // Всегда обновляем верхнюю плашку с числом найденных объектов
       if (activeTag && WM.ui && WM.ui.updateTagFilterHUD) {
         const matches = vis.filter(item => objectMatchesTag(item.o, activeTag)).length;
         WM.ui.updateTagFilterHUD(activeTag, matches);
       }
     },
 
+    
     setVisible(visible) {
       isVectorVisible = !!visible;
-      if (!isVectorVisible) {
+      if (!isVectorVisible && !activeTag) {
         for (const [id, s] of shown) {
           map.removeLayer(s.poly);
         }
@@ -481,22 +509,7 @@
         this.render();
       }
     },
-    isVectorVisible() { return isVectorVisible; },
-    updateObjectStyle(id) {
-      const s = shown.get(id);
-      if (s && map) {
-        if (!isObjectAllowed(s.obj, map.getZoom(), map.getSize(), shown.size)) {
-          map.removeLayer(s.poly);
-          shown.delete(id);
-          return;
-        }
-        const zoom = map.getZoom(), degPerPx = 360 / (256 * 2 ** zoom);
-        const cosLat = Math.cos(map.getCenter().lat * Math.PI / 180) || 1;
-        const style = computeStyleForObject(s.obj, map.getSize(), degPerPx, cosLat);
-        s.styleKey = style._k;
-        s.poly.setStyle(style);
-      }
-    },
+
     toggleTagFilter(tag) {
       if (WM.loader && WM.loader.resetTagBbox) WM.loader.resetTagBbox();
       if (activeTag && (activeTag.title === tag.title || (activeTag.id && activeTag.id === tag.id))) {
@@ -504,10 +517,19 @@
         if (WM.ui && WM.ui.updateTagFilterHUD) WM.ui.updateTagFilterHUD(null);
       } else {
         activeTag = tag;
+        // Сразу отображаем верхнюю динамическую плашку тега
+        if (WM.ui && WM.ui.updateTagFilterHUD) WM.ui.updateTagFilterHUD(activeTag, 0);
         if (WM.loader && WM.loader.fetchCategoryInBounds) {
           WM.loader.fetchCategoryInBounds(tag);
         }
       }
+      this.render();
+    },
+
+    clearTagFilter() {
+      activeTag = null;
+      if (WM.loader && WM.loader.resetTagBbox) WM.loader.resetTagBbox();
+      if (WM.ui && WM.ui.updateTagFilterHUD) WM.ui.updateTagFilterHUD(null);
       this.render();
     },
     getActiveTag() { return activeTag; },
