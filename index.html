@@ -420,7 +420,7 @@
                         <span class="mode-name">Полностью ручной</span>
                         <span class="mode-badge badge-eco">Минимум API</span>
                       </div>
-                      <p class="mode-desc">Работает исключительно растровая карта на любых масштабах. Полигоны загружаются строго по клику или наведению.</p>
+                      <p class="mode-desc">Работает исключительно растровая карта(если включена в слоях) на любых масштабах. Полигоны загружаются строго по клику или наведению.</p>
                     </div>
                   </label>
 
@@ -431,7 +431,7 @@
                         <span class="mode-name">Гибридный</span>
                         <span class="mode-badge badge-mid">Рекомендуемый</span>
                       </div>
-                      <p class="mode-desc">На общем плане отображаются растровые контуры, а при приближении автоматически подгружаются векторные объекты с сохранением подложки.</p>
+                      <p class="mode-desc">На общем плане отображаются растровые контуры, а при приближении автоматически подгружаются векторные объекты с сохранением подложки. На отдалении нужно нажимать чтобы крупные объекты прогрузились</p>
                     </div>
                   </label>
 
@@ -466,14 +466,15 @@
                 <span class="chevron">▼</span>
               </summary>
               <div class="spoiler-body toggles-list">
-                <label class="toggle-item">
-                  <div>
-                    <span style="font-weight:600; display:block;">Автозагрузка по удержанию</span>
-                    <small class="hint-text">Загружает объект при удержании центра перекрестия или курсора дольше 1 секунды.</small>
-                  </div>
-                  <input type="checkbox" id="toggle-auto-hover">
-                  <span class="toggle-switch"></span>
-                </label>
+
+                <!-- Пояснительная памятка о двух типах данных -->
+                <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 10px;">
+                  <div class="guide-tip-title">ℹ️ Особенности загрузки данных Wikimapia</div>
+                  <p style="margin: 0; font-size: 11.5px; line-height: 1.45;">
+                    Wikimapia отдает данные в два этапа: сначала скачивается легкий пакет (только границы полигонов и их названия), а детальные данные (полное описание, фотографии, теги и отзывы) требуют <b>отдельного API-запроса на каждый объект</b>.<br>
+                    Параметры ниже определяют, когда именно приложение должно догружать подробные карточки.
+                  </p>
+                </div>
 
                 <label class="toggle-item">
                   <div>
@@ -743,6 +744,19 @@
               </p>
             </div>
 
+            <!-- БЫСТРАЯ ЮСТИРОВКА КОМПАСА -->
+            <div class="pdr-card-box" style="border: 1.5px solid var(--accent); background: var(--accent-bg);">
+              <div class="pdr-card-header-row">
+                <div class="pdr-card-header" style="color: var(--accent); margin: 0;">🧭 Быстрая юстировка компаса</div>
+                <button type="button" id="btn-open-compass-adjust-settings" class="btn btn-primary" style="font-size: 11.5px; padding: 5px 12px; white-space: nowrap;">
+                  Настроить
+                </button>
+              </div>
+              <p class="hint-text" style="margin: 0; line-height: 1.4;">
+                Быстрое выставление курса телефона по известному ориентиру (Север, Солнце, Луна) без шагов и калибровочных «восьмёрок». Доступно также по <b>долгому нажатию</b> на стрелку компаса 🧭 на карте.
+              </p>
+            </div>
+
             <!-- 3. БЫСТРЫЕ ОСНОВНЫЕ ПЕРЕКЛЮЧАТЕЛИ -->
             <div class="pdr-card-box">
               <div class="pdr-card-header">🛡️ Автоматика и экран</div>
@@ -768,7 +782,7 @@
               <label class="toggle-item">
                 <div>
                   <span style="font-weight:600; display:block;">Кнопка «Поместить GPS сюда (🧲)» на карте</span>
-                  <small class="hint-text">Плавающая кнопка на экране для мгновенной привязки точки к перекрестию.</small>
+                  <small class="hint-text">Плавающая кнопка на экране для мгновенной привязки точки к перекрестию. По долгому нажатию доступны быстрые настройки режима без GPS</small>
                 </div>
                 <input type="checkbox" id="toggle-ui-manualpdr">
                 <span class="toggle-switch"></span>
@@ -1336,7 +1350,7 @@
             <!-- Информационные оверлеи: Панель инфо и круг дальности -->
             <details class="spoiler sub-spoiler">
               <summary class="spoiler-title sub-spoiler-title">
-                <span>📊 Инфо-панель и круг дальности (HUD)</span>
+                <span>📊 Инфо-панель</span>
                 <span class="chevron">▼</span>
               </summary>
               <div class="spoiler-body toggles-list">
@@ -1395,68 +1409,7 @@
                   </label>
                 </div>
 
-                <hr class="style-divider" style="margin: 8px 0;">
-
-                <!-- Круг дальности -->
-                <label class="toggle-item">
-                  <div>
-                    <span style="font-weight:600; display:block;">Круг дальности (оценка расстояний)</span>
-                    <small class="hint-text">Круговой визир от центра экрана с мерными шкалами в метрах/километрах</small>
-                  </div>
-                  <input type="checkbox" id="toggle-ui-rangering">
-                  <span class="toggle-switch"></span>
-                </label>
-
-                <div id="sub-rangering-settings" class="sub-rangering-settings" hidden>
-                  <div class="style-row" style="margin-bottom: 8px;">
-                    <label for="rr-radius-slider">
-                      <span>Радиус круга на экране:</span>
-                      <b id="rr-radius-val">35%</b>
-                    </label>
-                    <input type="range" id="rr-radius-slider" min="15" max="65" step="5" value="35" class="styled-range">
-                  </div>
-
-                  <label class="toggle-item" style="margin-bottom: 8px;">
-                    <div>
-                      <span style="font-weight:600; font-size:12px;">Мерные шкалы (вверх и в стороны)</span>
-                      <small class="hint-text" style="margin:0;">Оси с делениями и отметками расстояния</small>
-                    </div>
-                    <input type="checkbox" id="toggle-rr-axes" checked>
-                    <span class="toggle-switch"></span>
-                  </label>
-
-                  <div id="rr-axes-sub-options" class="style-row" style="margin-bottom: 8px;">
-                    <label for="rr-axis-len-slider">
-                      <span>Длина осей относительно круга:</span>
-                      <b id="rr-axis-len-val">1.15x</b>
-                    </label>
-                    <input type="range" id="rr-axis-len-slider" min="70" max="160" step="5" value="115" class="styled-range">
-                  </div>
-
-                  <div class="style-row" style="margin-bottom: 0;">
-                    <label for="rr-color-select">Цвет разметки:</label>
-                    <div class="color-input-wrap">
-                      <input type="color" id="rr-color-select" value="#38bdf8">
-                      <span class="color-val" id="rr-color-val">#38bdf8</span>
-                    </div>
-                  </div>
-
-                  <div class="style-row" style="margin-top: 8px; margin-bottom: 8px;">
-                    <label for="rr-font-size-slider">
-                      <span>Размер шрифта цифр:</span>
-                      <b id="rr-font-size-val">10 px</b>
-                    </label>
-                    <input type="range" id="rr-font-size-slider" min="8" max="18" step="1" value="10" class="styled-range">
-                  </div>
-
-                  <div class="style-row" style="margin-bottom: 0;">
-                    <label for="rr-text-color-select">Цвет текста цифр:</label>
-                    <div class="color-input-wrap">
-                      <input type="color" id="rr-text-color-select" value="#ffffff">
-                      <span class="color-val" id="rr-text-color-val">#ffffff</span>
-                    </div>
-                  </div>
-                </div>
+ 
 
               </div>
             </details>
@@ -1528,12 +1481,7 @@
                   <input type="checkbox" id="toggle-ui-location" checked>
                   <span class="toggle-switch"></span>
                 </label>
-                <!-- Чекбокс отображения кнопки в боковой панели -->
-                <label class="toggle-item">
-                  <span>Кнопка «Поместить точку GPS сюда»</span>
-                  <input type="checkbox" id="toggle-ui-manualpdr">
-                  <span class="toggle-switch"></span>
-                </label>
+
                 <label class="toggle-item">
                   <span>Кнопка «Хвост и траектория движения»</span>
                   <input type="checkbox" id="toggle-ui-motion">
@@ -1550,7 +1498,10 @@
                   <span class="toggle-switch"></span>
                 </label>
                 <label class="toggle-item">
-                  <span>Кнопка смены темы</span>
+                  <div>
+                    <span style="font-weight:600; display:block;">Кнопка смены темы</span>
+                    <small class="hint-text" style="margin:2px 0 0;">Долгий тап включает специальный красный ночной режим</small>
+                  </div>
                   <input type="checkbox" id="toggle-ui-theme" checked>
                   <span class="toggle-switch"></span>
                 </label>
@@ -1574,7 +1525,7 @@
                 <label class="toggle-item">
                   <div>
                     <span style="font-weight:600; display:block;">Стрелка компаса (север)</span>
-                    <small class="hint-text" style="margin:2px 0 0;">Круглая кнопка-компас в левом верхнем углу над зумом</small>
+                    <small class="hint-text" style="margin:2px 0 0;">Круглая кнопка-компас в левом верхнем углу над зумом. Долгий тап вызывает быстрое меню корректировки напраления</small>
                   </div>
                   <input type="checkbox" id="toggle-ui-compassneedle" checked>
                   <span class="toggle-switch"></span>
@@ -2631,6 +2582,183 @@
       </div>
     </div>
   </div> 
+
+  <!-- МОДАЛЬНОЕ ОКНО БЫСТРОЙ ЮСТИРОВКИ КОМПАСА -->
+<div id="modal-compass-adjust" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>🧭 Юстировка компаса</h3>
+      <button class="modal-close-x" id="compass-adjust-x">✕</button>
+    </div>
+
+    <p class="modal-desc" style="margin-bottom: 8px;">
+      Устраняет погрешности от металла, железных конструкций и электроники без длительных «восьмёрок».
+    </p>
+
+    <!-- Текущий курс по датчикам -->
+    <div class="pdr-test-display" style="padding: 8px 12px; margin-bottom: 12px; justify-content: space-between;">
+      <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Текущий курс телефона:</span>
+      <b id="compass-adjust-cur-val" style="font-size: 16px; color: var(--accent);">0°</b>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <!-- Вариант 1: По механическому компасу / Полярной звезде -->
+      <button type="button" id="btn-adj-north" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: space-between; text-align: left; padding: 10px 12px;">
+        <div>
+          <div style="font-weight: 700; font-size: 13px;">🧭 Выставить по Северу (0°)</div>
+          <small class="hint-text" style="margin: 0;">Направьте торец смартфона строго на Север</small>
+        </div>
+        <span style="font-size: 18px; margin-left: 8px;">⬆️</span>
+      </button>
+
+      <!-- Вариант 2: По Солнцу (Астрокомпас) -->
+      <button type="button" id="btn-adj-sun" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: space-between; text-align: left; padding: 10px 12px;">
+        <div>
+          <div style="font-weight: 700; font-size: 13px;">☀️ Выставить по Солнцу (<span id="adj-sun-azimuth">--°</span>)</div>
+          <small class="hint-text" style="margin: 0;">Направьте верх телефона на диск Солнца</small>
+        </div>
+        <span style="font-size: 18px; margin-left: 8px;">☀️</span>
+      </button>
+
+      <!-- Вариант 3: По Луне (ночью) -->
+      <button type="button" id="btn-adj-moon" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: space-between; text-align: left; padding: 10px 12px;">
+        <div>
+          <div style="font-weight: 700; font-size: 13px;">🌙 Выставить по Луне (<span id="adj-moon-azimuth">--°</span>)</div>
+          <small class="hint-text" style="margin: 0;">Направьте верх телефона на Луну</small>
+        </div>
+        <span style="font-size: 18px; margin-left: 8px;">🌙</span>
+      </button>
+    </div>
+
+    <div class="modal-actions" style="justify-content: space-between; margin-top: 14px;">
+      <button type="button" id="btn-adj-reset" class="btn btn-danger-outline" style="font-size: 12px; padding: 6px 10px;">↺ Сброс поправки</button>
+      <button type="button" id="btn-adj-close" class="btn btn-primary">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО БЫСТРЫХ НАСТРОЕК PDR / БЕЗ GPS -->
+  <div id="modal-pdr-quick" class="modal-overlay">
+    <div class="modal-box modal-box-large pdr-quick-modal-box">
+      <div class="modal-header">
+        <div class="pdr-quick-title-wrap">
+          <span class="pdr-quick-icon">🧲</span>
+          <div class="pdr-quick-header-text">
+            <h3>Режим без GPS (PDR)</h3>
+            <span class="pdr-quick-subtitle">Быстрые настройки и калибровка</span>
+          </div>
+        </div>
+        <button class="modal-close-x" id="pdr-quick-close-x">✕</button>
+      </div>
+
+      <div class="modal-content-scroll" style="max-height: 65vh; padding-right: 4px;">
+        
+        <!-- 1. ИНТЕРАКТИВНЫЙ ТЕСТЕР ШАГОВ И ДИСТАНЦИИ -->
+        <div class="pdr-quick-test-card">
+          <div class="pdr-quick-test-top">
+            <div class="pdr-quick-test-metric">
+              <span class="pdr-qmetric-lbl">Шаги:</span>
+              <div class="pdr-qmetric-val-wrap">
+                <span id="pdr-quick-step-count" class="pdr-qmetric-val">0</span>
+                <span id="pdr-quick-step-flash" class="pdr-quick-flash">ШАГ!</span>
+              </div>
+            </div>
+            <div class="pdr-quick-test-sep"></div>
+            <div class="pdr-quick-test-metric">
+              <span class="pdr-qmetric-lbl">Дистанция:</span>
+              <span id="pdr-quick-dist-val" class="pdr-qmetric-val">0.0 м</span>
+            </div>
+            <button type="button" id="btn-pdr-quick-reset-test" class="pdr-quick-btn-reset" title="Сбросить счетчик">↺</button>
+          </div>
+          <div class="pdr-quick-test-hint">
+            Сделайте несколько шагов на месте или пройдитесь для проверки чувствительности
+          </div>
+        </div>
+
+        <!-- 2. БЫСТРЫЙ ЗАПУСК МАСТЕРОВ КАЛИБРОВКИ -->
+        <div class="pdr-quick-section-label">📐 Мастера юстировки и калибровки:</div>
+        <div class="pdr-quick-calib-grid">
+          <button type="button" id="btn-pdr-quick-open-tri" class="pdr-quick-action-card">
+            <span class="pdr-qaction-icon">📐</span>
+            <div class="pdr-qaction-texts">
+              <span class="pdr-qaction-title">По 3 точкам</span>
+              <span class="pdr-qaction-sub">A → B → C → A </span>
+            </div>
+            <span class="pdr-qaction-arrow">›</span>
+          </button>
+
+          <button type="button" id="btn-pdr-quick-open-compass" class="pdr-quick-action-card">
+            <span class="pdr-qaction-icon">🧭</span>
+            <div class="pdr-qaction-texts">
+              <span class="pdr-qaction-title">Кор-я компаса</span>
+              <span class="pdr-qaction-sub">Солнце, луна, север</span>
+            </div>
+            <span class="pdr-qaction-arrow">›</span>
+          </button>
+        </div>
+
+        <!-- 3. ДЛИНА ШАГА -->
+        <div class="pdr-quick-group">
+          <div class="pdr-quick-group-header">
+            <span class="pdr-quick-group-title">📏 Длина шага:</span>
+            <b id="pdr-quick-step-length-val" class="pdr-quick-val-highlight">75 см</b>
+          </div>
+          <div class="pdr-quick-slider-row">
+            <button type="button" id="btn-pdr-quick-step-minus" class="pdr-quick-step-btn" title="-5 см">−</button>
+            <input type="range" id="pdr-quick-step-slider" min="40" max="130" step="1" value="75" class="styled-range">
+            <button type="button" id="btn-pdr-quick-step-plus" class="pdr-quick-step-btn" title="+5 см">+</button>
+          </div>
+          <div class="pdr-quick-chips-row">
+            <button type="button" class="pdr-quick-chip" data-step="65">65 см</button>
+            <button type="button" class="pdr-quick-chip" data-step="75">75 см</button>
+            <button type="button" class="pdr-quick-chip" data-step="85">85 см</button>
+            <button type="button" class="pdr-quick-chip" data-step="95">95 см</button>
+          </div>
+        </div>
+
+        <!-- 4. ПОЛОЖЕНИЕ СМАРТФОНА (РУКА / КАРМАН) -->
+        <div class="pdr-quick-group">
+          <div class="pdr-quick-group-header">
+            <span class="pdr-quick-group-title">📱 Где находится смартфон:</span>
+          </div>
+          <div class="pdr-quick-segmented" id="pdr-quick-carrying-segmented">
+            <button type="button" class="pdr-quick-seg-btn active" data-mode="hand">
+              <span>✋ В руке</span>
+            </button>
+            <button type="button" class="pdr-quick-seg-btn" data-mode="pocket">
+              <span>👖 В кармане</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 5. ПОРОГ СРАБАТЫВАНИЯ (ЧУВСТВИТЕЛЬНОСТЬ) -->
+        <div class="pdr-quick-group" style="margin-bottom: 4px;">
+          <div class="pdr-quick-group-header">
+            <span class="pdr-quick-group-title">🎯 Порог чувствительности:</span>
+          </div>
+          <div class="pdr-quick-segmented" id="pdr-quick-sensitivity-segmented">
+            <button type="button" class="pdr-quick-seg-btn" data-sens="high">
+              <span>Высокая</span>
+            </button>
+            <button type="button" class="pdr-quick-seg-btn active" data-sens="normal">
+              <span>Обычная</span>
+            </button>
+            <button type="button" class="pdr-quick-seg-btn" data-sens="low">
+              <span>Низкая</span>
+            </button>
+          </div>
+          <small class="hint-text" id="pdr-quick-sens-hint" style="margin-top: 4px;">
+            Обычная: для кроссовок и стандартной городской/лесной ходьбы.
+          </small>
+        </div>
+
+      </div>
+
+      <div class="modal-actions" style="justify-content: flex-end; margin-top: 10px;">
+        <button type="button" id="btn-pdr-quick-close" class="btn btn-primary" style="padding: 8px 18px;">Готово</button>
+      </div>
+    </div>
+  </div>
 
 <script src="js/leaflet.js"></script>
   <script src="js/config.js"></script>
