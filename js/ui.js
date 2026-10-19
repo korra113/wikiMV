@@ -3681,6 +3681,84 @@
     listEl.append(wrap);
   }
 
+  // Маркер перехода к координатам поиска
+  let searchCoordPin = null;
+
+  function showSearchCoordPin(lat, lon, label) {
+    if (searchCoordPin && WM.map) {
+      WM.map.removeLayer(searchCoordPin);
+      searchCoordPin = null;
+    }
+
+    const pinHtml = `
+      <div class="wm-search-pin-wrapper">
+        <div class="wm-search-pin-pulse"></div>
+        <div class="wm-search-pin-dot">🎯</div>
+      </div>
+    `;
+
+    searchCoordPin = L.marker([lat, lon], {
+      icon: L.divIcon({
+        className: 'wm-search-pin-icon',
+        html: pinHtml,
+        iconSize: [36, 36],
+        iconAnchor: [18, 18]
+      }),
+      zIndexOffset: 1600
+    }).addTo(WM.map);
+
+    const coordStr = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+    const popupContent = document.createElement('div');
+    popupContent.className = 'wm-search-pin-popup';
+    popupContent.innerHTML = `
+      <div style="font-weight: 700; font-size: 13px; margin-bottom: 2px;">📍 ${escapeHtml(label || 'Точка по координатам')}</div>
+      <div style="font-family: monospace; font-size: 12px; margin-bottom: 8px; color: var(--accent); font-weight: 600;">${coordStr}</div>
+      <div style="display: flex; gap: 6px;">
+        <button type="button" class="btn btn-primary" id="btn-pin-add-marker" style="font-size: 11px; padding: 4px 8px; flex: 1;">📍 Создать метку</button>
+        <button type="button" class="btn btn-secondary" id="btn-pin-copy-coords" style="font-size: 11px; padding: 4px 8px;" title="Скопировать">📋</button>
+        <button type="button" class="btn btn-secondary" id="btn-pin-remove" style="font-size: 11px; padding: 4px 8px;" title="Скрыть пин">✕</button>
+      </div>
+    `;
+
+    searchCoordPin.bindPopup(popupContent, { 
+      offset: [0, -14], 
+      closeButton: false,
+      className: 'wm-search-leaflet-popup' 
+    }).openPopup();
+
+    setTimeout(() => {
+      const btnAdd = document.getElementById('btn-pin-add-marker');
+      if (btnAdd) {
+        btnAdd.onclick = () => {
+          if (searchCoordPin) {
+            WM.map.removeLayer(searchCoordPin);
+            searchCoordPin = null;
+          }
+          if (WM.markers && WM.markers.openModal) {
+            WM.markers.openModal(null, { lat, lng: lon });
+          }
+        };
+      }
+      const btnCopy = document.getElementById('btn-pin-copy-coords');
+      if (btnCopy) {
+        btnCopy.onclick = () => {
+          navigator.clipboard.writeText(coordStr).then(() => {
+            showToast(`📋 Скопировано: ${coordStr}`);
+          });
+        };
+      }
+      const btnRem = document.getElementById('btn-pin-remove');
+      if (btnRem) {
+        btnRem.onclick = () => {
+          if (searchCoordPin) {
+            WM.map.removeLayer(searchCoordPin);
+            searchCoordPin = null;
+          }
+        };
+      }
+    }, 60);
+  }
+
   async function executeSearch(query) {
     const listEl = $('search-results');
     const q = (query || '').trim();
@@ -3697,8 +3775,53 @@
       return;
     }
 
+    // --- ПРОВЕРКА ВВОДА НА КООРДИНАТЫ ИЛИ КАРТОГРАФИЧЕСКИЕ ССЫЛКИ ---
+    const coordMatch = WM.geo && WM.geo.parseCoordinates ? WM.geo.parseCoordinates(q) : null;
+
     listEl.textContent = '';
-    listEl.append(el('div', { class: 'muted', text: '🔍 Поиск…' }));
+
+    // Если координаты найдены — сразу формируем и отображаем карточку вверху
+    let coordItemEl = null;
+    if (coordMatch) {
+      const coordStr = `${coordMatch.lat.toFixed(6)}, ${coordMatch.lon.toFixed(6)}`;
+      coordItemEl = el('div', {
+        class: 'search-result-item search-result-coord',
+        onclick: async () => {
+          $('modal-search').classList.remove('open');
+          clearHistoryState('search');
+
+          // 1. Плавный перелёт карты к координатам
+          WM.map.flyTo([coordMatch.lat, coordMatch.lon], Math.max(WM.map.getZoom(), 16), { animate: true });
+
+          // 2. Установка временного пина с кнопками
+          showSearchCoordPin(coordMatch.lat, coordMatch.lon, coordMatch.desc);
+
+          // 3. Подгрузка полигонов в этой точке при необходимости
+          if (WM.picker && WM.picker.getMode() === 'cross' && WM.picker.fetchAtCrosshair) {
+            setTimeout(() => WM.picker.fetchAtCrosshair(), 400);
+          }
+
+          showToast(`🎯 Координаты: ${coordStr}`, 2400);
+        }
+      },
+        el('div', { class: 'search-res-top' },
+          el('span', { class: 'search-res-title', text: '📍 Показать место на карте' }),
+          el('span', { class: 'search-badge search-badge-coord', text: coordMatch.format })
+        ),
+        el('div', { 
+          class: 'search-res-subtitle', 
+          text: `${coordStr} · ${coordMatch.desc} (нажмите для перехода)` 
+        })
+      );
+
+      listEl.append(coordItemEl);
+
+      // Если введена чистая ссылка или явный DMS/DDM/DD без лишних букв — других запросов не требуется
+      const isPureCoordInput = /(?:https?:\/\/|geo:|^\s*[nsew+-]?\d+)/i.test(q) && !/[а-яёa-z]{4,}/i.test(q.replace(/https?:\/\/[^\s]+/gi, ''));
+      if (isPureCoordInput && searchSource !== 'osm') {
+        return;
+      }
+    }
 
     const center = WM.map ? WM.map.getCenter() : { lat: 55.75, lng: 37.61 };
     const qLower = q.toLowerCase();
@@ -3788,7 +3911,12 @@
     }
 
     listEl.textContent = '';
-    if (!results.length) {
+    // Сохраняем карточку координат сверху, если она была определена
+    if (coordItemEl) {
+      listEl.append(coordItemEl);
+    }
+
+    if (!results.length && !coordItemEl) {
       listEl.append(el('div', { class: 'muted', text: 'Ничего не найдено' }));
       return;
     }
