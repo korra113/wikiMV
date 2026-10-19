@@ -1862,19 +1862,17 @@
   function updateCompassVisuals() {
     if (currentHeading === null) return;
 
-    if (isConeEnabled && me) {
-      const el = me.getElement();
-      if (el) {
-        const cone = el.querySelector('.wm-gps-cone');
-        if (cone) {
-          smoothConeAngle = unwrapAngle(currentHeading, smoothConeAngle);
-          cone.style.display = '';
-          cone.style.transform = `rotate(${smoothConeAngle}deg)`;
-        }
+    // Живое обновление цифр в открытом модальном окне юстировки:
+    const modalAdj = document.getElementById('modal-compass-adjust');
+    if (modalAdj && modalAdj.classList.contains('open')) {
+      const curValEl = document.getElementById('compass-adjust-cur-val');
+      if (curValEl) {
+        const curH = (WM.pdr && WM.pdr.getHeading) ? WM.pdr.getHeading() : currentHeading;
+        curValEl.textContent = curH !== null ? `${Math.round(curH)}°` : '--°';
       }
     }
 
-    if (isNeedleEnabled) {
+    if (isConeEnabled && me) {
       const needle = document.getElementById('compass-needle');
       if (needle) {
         smoothNeedleAngle = unwrapAngle(-currentHeading, smoothNeedleAngle);
@@ -1988,16 +1986,135 @@
     WM.compass.updateSettings(true, true);
   }
 
-  const btnCompass = document.getElementById('btn-compass');
-  if (btnCompass) {
-    btnCompass.onclick = async () => {
+
+    function openCompassAdjustModal() {
+      const modal = document.getElementById('modal-compass-adjust');
+      if (!modal) return;
+
+      const center = map ? map.getCenter() : { lat: 55.75, lng: 37.62 };
+      const now = new Date();
+
+      // Расчет точного азимута светил через SunCalc
+      if (window.SunCalc) {
+        const sunPos = SunCalc.getPosition(now, center.lat, center.lng);
+        const sunAzDeg = Math.round((sunPos.azimuth * 180 / Math.PI + 180) % 360);
+        const sunEl = document.getElementById('adj-sun-azimuth');
+        if (sunEl) sunEl.textContent = `${sunAzDeg}°`;
+        modal._currentSunAz = sunAzDeg;
+
+        const moonPos = SunCalc.getMoonPosition(now, center.lat, center.lng);
+        const moonAzDeg = Math.round((moonPos.azimuth * 180 / Math.PI + 180) % 360);
+        const moonEl = document.getElementById('adj-moon-azimuth');
+        if (moonEl) moonEl.textContent = `${moonAzDeg}°`;
+        modal._currentMoonAz = moonAzDeg;
+      }
+
+      const curValEl = document.getElementById('compass-adjust-cur-val');
+      if (curValEl) {
+        const curH = (WM.pdr && WM.pdr.getHeading) ? WM.pdr.getHeading() : currentHeading;
+        curValEl.textContent = curH !== null ? `${Math.round(curH)}°` : '--°';
+      }
+
+      modal.classList.add('open');
+    }
+
+    // ПК: правый клик
+    window.openCompassAdjustModal = openCompassAdjustModal;
+    WM.openCompassAdjustModal = openCompassAdjustModal;
+
+    const btnCompass = document.getElementById('btn-compass');
+    if (btnCompass) {
+      let compassHoldTimer = null;
+      let isCompassLongPress = false;
+      let lastLongPressTime = 0;
+      let compassTouchStartPt = null;
+      let isTouchAction = false;
+
+    // 1. ПК: правый клик мыши
+    btnCompass.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isTouchAction) return;
+      openCompassAdjustModal();
+    });
+
+    // 2. Смартфон: touchstart (удержание от 400 мс)
+    btnCompass.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      isTouchAction = true;
+      isCompassLongPress = false;
+      const t = e.touches[0];
+      compassTouchStartPt = { x: t.clientX, y: t.clientY };
+      clearTimeout(compassHoldTimer);
+
+      compassHoldTimer = setTimeout(() => {
+        isCompassLongPress = true;
+        lastLongPressTime = Date.now();
+        if (navigator.vibrate) navigator.vibrate(40);
+        openCompassAdjustModal();
+      }, 400);
+    }, { passive: true });
+
+    btnCompass.addEventListener('touchmove', (e) => {
+      if (!compassTouchStartPt) return;
+      const t = e.touches[0];
+      if (Math.hypot(t.clientX - compassTouchStartPt.x, t.clientY - compassTouchStartPt.y) > 10) {
+        clearTimeout(compassHoldTimer);
+      }
+    }, { passive: true });
+
+    btnCompass.addEventListener('touchend', (e) => {
+      clearTimeout(compassHoldTimer);
+      compassTouchStartPt = null;
+      if (isCompassLongPress) {
+        lastLongPressTime = Date.now();
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      setTimeout(() => { isTouchAction = false; }, 350);
+    }, { passive: false });
+
+    btnCompass.addEventListener('touchcancel', () => {
+      clearTimeout(compassHoldTimer);
+      compassTouchStartPt = null;
+      isCompassLongPress = false;
+      isTouchAction = false;
+    });
+
+    // 3. ПК: удержание левой кнопки мыши
+    let mouseHoldTimer = null;
+    let mouseIsLong = false;
+
+    btnCompass.addEventListener('mousedown', (e) => {
+      if (isTouchAction || e.button !== 0) return;
+      mouseIsLong = false;
+      clearTimeout(mouseHoldTimer);
+      mouseHoldTimer = setTimeout(() => {
+        mouseIsLong = true;
+        lastLongPressTime = Date.now();
+        openCompassAdjustModal();
+      }, 400);
+    });
+    btnCompass.addEventListener('mouseup', () => clearTimeout(mouseHoldTimer));
+    btnCompass.addEventListener('mouseleave', () => clearTimeout(mouseHoldTimer));
+
+    // 4. Обычный короткий клик
+    btnCompass.onclick = async (e) => {
+      if (isCompassLongPress || mouseIsLong || (Date.now() - lastLongPressTime < 600)) {
+        isCompassLongPress = false;
+        mouseIsLong = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
       await startOrientationListener();
       if (currentHeading !== null) {
         const arr = ['С', 'ССВ', 'СВ', 'ВСВ', 'В', 'ВЮВ', 'ЮВ', 'ЮЮВ', 'Ю', 'ЮЮЗ', 'ЮЗ', 'ЗЮЗ', 'З', 'ЗСЗ', 'СЗ', 'ССЗ'];
         const compDir = arr[Math.floor((currentHeading / 22.5) + 0.5) % 16];
-        WM.ui.showToast(`🧭 Курс: ${currentHeading}° (${compDir}) · Красная стрелка — Север`);
+        WM.ui.showToast(`🧭 Курс: ${Math.round(currentHeading)}° (${compDir}) · Удерживайте для юстировки`);
       } else {
-        WM.ui.showToast('🧭 Калибровка компаса… Поверните смартфон «восьмёркой»');
+        WM.ui.showToast('🧭 Калибровка сенсоров… Поверните смартфон «восьмёркой» (∞)');
       }
     };
   }
