@@ -3463,6 +3463,100 @@ body.sheet-open .hover-pill {
 .topbar-action-btn.warning-banner:hover {
   background: #b45309;
 }
+
+/* Карточка быстрого перехода по координатам в поиске */
+.search-result-coord {
+  border-left: 3.5px solid var(--accent, #3b82f6) !important;
+  background: rgba(59, 130, 246, 0.08) !important;
+  border-radius: var(--radius-sm, 6px);
+  margin-bottom: 8px;
+}
+
+.search-result-coord:hover,
+.search-result-coord:active {
+  background: rgba(59, 130, 246, 0.16) !important;
+}
+
+.search-badge-coord {
+  background: #10b981 !important;
+  color: #ffffff !important;
+  font-weight: 700;
+}
+
+/* Пульсирующий маркер найденной точки */
+.wm-search-pin-wrapper {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wm-search-pin-dot {
+  font-size: 24px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+  z-index: 2;
+  animation: wm-pin-bounce 0.6s ease;
+}
+
+.wm-search-pin-pulse {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.4);
+  animation: wm-pin-ring 1.8s infinite ease-out;
+  z-index: 1;
+}
+
+@keyframes wm-pin-ring {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes wm-pin-bounce {
+  0% { transform: translateY(-24px); opacity: 0; }
+  60% { transform: translateY(4px); opacity: 1; }
+  100% { transform: translateY(0); }
+}
+
+/* Стилизация всплывающего облака найденной точки */
+.wm-search-leaflet-popup .leaflet-popup-content-wrapper {
+  background: var(--bg-glass-strong) !important;
+  color: var(--text-main) !important;
+  border-radius: var(--radius-md) !important;
+  border: 1.5px solid var(--border-strong) !important;
+  box-shadow: var(--shadow-float) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 4px;
+}
+
+.wm-search-leaflet-popup .leaflet-popup-content {
+  margin: 8px 10px !important;
+  line-height: 1.35 !important;
+}
+
+.wm-search-leaflet-popup .leaflet-popup-tip {
+  background: var(--bg-glass-strong) !important;
+}
+
+/* Оформление в теме ночного зрения (красный монохром) */
+[data-theme="night-vision"] .wm-search-leaflet-popup .leaflet-popup-content-wrapper {
+  background: rgba(18, 3, 3, 0.94) !important;
+  border-color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .wm-search-leaflet-popup .leaflet-popup-tip {
+  background: rgba(18, 3, 3, 0.94) !important;
+}
+
+.wm-search-pin-popup {
+  padding: 4px;
+  color: var(--text-main, #1f2937);
+}
 /* Заливка пустоты снизу при сильном вытягивании вверх пальцем */
 .sheet::after {
   content: "";
