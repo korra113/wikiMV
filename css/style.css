@@ -2792,7 +2792,8 @@ body.sheet-open .hover-pill {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 55vh;
+  /* Фиксируем максимальную высоту один раз — больше height никогда не анимируется */
+  height: 92vh;
   background: var(--bg-glass-strong);
   border-radius: 24px 24px 0 0;
   border-top: 1px solid var(--border);
@@ -2800,19 +2801,33 @@ body.sheet-open .hover-pill {
   display: flex;
   flex-direction: column;
   
-  /* Уводим глубже за экран (-115%) и выключаем перехват тачей, пока закрыто */
-  transform: translateY(115%);
+  /* Изолируем перерисовку шторки от карты под ней */
+  contain: content;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+
+  /* 1. СОСТОЯНИЕ: ЗАКРЫТО */
+  transform: translate3d(0, 105%, 0);
   pointer-events: none;
   box-shadow: none;
 
-  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), height 0.2s ease;
+  /* Анимируем ТОЛЬКО transform через физическую кривую выталкивания */
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
   touch-action: pan-y;
 }
 
+/* 2. СОСТОЯНИЕ: ВПОЛОВИНУ (по умолчанию при открытии ~55vh) */
 .sheet.open {
-  transform: none;
-  pointer-events: auto; /* Включаем тачи обратно, как только открылась */
+  /* Сдвигаем 92vh вниз так, чтобы торчало ровно 55vh */
+  transform: translate3d(0, calc(92vh - 55vh), 0);
+  pointer-events: auto;
   box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* 3. СОСТОЯНИЕ: ВО ВЕСЬ ЭКРАН */
+.sheet.open.full {
+  transform: translate3d(0, 0, 0);
 }
 .sheet.full {
   height: 94vh;
@@ -3448,14 +3463,14 @@ body.sheet-open .hover-pill {
 .topbar-action-btn.warning-banner:hover {
   background: #b45309;
 }
-/* Заливка пустоты под шторкой при вытягивании вверх */
+/* Заливка пустоты снизу при сильном вытягивании вверх пальцем */
 .sheet::after {
   content: "";
   position: absolute;
-  top: calc(100% - 1px); /* -1px устраняет микрозазор субпиксельного сглаживания */
+  top: calc(100% - 1px);
   left: 0;
   right: 0;
-  height: 120vh; /* с запасом перекрывает всю высоту экрана при подъеме */
+  height: 100vh;
   background: var(--bg-glass-strong);
   pointer-events: none;
 }
@@ -6943,6 +6958,11 @@ body.sheet-open .measure-hud {
   border-color: #ef4444;
 }
 
+
+/* Добавьте в удобное место style.css (например, рядом со стилями модальных окон): */
+#modal-compass-adjust {
+  z-index: 3200 !important;
+}
 /* =========================================================================
    ОБНОВЛЕННАЯ СТРУКТУРА PDR
    ========================================================================= */
@@ -7972,6 +7992,7 @@ body.sheet-open .shadow-height-hud {
 .floating-btn,
 .square-btn-top,
 .quick-swap-top-btn,
+.compass-btn-top,
 .limit-badge,
 .limit-reset-btn,
 .topbar-action-btn,
@@ -7983,6 +8004,377 @@ body.sheet-open .shadow-height-hud {
   -webkit-touch-callout: none !important;
   user-select: none !important;
   -webkit-user-select: none !important;
+}
+
+
+
+/* =========================================================================
+   БЫСТРОЕ МЕНЮ НАСТРОЕК PDR / БЕЗ GPS
+   ========================================================================= */
+
+#modal-pdr-quick {
+  z-index: 3200 !important;
+}
+
+.pdr-quick-modal-box {
+  max-width: 420px;
+  width: 95vw;
+  padding: 16px 18px;
+}
+
+.pdr-quick-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pdr-quick-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.pdr-quick-header-text h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+
+.pdr-quick-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Карточка тестера шагов и дистанции */
+.pdr-quick-test-card {
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--accent);
+  border-radius: var(--radius-md, 12px);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pdr-quick-test-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pdr-quick-test-metric {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.pdr-qmetric-lbl {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+
+.pdr-qmetric-val-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pdr-qmetric-val {
+  font-size: 22px;
+  font-weight: 900;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--accent);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.pdr-quick-flash {
+  background: #16a34a;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 900;
+  padding: 2px 6px;
+  border-radius: 8px;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  pointer-events: none;
+}
+
+.pdr-quick-flash.active {
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+.pdr-quick-test-sep {
+  width: 1px;
+  height: 28px;
+  background: var(--border-strong);
+  margin: 0 10px;
+}
+
+.pdr-quick-btn-reset {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.pdr-quick-btn-reset:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pdr-quick-btn-reset:active {
+  transform: scale(0.9);
+}
+
+.pdr-quick-test-hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+/* Сетка карточек запуска калибровок */
+.pdr-quick-section-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.pdr-quick-calib-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pdr-quick-action-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 8px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.pdr-quick-action-card:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.pdr-quick-action-card:active {
+  transform: scale(0.97);
+}
+
+.pdr-qaction-icon {
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.pdr-qaction-texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.pdr-qaction-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.25;
+}
+
+.pdr-qaction-sub {
+  font-size: 9.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdr-qaction-arrow {
+  font-size: 14px;
+  color: var(--text-muted);
+  font-weight: 800;
+}
+
+/* Блоки регулировок (шаг, положение, порог) */
+.pdr-quick-group {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pdr-quick-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pdr-quick-group-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.pdr-quick-val-highlight {
+  font-size: 13.5px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.pdr-quick-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pdr-quick-step-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  color: var(--text-main);
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.pdr-quick-step-btn:active {
+  transform: scale(0.92);
+}
+
+.pdr-quick-chips-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.pdr-quick-chip {
+  flex: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.12s ease;
+}
+
+.pdr-quick-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pdr-quick-chip.active {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+/* Сегментированные переключатели */
+.pdr-quick-segmented {
+  display: flex;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.pdr-quick-seg-btn {
+  flex: 1;
+  padding: 7px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.pdr-quick-seg-btn:hover {
+  color: var(--text-main);
+}
+
+.pdr-quick-seg-btn.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Оформление в ночной теме */
+[data-theme="night-vision"] .pdr-quick-test-card {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+[data-theme="night-vision"] .pdr-qmetric-val,
+[data-theme="night-vision"] .pdr-quick-val-highlight {
+  color: #ef4444;
+}
+
+[data-theme="night-vision"] .pdr-quick-flash {
+  background: #ef4444;
+}
+
+[data-theme="night-vision"] .pdr-quick-action-card:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+}
+
+[data-theme="night-vision"] .pdr-quick-chip.active,
+[data-theme="night-vision"] .pdr-quick-seg-btn.active {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  border-color: #ef4444 !important;
 }
 /* --- 2. КВАДРАТНАЯ КНОПКА ПОИСКА ПОД СПИСКОМ КАРТ --- */
 .square-btn-top {
