@@ -35,6 +35,12 @@
       return true;
     }
 
+    const modalCompassAdj = $('modal-compass-adjust');
+    if (modalCompassAdj && modalCompassAdj.classList.contains('open')) {
+      modalCompassAdj.classList.remove('open');
+      return true;
+    }
+
     const modalTri = $('modal-triangle-calib');
     if (modalTri && modalTri.classList.contains('open')) {
       if (WM.pdr && WM.pdr.isTriangleCalibrating()) {
@@ -56,6 +62,13 @@
     const modalQuickSwap = $('modal-quick-swap-select');
     if (modalQuickSwap && modalQuickSwap.classList.contains('open')) {
       modalQuickSwap.classList.remove('open');
+      return true;
+    }
+
+    const modalPdrQuick = $('modal-pdr-quick');
+    if (modalPdrQuick && modalPdrQuick.classList.contains('open')) {
+      if (window.closePdrQuickModal) window.closePdrQuickModal();
+      else modalPdrQuick.classList.remove('open');
       return true;
     }
 
@@ -2146,6 +2159,212 @@
     WM.api.store.set('wm_ui_vis', JSON.stringify(uiVis));
   }
 
+
+  // =========================================================================
+  // БЫСТРЫЕ НАСТРОЙКИ PDR И РЕЖИМА БЕЗ GPS ПО ДОЛГОМУ НАЖАТИЮ
+  // =========================================================================
+  let pdrQuickTestSteps = 0;
+  let pdrQuickTestDist = 0;
+  let pdrQuickFlashTimer = null;
+  let wasPdrRunningBeforeQuickModal = false;
+
+  function updatePdrQuickModalMetrics() {
+    const elSteps = $('pdr-quick-step-count');
+    const elDist = $('pdr-quick-dist-val');
+    if (elSteps) elSteps.textContent = pdrQuickTestSteps;
+    if (elDist) elDist.textContent = (pdrQuickTestDist < 1000) 
+      ? pdrQuickTestDist.toFixed(1) + ' м' 
+      : (pdrQuickTestDist / 1000).toFixed(2) + ' км';
+  }
+
+  function handlePdrQuickStepEvent(e) {
+    const d = e.detail;
+    pdrQuickTestSteps++;
+    const stride = d ? d.strideMeters : (WM.pdr ? WM.pdr.getConfig().baseStepLength : 0.75);
+    pdrQuickTestDist += stride;
+    updatePdrQuickModalMetrics();
+
+    const flash = $('pdr-quick-step-flash');
+    if (flash) {
+      flash.classList.add('active');
+      clearTimeout(pdrQuickFlashTimer);
+      pdrQuickFlashTimer = setTimeout(() => flash.classList.remove('active'), 250);
+    }
+    if (navigator.vibrate) {
+      try { navigator.vibrate(25); } catch (err) {}
+    }
+  }
+
+  function openPdrQuickModal() {
+    const modal = $('modal-pdr-quick');
+    if (!modal) return;
+
+    pdrQuickTestSteps = 0;
+    pdrQuickTestDist = 0;
+    updatePdrQuickModalMetrics();
+
+    const cfg = WM.pdr ? WM.pdr.getConfig() : {};
+
+    // 1. Длина шага
+    const curStepCm = Math.round((cfg.baseStepLength || 0.75) * 100);
+    const sliderStep = $('pdr-quick-step-slider');
+    const valStep = $('pdr-quick-step-length-val');
+    if (sliderStep) sliderStep.value = curStepCm;
+    if (valStep) valStep.textContent = curStepCm + ' см';
+
+    document.querySelectorAll('.pdr-quick-chip').forEach(ch => {
+      ch.classList.toggle('active', parseInt(ch.dataset.step, 10) === curStepCm);
+    });
+
+    // 2. В руке / В кармане
+    const curMode = cfg.carryingMode || 'hand';
+    document.querySelectorAll('#pdr-quick-carrying-segmented .pdr-quick-seg-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mode === curMode);
+    });
+
+    // 3. Чувствительность
+    const curSens = cfg.sensitivity || 'normal';
+    document.querySelectorAll('#pdr-quick-sensitivity-segmented .pdr-quick-seg-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.sens === curSens);
+    });
+    updatePdrQuickSensHint(curSens);
+
+    // Запускаем временное слушание шагов для интерактивного теста
+    window.addEventListener('wm:pdr-step', handlePdrQuickStepEvent);
+
+    wasPdrRunningBeforeQuickModal = WM.pdr ? WM.pdr.isActive() : false;
+    if (WM.pdr && !wasPdrRunningBeforeQuickModal) {
+      WM.pdr.start();
+    }
+
+    modal.classList.add('open');
+    pushHistoryState('pdrQuick');
+  }
+
+  function closePdrQuickModal() {
+    const modal = $('modal-pdr-quick');
+    if (modal) modal.classList.remove('open');
+
+    window.removeEventListener('wm:pdr-step', handlePdrQuickStepEvent);
+
+    if (WM.pdr && !wasPdrRunningBeforeQuickModal && !WM.manualPdr.isActive() && !WM.antiSpoof.isSpoofed()) {
+      WM.pdr.stop();
+    }
+
+    clearHistoryState('pdrQuick');
+  }
+  window.closePdrQuickModal = closePdrQuickModal;
+  window.openPdrQuickModal = openPdrQuickModal;
+
+  function updatePdrQuickSensHint(sens) {
+    const hint = $('pdr-quick-sens-hint');
+    if (!hint) return;
+    if (sens === 'high') {
+      hint.textContent = 'Высокая: для мягкой обуви, шагов по снегу, песку и тихого шага.';
+    } else if (sens === 'low') {
+      hint.textContent = 'Низкая: для плотных берцев, бега, марша и подавления сильной тряски.';
+    } else {
+      hint.textContent = 'Обычная: для кроссовок и стандартной городской/лесной ходьбы.';
+    }
+  }
+
+  function initPdrQuickModal() {
+    const modal = $('modal-pdr-quick');
+    if (!modal || modal._inited) return;
+    modal._inited = true;
+
+    $('pdr-quick-close-x')?.addEventListener('click', closePdrQuickModal);
+    $('btn-pdr-quick-close')?.addEventListener('click', closePdrQuickModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closePdrQuickModal();
+    });
+
+    // Сброс счетчика теста
+    $('btn-pdr-quick-reset-test')?.addEventListener('click', () => {
+      pdrQuickTestSteps = 0;
+      pdrQuickTestDist = 0;
+      updatePdrQuickModalMetrics();
+    });
+
+    // Мастер 3 точек
+    $('btn-pdr-quick-open-tri')?.addEventListener('click', () => {
+      closePdrQuickModal();
+      $('btn-open-triangle-calib')?.click();
+    });
+
+    // Юстировка компаса
+    $('btn-pdr-quick-open-compass')?.addEventListener('click', () => {
+      closePdrQuickModal();
+      if (window.openCompassAdjustModal) window.openCompassAdjustModal();
+    });
+
+    // Ползунок шага
+    const sliderStep = $('pdr-quick-step-slider');
+    const valStep = $('pdr-quick-step-length-val');
+    const applyStep = (cm) => {
+      if (sliderStep) sliderStep.value = cm;
+      if (valStep) valStep.textContent = cm + ' см';
+      document.querySelectorAll('.pdr-quick-chip').forEach(ch => {
+        ch.classList.toggle('active', parseInt(ch.dataset.step, 10) === cm);
+      });
+      if (WM.pdr) WM.pdr.setConfig({ baseStepLength: cm / 100 });
+      // Синхронизируем главный слайдер в общих настройках
+      const mainStepSlider = $('pdr-step-length-slider');
+      const mainStepVal = $('pdr-step-length-val');
+      if (mainStepSlider) mainStepSlider.value = cm;
+      if (mainStepVal) mainStepVal.textContent = cm + ' см';
+    };
+
+    if (sliderStep) {
+      sliderStep.addEventListener('input', (e) => {
+        applyStep(parseInt(e.target.value, 10));
+      });
+    }
+
+    $('btn-pdr-quick-step-minus')?.addEventListener('click', () => {
+      const cur = parseInt(sliderStep.value, 10) || 75;
+      applyStep(Math.max(40, cur - 5));
+    });
+
+    $('btn-pdr-quick-step-plus')?.addEventListener('click', () => {
+      const cur = parseInt(sliderStep.value, 10) || 75;
+      applyStep(Math.min(130, cur + 5));
+    });
+
+    document.querySelectorAll('.pdr-quick-chip').forEach(ch => {
+      ch.addEventListener('click', () => {
+        applyStep(parseInt(ch.dataset.step, 10));
+      });
+    });
+
+    // Сегмент: В руке / В кармане
+    document.querySelectorAll('#pdr-quick-carrying-segmented .pdr-quick-seg-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#pdr-quick-carrying-segmented .pdr-quick-seg-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const mode = btn.dataset.mode;
+        if (WM.pdr) WM.pdr.setConfig({ carryingMode: mode });
+        const mainCarry = $('pdr-carrying-mode');
+        if (mainCarry) mainCarry.value = mode;
+        showToast(mode === 'pocket' ? '👖 Режим: В кармане (фильтрация маятника)' : '✋ Режим: В руке');
+      });
+    });
+
+    // Сегмент: Чувствительность
+    document.querySelectorAll('#pdr-quick-sensitivity-segmented .pdr-quick-seg-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#pdr-quick-sensitivity-segmented .pdr-quick-seg-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const sens = btn.dataset.sens;
+        if (WM.pdr) WM.pdr.setConfig({ sensitivity: sens });
+        const mainSens = $('pdr-sensitivity-select');
+        if (mainSens) mainSens.value = sens;
+        updatePdrQuickSensHint(sens);
+        showToast(`🎯 Чувствительность: ${btn.textContent.trim()}`);
+      });
+    });
+  }
+
   function updateRaysBtnState() {
     const btn = $('btn-rays-toggle');
     if (btn) {
@@ -3239,52 +3458,37 @@
   function initSheetGestures() {
     const sheet = $('sheet');
     const sheetBody = $('sheet-body');
-    let startX = 0, startY = 0;
-    let curDeltaX = 0, curDeltaY = 0;
+    let startY = 0, startX = 0;
+    let curDeltaY = 0, curDeltaX = 0;
     let isDraggingSheet = false;
     let isHorizontalSwipe = false;
     let gestureDecided = false;
-    let isTouchActiveOnSheet = false; // Отслеживаем только жесты, начатые на открытой карточке
+    let isTouchActiveOnSheet = false;
+    let baseTranslateY = 0;
 
-    // Вкладки по кругу
     const TAB_ORDER = ['info', 'photos', 'comments'];
 
-    function switchTabBySwipe(direction) {
-      if (!cur) return;
-      const curIndex = TAB_ORDER.indexOf(tab);
-      let nextIndex;
-      if (direction === 'next') {
-        nextIndex = (curIndex + 1) % TAB_ORDER.length;
-      } else {
-        nextIndex = (curIndex - 1 + TAB_ORDER.length) % TAB_ORDER.length;
-      }
-      tab = TAB_ORDER[nextIndex];
-      renderBody();
-      if (navigator.vibrate) navigator.vibrate(20);
+    function getSheetBaseTranslateY() {
+      const winH = window.innerHeight;
+      const sheetH = winH * 0.92;
+      // Если full -> 0, если half -> (92vh - 55vh)
+      return sheet.classList.contains('full') ? 0 : (sheetH - winH * 0.55);
     }
 
     function isEligibleDragTarget(target) {
-      // Игнорируем кликабельные элементы управления
       if (target.closest('.icon-btn, button, a, input, select, textarea, .coords-card, .sheet-alts, .sheet-langs, .color-palette-row')) {
         return false;
       }
-
-      // Если палец касается шапки, ручки (полоски) или заголовка — жест свайпа разрешён ВСЕГДА!
       if (target.closest('#sheet-head, .sheet-handle, .sheet-title')) {
         return true;
       }
-
-      // Если шторка развёрнута на весь экран и палец касается самого текста/контента,
-      // то блокируем жест только если список действительно прокручен вниз
       if (sheet.classList.contains('full') && target.closest('#sheet-body') && sheetBody && sheetBody.scrollTop > 5) {
         return false;
       }
-
       return true;
     }
 
     sheet.addEventListener('touchstart', e => {
-      // КЛЮЧЕВАЯ ЗАЩИТА: если карточка закрыта — не начинаем жест
       if (!sheet.classList.contains('open')) return;
       if (e.touches.length !== 1) return;
       if (!isEligibleDragTarget(e.target)) return;
@@ -3297,85 +3501,82 @@
       isDraggingSheet = false;
       isHorizontalSwipe = false;
       gestureDecided = false;
-      sheet.style.transition = 'none';
+      
+      baseTranslateY = getSheetBaseTranslateY();
+      sheet.style.transition = 'none'; // Отключаем CSS-анимацию на время движения пальца
     }, { passive: true });
 
     window.addEventListener('touchmove', e => {
-      // Если палец не касается открытой карточки — не трогаем её
-      if (!isTouchActiveOnSheet) return;
-      if (e.touches.length !== 1) return;
+      if (!isTouchActiveOnSheet || e.touches.length !== 1) return;
 
       const dx = e.touches[0].clientX - startX;
       const dy = e.touches[0].clientY - startY;
       curDeltaX = dx;
       curDeltaY = dy;
 
-      // Распознаём тип жеста после первых 10px движения
       if (!gestureDecided && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
         gestureDecided = true;
-        // Если движение в основном по горизонтали — это свайп вкладок
         if (Math.abs(dx) > Math.abs(dy) * 1.2) {
           isHorizontalSwipe = true;
           isDraggingSheet = false;
         } else {
-          // Иначе — это вертикальное перемещение/разворот/закрытие
           isHorizontalSwipe = false;
           isDraggingSheet = true;
         }
       }
 
       if (isDraggingSheet) {
-        const isFull = sheet.classList.contains('full');
-        if (isFull) {
-          sheet.style.transform = dy < 0 ? `translateY(${dy * 0.18}px)` : `translateY(${dy}px)`;
-        } else {
-          sheet.style.transform = `translateY(${dy}px)`;
+        let targetY = baseTranslateY + dy;
+        // Эффект упругого сопротивления при вытягивании выше максимума
+        if (targetY < 0) {
+          targetY = targetY * 0.22;
         }
+        sheet.style.transform = `translate3d(0, ${targetY}px, 0)`;
       }
     }, { passive: true });
 
     window.addEventListener('touchend', () => {
       if (!isTouchActiveOnSheet) return;
       isTouchActiveOnSheet = false;
+      
+      // Возвращаем плавную анимацию
       sheet.style.transition = '';
 
       if (isHorizontalSwipe) {
-        // Свайп влево (dx < -45) -> вкладка вперёд
+        sheet.style.transform = '';
+        const curIndex = TAB_ORDER.indexOf(tab);
         if (curDeltaX < -45) {
-          switchTabBySwipe('next');
-        } 
-        // Свайп вправо (dx > 45) -> вкладка назад
-        else if (curDeltaX > 45) {
-          switchTabBySwipe('prev');
+          tab = TAB_ORDER[(curIndex + 1) % TAB_ORDER.length];
+          renderBody();
+        } else if (curDeltaX > 45) {
+          tab = TAB_ORDER[(curIndex - 1 + TAB_ORDER.length) % TAB_ORDER.length];
+          renderBody();
         }
       } else if (isDraggingSheet) {
         const isFull = sheet.classList.contains('full');
         const expandBtn = $('sheet-expand');
         const winH = window.innerHeight;
 
+        // Очищаем инлайн-стиль, чтобы управление перешло обратно CSS-классам
+        sheet.style.transform = '';
+
         if (isFull) {
-          if (curDeltaY > Math.max(220, winH * 0.35)) {
+          if (curDeltaY > Math.max(180, winH * 0.25)) {
             closeSheet(true);
-          } else if (curDeltaY > 70) {
-            sheet.style.transform = '';
+          } else if (curDeltaY > 60) {
             sheet.classList.remove('full');
-            if (sheetBody) sheetBody.scrollTop = 0; // <-- ДОБАВИТЬ: возвращает текст к началу
+            if (sheetBody) sheetBody.scrollTop = 0;
             if (expandBtn) { expandBtn.textContent = '⤢'; expandBtn.title = 'Развернуть'; }
-          } else {
-            sheet.style.transform = '';
           }
         } else {
-          // Свайп вверх сильнее 60px -> разворачиваем на весь экран
-          if (curDeltaY < -60) {
-            sheet.style.transform = '';
+          // Свайп вверх сильнее 50px -> развернуть на весь экран
+          if (curDeltaY < -50) {
             sheet.classList.add('full');
             if (expandBtn) { expandBtn.textContent = '⤡'; expandBtn.title = 'Свернуть'; }
           } 
-          // Свайп вниз сильнее 70px -> закрываем
-          else if (curDeltaY > 70) {
+          // Свайп вниз сильнее 60px -> закрыть карточку
+          else if (curDeltaY > 60) {
             closeSheet(true);
-          } else {
-            sheet.style.transform = '';
           }
         }
       }
@@ -3391,8 +3592,6 @@
       if (!isTouchActiveOnSheet) return;
       isTouchActiveOnSheet = false;
       isDraggingSheet = false;
-      isHorizontalSwipe = false;
-      gestureDecided = false;
       sheet.style.transition = '';
       sheet.style.transform = '';
     });
@@ -3794,8 +3993,10 @@
     let hideTimer = null;
 
     const TOOLTIPS = {
-      // Кнопка темы сама обрабатывает удержание, поэтому тултип отключаем:
+      // Кнопки с собственным удержанием исключаем из всплывающих тултипов:
       'btn-theme-toggle': null,
+      'btn-compass': null,
+      'btn-quick-swap-map': null,
       'btn-mode-toggle': () => {
         const isCross = WM.picker && WM.picker.getMode() === 'cross';
         return isCross 
@@ -4566,6 +4767,15 @@
     const presetLabel = $('pdr-preset-current-label');
     if (presetLabel && PDR_PRESETS[savedPresetKey]) {
       presetLabel.textContent = PDR_PRESETS[savedPresetKey].title;
+    }
+
+    const btnOpenCompassAdjSettings = $('btn-open-compass-adjust-settings');
+    if (btnOpenCompassAdjSettings) {
+      btnOpenCompassAdjSettings.onclick = () => {
+        if (window.openCompassAdjustModal) {
+          window.openCompassAdjustModal();
+        }
+      };
     }
 
     const btnOpenLogger = $('btn-open-imu-logger');
@@ -5489,7 +5699,7 @@
       if (window.refreshAppStatus) window.refreshAppStatus();
     },
     getWorkMode() { return workMode; },
-    isAutoHoverEnabled() { return autoHoverEnabled; },
+    isAutoHoverEnabled() { return false; },
     isAutoDetailsEnabled() { return autoDetailsEnabled; },
     isAutoDetailsCrosshairOnly() { return autoDetailsCrosshairOnly; },
     fmtTimer,
@@ -5521,11 +5731,143 @@
 
       const btnManualPdr = $('btn-manual-pdr');
       if (btnManualPdr) {
-        btnManualPdr.onclick = () => {
+        initPdrQuickModal();
+
+        let pdrHoldTimer = null;
+        let isPdrLongPress = false;
+        let lastPdrLongPressTime = 0;
+        let pdrTouchStartPt = null;
+        let isPdrTouchAction = false;
+
+        // 1. ПК: Правый клик мыши
+        btnManualPdr.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (isPdrTouchAction) return;
+          openPdrQuickModal();
+        });
+
+        // 2. Смартфон: touchstart (удержание от 400 мс)
+        btnManualPdr.addEventListener('touchstart', (e) => {
+          if (e.touches.length !== 1) return;
+          isPdrTouchAction = true;
+          isPdrLongPress = false;
+          const t = e.touches[0];
+          pdrTouchStartPt = { x: t.clientX, y: t.clientY };
+          clearTimeout(pdrHoldTimer);
+
+          pdrHoldTimer = setTimeout(() => {
+            isPdrLongPress = true;
+            lastPdrLongPressTime = Date.now();
+            if (navigator.vibrate) navigator.vibrate(40);
+            openPdrQuickModal();
+          }, 420);
+        }, { passive: true });
+
+        btnManualPdr.addEventListener('touchmove', (e) => {
+          if (!pdrTouchStartPt) return;
+          const t = e.touches[0];
+          if (Math.hypot(t.clientX - pdrTouchStartPt.x, t.clientY - pdrTouchStartPt.y) > 10) {
+            clearTimeout(pdrHoldTimer);
+          }
+        }, { passive: true });
+
+        btnManualPdr.addEventListener('touchend', (e) => {
+          clearTimeout(pdrHoldTimer);
+          pdrTouchStartPt = null;
+          if (isPdrLongPress) {
+            lastPdrLongPressTime = Date.now();
+            e.preventDefault();
+            e.stopPropagation();
+          }
+          setTimeout(() => { isPdrTouchAction = false; }, 350);
+        }, { passive: false });
+
+        btnManualPdr.addEventListener('touchcancel', () => {
+          clearTimeout(pdrHoldTimer);
+          pdrTouchStartPt = null;
+          isPdrLongPress = false;
+          isPdrTouchAction = false;
+        });
+
+        // 3. ПК: долгое удержание левой кнопки мыши
+        let mousePdrTimer = null;
+        let mousePdrLong = false;
+
+        btnManualPdr.addEventListener('mousedown', (e) => {
+          if (isPdrTouchAction || e.button !== 0) return;
+          mousePdrLong = false;
+          clearTimeout(mousePdrTimer);
+          mousePdrTimer = setTimeout(() => {
+            mousePdrLong = true;
+            lastPdrLongPressTime = Date.now();
+            openPdrQuickModal();
+          }, 420);
+        });
+        btnManualPdr.addEventListener('mouseup', () => clearTimeout(mousePdrTimer));
+        btnManualPdr.addEventListener('mouseleave', () => clearTimeout(mousePdrTimer));
+
+        // 4. Обычный короткий клик (активация/деактивация шагомера)
+        btnManualPdr.onclick = (e) => {
+          if (isPdrLongPress || mousePdrLong || (Date.now() - lastPdrLongPressTime < 600)) {
+            isPdrLongPress = false;
+            mousePdrLong = false;
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
           if (WM.manualPdr && WM.manualPdr.toggle) WM.manualPdr.toggle();
         };
       }
       updateManualPdrBtnState();
+
+      const modalCompassAdj = $('modal-compass-adjust');
+      if (modalCompassAdj) {
+        const closeAdj = () => modalCompassAdj.classList.remove('open');
+        $('compass-adjust-x')?.addEventListener('click', closeAdj);
+        $('btn-adj-close')?.addEventListener('click', closeAdj);
+        modalCompassAdj.addEventListener('click', (e) => {
+          if (e.target === modalCompassAdj) closeAdj();
+        });
+
+        // 1. Привязать к Северу (0°)
+        $('btn-adj-north')?.addEventListener('click', () => {
+          if (WM.pdr && WM.pdr.setManualHeading) {
+            const res = WM.pdr.setManualHeading(0);
+            closeAdj();
+            showToast(`✅ Курс откалиброван: Север (поправка ${res.newOffset > 0 ? '+' : ''}${res.newOffset}°)`, 2500);
+          }
+        });
+
+        // 2. Привязать к Солнцу
+        $('btn-adj-sun')?.addEventListener('click', () => {
+          const targetAz = modalCompassAdj._currentSunAz;
+          if (targetAz != null && WM.pdr && WM.pdr.setManualHeading) {
+            const res = WM.pdr.setManualHeading(targetAz);
+            closeAdj();
+            showToast(`☀️ Курс выставлен по Солнцу (${targetAz}°)`, 2500);
+          }
+        });
+
+        // 3. Привязать к Луне
+        $('btn-adj-moon')?.addEventListener('click', () => {
+          const targetAz = modalCompassAdj._currentMoonAz;
+          if (targetAz != null && WM.pdr && WM.pdr.setManualHeading) {
+            const res = WM.pdr.setManualHeading(targetAz);
+            closeAdj();
+            showToast(`🌙 Курс выставлен по Луне (${targetAz}°)`, 2500);
+          }
+        });
+
+        // 4. Сброс в заводские значения
+        $('btn-adj-reset')?.addEventListener('click', () => {
+          if (WM.pdr && WM.pdr.resetAlignmentOffset) {
+            WM.pdr.resetAlignmentOffset();
+            closeAdj();
+            showToast('↺ Поправка компаса сброшена на 0°');
+          }
+        });
+      }
 
       const chkAutoSize = $('toggle-filter-auto-size');
       if (chkAutoSize) {
@@ -5940,7 +6282,8 @@
       // ДОБАВЬТЕ ЭТУ СТРОКУ СЮДА:
       applyRasterCSS(rasterStyle);
 
-      $('toggle-auto-hover').checked = autoHoverEnabled;
+      const chkAutoHover = $('toggle-auto-hover');
+      if (chkAutoHover) chkAutoHover.checked = autoHoverEnabled;
       const chkAutoDetails = $('toggle-auto-details');
       if (chkAutoDetails) {
         chkAutoDetails.checked = autoDetailsEnabled;
@@ -6416,7 +6759,8 @@
 
         const currentRadios = document.querySelectorAll('input[name="app-work-mode"]');
         currentRadios.forEach(r => { r.checked = (r.value === workMode); });
-        $('toggle-auto-hover').checked = autoHoverEnabled;
+        const chkAutoHover = $('toggle-auto-hover');
+        if (chkAutoHover) chkAutoHover.checked = autoHoverEnabled;
         if ($('toggle-auto-details')) $('toggle-auto-details').checked = autoDetailsEnabled;
         if ($('toggle-auto-details-crosshair')) $('toggle-auto-details-crosshair').checked = autoDetailsCrosshairOnly;
         updateAutoDetailsSubVisibility();
@@ -6679,8 +7023,11 @@
 
         quickMenuConfig.items.shadowHeight = $('toggle-qm-item-shadowheight') ? $('toggle-qm-item-shadowheight').checked : true;
 
-        autoHoverEnabled = $('toggle-auto-hover').checked;
-        WM.api.store.set('wm_auto_hover', autoHoverEnabled ? 'true' : 'false');
+        const chkAutoHover = $('toggle-auto-hover');
+        if (chkAutoHover) {
+          autoHoverEnabled = chkAutoHover.checked;
+          WM.api.store.set('wm_auto_hover', autoHoverEnabled ? 'true' : 'false');
+        }
 
         const chkDetails = $('toggle-auto-details');
         autoDetailsEnabled = chkDetails ? chkDetails.checked : false;
