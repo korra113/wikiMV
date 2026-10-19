@@ -1872,11 +1872,24 @@
       }
     }
 
-    if (isConeEnabled && me) {
+    // 1. Поворот стрелки компаса (в левом верхнем углу)
+    if (isNeedleEnabled) {
       const needle = document.getElementById('compass-needle');
       if (needle) {
         smoothNeedleAngle = unwrapAngle(-currentHeading, smoothNeedleAngle);
         needle.style.transform = `rotate(${smoothNeedleAngle}deg)`;
+      }
+    }
+
+    // 2. Поворот конуса направления на метке GPS
+    if (isConeEnabled && me) {
+      const el = me.getElement();
+      if (el) {
+        const cone = el.querySelector('.wm-gps-cone');
+        if (cone) {
+          smoothConeAngle = unwrapAngle(currentHeading, smoothConeAngle);
+          cone.style.transform = `rotate(${smoothConeAngle}deg)`;
+        }
       }
     }
   }
