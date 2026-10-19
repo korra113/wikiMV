@@ -215,16 +215,23 @@
     if (compassDeg === null || isNaN(compassDeg)) return;
     const now = performance.now();
 
+    // Применяем ручную поправку соосности и магнитное склонение
+    let correctedCompass = compassDeg + CONFIG.alignmentOffset;
+    if (CONFIG.useMagneticDeclination) {
+      correctedCompass += magneticDeclinationDeg;
+    }
+    correctedCompass = (correctedCompass % 360 + 360) % 360;
+
     if (fusedHeading === null) {
-      fusedHeading = compassDeg;
-      lastExternalCompass = compassDeg;
+      fusedHeading = correctedCompass;
+      lastExternalCompass = correctedCompass;
       return;
     }
 
     // Кратчайшая угловая дельта [-180, 180]
-    const diff = ((compassDeg - fusedHeading + 540) % 360) - 180;
-    const compassDelta = ((compassDeg - (lastExternalCompass || compassDeg) + 540) % 360) - 180;
-    lastExternalCompass = compassDeg;
+    const diff = ((correctedCompass - fusedHeading + 540) % 360) - 180;
+    const compassDelta = ((correctedCompass - (lastExternalCompass || correctedCompass) + 540) % 360) - 180;
+    lastExternalCompass = correctedCompass;
 
     // Детектор реальной магнитной аномалии:
     // Подавляем ложное срабатывание, если скачок произошел во время быстрого наклона (pitch rate > 20°/с)
@@ -622,6 +629,10 @@
       try { navigator.vibrate(25); } catch (err) {}
     }
 
+    window.dispatchEvent(new CustomEvent('wm:pdr-step', {
+      detail: { strideMeters, headingDeg, stepCount, deltaAltStep, currentAltitude }
+    }));
+
     if (onStepCallback) {
       onStepCallback(strideMeters, headingDeg, stepCount, deltaAltStep, currentAltitude);
     }
@@ -870,6 +881,31 @@
         steps: currentLegSteps,
         dist: currentLegPdrDist
       };
+    },
+
+    setManualHeading(targetBearingDeg = 0) {
+      // Вычисляем текущий нескомпенсированный курс
+      const current = getFusedHeading();
+      const diff = ((targetBearingDeg - current + 540) % 360) - 180;
+      
+      CONFIG.alignmentOffset = ((CONFIG.alignmentOffset + diff + 540) % 360) - 180;
+      fusedHeading = (targetBearingDeg % 360 + 360) % 360;
+      
+      try {
+        localStorage.setItem('wm_pdr_alignment_offset', CONFIG.alignmentOffset.toString());
+      } catch (e) {}
+
+      return {
+        newOffset: CONFIG.alignmentOffset,
+        heading: fusedHeading
+      };
+    },
+    resetAlignmentOffset() {
+      CONFIG.alignmentOffset = 0;
+      try {
+        localStorage.setItem('wm_pdr_alignment_offset', '0');
+      } catch (e) {}
+      fusedHeading = null;
     },
 
     computeTriangleCalibration() {
