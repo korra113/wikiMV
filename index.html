@@ -29,8 +29,13 @@
         }
 
         var isCapacitor = window.Capacitor !== undefined || /wv|Android.*Version\/[0-9.]+/i.test(navigator.userAgent);
+        var isLowEnd = (navigator.hardwareConcurrency || 4) <= 4 || (navigator.deviceMemory || 4) <= 3;
+        
         if (isCapacitor) {
           document.documentElement.classList.add('capacitor-app');
+        }
+        if (isLowEnd) {
+          document.documentElement.classList.add('low-end');
         }
 
         // --- МГНОВЕННОЕ ПРИМЕНЕНИЕ ВИДИМОСТИ КНОПОК ДО ОТРИСОВКИ ---
@@ -43,9 +48,9 @@
           'btn-quick-measure': vis.quickmeasure === true,
           'btn-measure': vis.measure !== false,
           'btn-add-marker': vis.marker === true,
-          'btn-download-area': vis.precache !== false,
+          'btn-download-area': vis.precache === true,
           'btn-location': vis.location !== false,
-          'btn-manual-pdr': vis.manualpdr === true,
+          'btn-manual-pdr': vis.manualpdr !== false,
           'btn-motion-toggle': vis.motion === true,
           'btn-gps-dist': vis.gpsdist === true,
           'btn-rays-toggle': vis.rays === true,
@@ -119,17 +124,24 @@
     </div>
 
     <!-- НОВАЯ ЕДИНАЯ ПАНЕЛЬ ТРЕВОГИ ГЛУШЕНИЯ GPS -->
-    <div id="spoof-alert-panel" class="spoof-alert-panel" hidden>
-      <div class="spoof-alert-main">
+    <div id="spoof-alert-panel" class="spoof-alert-panel" hidden title="Глушение GPS! Нажмите для быстрых настроек шагомера PDR">
+      <div class="spoof-alert-main" id="spoof-alert-main">
         <span class="spoof-alert-icon">⚠️</span>
         <div class="spoof-alert-texts">
-          <span class="spoof-alert-title">Глушение GPS</span>
+          <div class="spoof-alert-title-row">
+            <span class="spoof-alert-title">Глушение GPS</span>
+            <span class="spoof-settings-hint" title="Настройки">⚙️</span>
+          </div>
           <span id="spoof-alert-reason" class="spoof-alert-sub">Аномальный скачок</span>
         </div>
       </div>
       <div class="spoof-alert-actions">
-        <button id="btn-i-am-here" class="spoof-action-btn pin" type="button" title="Привязать моё положение к центру перекрестия на карте">🧲 Я тут</button>
-        <button id="btn-spoof-probe" class="spoof-action-btn probe" type="button" title="Запросить текущий сигнал GPS и проверить, прекратилось ли глушение">🔄 Проверить</button>
+        <button id="btn-i-am-here" class="spoof-action-btn pin" type="button" title="Привязать моё положение к центру перекрестия на карте">
+          <span class="spoof-btn-icon">🧲</span><span class="spoof-btn-text"> Тут</span>
+        </button>
+        <button id="btn-spoof-probe" class="spoof-action-btn probe" type="button" title="Запросить текущий сигнал GPS и проверить, прекратилось ли глушение">
+          <span class="spoof-btn-icon">🔄</span><span class="spoof-btn-text"> Тест</span>
+        </button>
         <button id="btn-spoof-dismiss" class="spoof-action-btn close" type="button" title="Снять тревогу глушения вручную">✕</button>
       </div>
     </div>
@@ -137,6 +149,11 @@
     <div id="status" class="status-bar">Загрузка базы…</div>
     <!-- Кнопка перехода в получение ключей при исчерпании лимита -->
     <button id="btn-get-key-top" class="topbar-action-btn" hidden>🔑 Получить ключ</button>
+    <div id="inat-count-badge" class="inat-count-badge" hidden>
+      <span id="inat-count-badge-text">🌿 Растения: 0</span>
+      <button type="button" id="inat-count-badge-refresh" class="inat-count-badge-action" title="Обновить точки для текущего экрана" hidden>🔄</button>
+      <button type="button" id="inat-count-badge-clear" class="inat-count-badge-action inat-count-badge-clear" title="Сбросить фильтр" hidden>✕</button>
+    </div>
   </header>
 
   <div id="tag-filter-badge" class="tag-filter-badge" hidden>
@@ -156,7 +173,16 @@
     <div id="info-hud-content" class="info-hud-content"></div>
   </div>
   <!-- Нижняя кнопка-подсказка объекта -->
-  <button id="hover-pill" class="hover-pill" hidden></button>
+  <div id="bottom-pill-stack" class="bottom-pill-stack">
+    <button id="hover-pill" class="hover-pill" hidden></button>
+    <button id="pdr-step-pill" class="pdr-step-pill" hidden type="button" title="Автономный шагомер PDR активен (нажмите для быстрых настроек)">
+      <span class="pdr-pill-pulse"></span>
+      <span class="pdr-pill-icon">🧲</span>
+      <span class="pdr-pill-text">Шагомер:</span>
+      <b id="pdr-pill-steps" class="pdr-pill-steps">0 ш.</b>
+      <span id="pdr-pill-dist" class="pdr-pill-dist">(0 м)</span>
+    </button>
+  </div>
   
   <button id="btn-compass" class="compass-btn-top" title="Компас (нажмите для проверки азимута / калибровки)">
     <div class="compass-dial">
@@ -205,10 +231,28 @@
       </div>
       <div class="search-tabs">
         <button class="search-tab-btn active" data-source="all">Все</button>
+        <button class="search-tab-btn" data-source="inat">🌿 iNaturalist</button>
         <button class="search-tab-btn" data-source="wm">Wikimapia</button>
         <button class="search-tab-btn" data-source="osm">Геокодер (OSM)</button>
         <button class="search-tab-btn" data-source="tags">Теги</button>
       </div>
+
+      <!-- Всплывающий список вариантов автодополнения в основном поиске (Taxa Autocomplete) -->
+      <div id="search-autocomplete-wrap" class="inat-autocomplete-wrap" hidden>
+        <div id="search-autocomplete-list" class="inat-autocomplete-list"></div>
+      </div>
+
+      <!-- Панель управления поиском iNaturalist (тип поиска и кнопка Показать на карте) -->
+      <div id="search-inat-toolbar" class="search-inat-toolbar" hidden>
+        <div class="inat-search-type-segmented" id="search-inat-type-segmented">
+          <button type="button" class="inat-search-type-btn active" data-type="screen">На экране</button>
+          <button type="button" class="inat-search-type-btn" data-type="global">Общий</button>
+        </div>
+        <button type="button" id="btn-search-inat-apply-map" class="btn btn-primary" style="font-size: 11px; padding: 4px 10px;" hidden>
+          👁️ Показать на карте
+        </button>
+      </div>
+
       <div id="search-results" class="search-results-list">
         <div class="muted">Введите от 2 символов для поиска…</div>
       </div>
@@ -238,6 +282,22 @@
       </div>
 
       <div id="objects-list-items" class="search-tags-wrap" style="max-height: 55vh; overflow-y: auto;"></div>
+    </div>
+  </div>
+
+  <div id="modal-inat-list" class="modal-overlay">
+    <div class="modal-box modal-box-large">
+      <div class="modal-header">
+        <h3 id="inat-list-modal-title">🌿 Наблюдения на карте (<span id="inat-list-count">0</span>)</h3>
+        <button class="modal-close-x" id="inat-list-x">✕</button>
+      </div>
+      <div class="objects-search-row">
+        <div class="search-input-wrap" style="flex: 1; margin-bottom: 0;">
+          <input type="text" id="inat-list-search-input" class="styled-input" placeholder="Поиск по названию или виду..." autocomplete="off">
+          <button id="inat-list-search-clear-btn" class="search-clear-btn" hidden>✕</button>
+        </div>
+      </div>
+      <div id="inat-list-items" class="search-tags-wrap" style="max-height: 55vh; overflow-y: auto;"></div>
     </div>
   </div>
 
@@ -615,13 +675,16 @@
                     <button type="button" id="btn-maps-deselect-all" class="btn-link">Снять все</button>
                   </div>
                 </div>
+                <div class="settings-hint" style="margin: 6px 0; font-size: 0.9em; opacity: 0.8;">
+                  <small class="hint-text">ℹ️ Доступность слоёв может отличаться у разных интернет-провайдеров и при разном включении/выключении VPN. Если слой не загружается, попробуйте другую сеть, измените VPN или нажмите «Проверить доступность».</small>
+                </div>
                 <div id="map-check-summary" class="map-check-summary" hidden></div>
 
                 <div class="quick-swap-settings-box">
                   <label class="toggle-item">
                     <div>
                       <span style="font-weight:600; display:block;">Кнопка быстрой смены карты</span>
-                      <small class="hint-text">Кнопка 🔀 для мгновенного переключения между двумя картами</small>
+                      <small class="hint-text">Кнопка 🔀 для мгновенного переключения между двумя картами. Долгий клик вызывает быстрое меню выбора второй карты</small>
                     </div>
                     <input type="checkbox" id="toggle-quick-swap-enabled">
                     <span class="toggle-switch"></span>
@@ -694,7 +757,7 @@
             <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 10px;">
               <div class="guide-tip-title">🧭 Как работает автономное ведение</div>
               <p style="margin: 0; font-size: 11.5px; line-height: 1.45;">
-                При подавлении спутников трек строится по шагам и датчикам телефона. Периодически калибруйте компас в воздухе <b>«восьмёркой» (знаком ∞)</b>, а при выходе к заметным ориентирам уточняйте позицию кнопкой <b>«🧲 Я тут»</b> или через калибировку по трём точкам.
+                При подавлении спутников трек строится по шагам и датчикам телефона. Периодически калибруйте компас в воздухе <b>«восьмёркой» (знаком ∞)</b> либо через юстировку компаса ниже, а при выходе к заметным ориентирам уточняйте позицию кнопкой <b>«🧲 Я тут»</b> или через калибировку по трём точкам. В целом навигация в этом режиме осуществляется по принципу определения направления устройства и детекции шагов, так что вам нужно подстроить обе эти составляющие для своего устройства и типа передвижения настройками ниже
               </p>
             </div>
 
@@ -786,7 +849,16 @@
                   <span style="font-weight:600; display:block;">Кнопка «Поместить GPS сюда (🧲)» на карте</span>
                   <small class="hint-text">Плавающая кнопка на экране для мгновенной привязки точки к перекрестию. По долгому нажатию доступны быстрые настройки режима без GPS</small>
                 </div>
-                <input type="checkbox" id="toggle-ui-manualpdr">
+                <input type="checkbox" id="toggle-ui-manualpdr" checked>
+                <span class="toggle-switch"></span>
+              </label>
+
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight:600; display:block;">👣 Плашка шагов PDR внизу экрана</span>
+                  <small class="hint-text">Отображает компактный счётчик шагов и пройденной дистанции при активном шагомере.</small>
+                </div>
+                <input type="checkbox" id="toggle-pdr-step-pill">
                 <span class="toggle-switch"></span>
               </label>
 
@@ -1098,6 +1170,295 @@
 
               </div>
             </details>
+
+          </div>
+        </details>
+
+        <details class="spoiler" id="spoiler-inaturalist">
+          <summary class="spoiler-title">
+            <span>🌿 Слой растений и грибов (iNaturalist)</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body">
+            
+            <label class="toggle-item" style="margin-bottom: 10px;">
+              <div>
+                <span style="font-weight: 700; display: block;">Отображать наблюдения на карте</span>
+                <small class="hint-text">Загружает реальные точки находок флоры и грибов при перемещении карты (зум 10+)</small>
+              </div>
+              <input type="checkbox" id="toggle-inat-layer-enable">
+              <span class="toggle-switch"></span>
+            </label>
+
+            <!-- ВЛОЖЕННЫЙ СПОЙЛЕР ТОКЕНА / АВТОРИЗАЦИИ -->
+            <details class="spoiler sub-spoiler" id="spoiler-inat-auth">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🔑 API токен iNaturalist</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body">
+                <!-- Памятка об особенности 24-часовых токенов -->
+                <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 10px;">
+                  <div class="guide-tip-title">⏳ Особенность токенов iNaturalist (24 часа)</div>
+                  <p style="margin: 0; font-size: 11.5px; line-height: 1.45;">
+                    Токены iNaturalist имеют формат JWT и действуют <b>ровно 24 часа</b> с момента генерации на сайте [2]. По истечении этого времени токен «протухает», и для дальнейшего распознавания по фото требуется скопировать новый ключ [1]. Обычный просмотр точек на карте работает и без токена [1].
+                  </p>
+                </div>
+
+                <div style="font-size: 12px; line-height: 1.5; color: var(--text-main); margin-bottom: 10px;">
+                  <b>Как получить личный токен:</b>
+                  <ol style="margin: 4px 0 0; padding-left: 18px;">
+                    <li>Войдите в свой аккаунт на сайте <a href="https://www.inaturalist.org/login" target="_blank" rel="noopener noreferrer" class="link-colored">inaturalist.org/login ↗</a>.</li>
+                    <li>Перейдите на страницу токена <a href="https://www.inaturalist.org/users/api_token" target="_blank" rel="noopener noreferrer" class="link-colored">inaturalist.org/users/api_token ↗</a> [2].</li>
+                    <li>Скопируйте значение из поля <code>api_token</code> и вставьте ниже.</li>
+                  </ol>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 8px;">
+                  <label for="inat-token-input">API Token (JWT):</label>
+                  <div class="input-with-action">
+                    <input type="password" id="inat-token-input" class="styled-input" placeholder="Вставьте токен..." autocomplete="off">
+                    <button type="button" id="btn-inat-token-toggle-eye" class="input-action-btn" title="Показать/скрыть">👁️</button>
+                  </div>
+                </div>
+
+                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                  <button type="button" id="btn-inat-token-save" class="btn btn-primary" style="flex: 1; font-size: 11.5px; padding: 6px 10px;">
+                    💾 Сохранить токен
+                  </button>
+                  <button type="button" id="btn-inat-token-clear" class="btn btn-danger-outline" style="font-size: 11.5px; padding: 6px 10px;" hidden>
+                    🗑️ Удалить
+                  </button>
+                </div>
+
+                <!-- Блок таймера жизни токена -->
+                <div id="inat-token-status" class="hint-text" style="font-weight: 600; line-height: 1.45;">
+                  ⚪ Используется открытый гостевой доступ
+                </div>
+              </div>
+            </details>
+
+<!-- БЛОК РАСПОЗНАВАНИЯ ПО ФОТО (iNaturalist Vision AI) -->
+            <div class="inat-vision-box" id="inat-vision-box">
+              <div class="inat-vision-head">
+                <div class="inat-vision-head-title">
+                  <span class="inat-vision-icon">📷</span>
+                  <div>
+                    <span class="inat-vision-title">Определить вид по фото</span>
+                    <span class="inat-vision-sub">Нейросеть iNaturalist Computer Vision</span>
+                  </div>
+                </div>
+                <span id="inat-vision-limit-badge" class="inat-vision-limit-badge" title="Лимит: не более 3 фото в минуту">3 / 3</span>
+              </div>
+
+              <!-- Предупреждение о необходимости токена -->
+              <div id="inat-vision-token-warning" class="guide-tip-box" style="margin: 8px 0; border-color: #ef4444; background: rgba(239, 68, 68, 0.08);" hidden>
+                <div class="guide-tip-title" style="color: #ef4444;" id="inat-vision-token-warning-title">⚠️ Требуется API токен iNaturalist</div>
+                <p id="inat-vision-token-warning-desc" style="margin: 0 0 6px; font-size: 11.5px; line-height: 1.4;">
+                  Для работы нейросети распознавания видов сервер iNaturalist требует авторизационный JWT токен. Укажите его в настройках выше.
+                </p>
+                <button type="button" id="btn-inat-vision-goto-auth" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;">
+                  🔑 Перейти к вводу токена
+                </button>
+              </div>
+
+              <!-- Скрытый инпут для выбора файла или съёмки с камеры -->
+              <input type="file" id="inat-vision-file-input" accept="image/*" style="display: none;">
+
+              <div class="inat-vision-actions-row">
+                <button type="button" id="btn-inat-vision-pick" class="btn btn-primary inat-vision-btn-pick">
+                  <span>📸 Сделать снимок или выбрать фото</span>
+                </button>
+              </div>
+
+              <!-- Превью выбранного снимка и статус нейросети -->
+              <div id="inat-vision-preview-wrap" class="inat-vision-preview-wrap" hidden>
+                <div class="inat-vision-preview-img-box">
+                  <img id="inat-vision-preview-img" alt="Превью" src="">
+                  <button type="button" id="btn-inat-vision-clear" class="inat-vision-preview-clear" title="Убрать фото">✕</button>
+                </div>
+                <div class="inat-vision-preview-info">
+                  <span id="inat-vision-preview-name" class="inat-vision-preview-name">photo.jpg</span>
+                  <div id="inat-vision-status-line" class="inat-vision-status-line">Анализ снимка…</div>
+                </div>
+              </div>
+
+              <!-- Результаты распознавания -->
+              <div id="inat-vision-results" class="inat-vision-results" hidden>
+                <div id="inat-vision-ancestor-banner" class="inat-vision-ancestor" hidden></div>
+                <div id="inat-vision-results-list" class="inat-vision-results-list"></div>
+              </div>
+            </div>
+
+
+            <label class="toggle-item" style="margin-bottom: 10px;">
+              <div>
+                <span style="font-weight: 600; display: block;">Плашка числа растений вверху экрана</span>
+                <small class="hint-text">Отображает вверху компактный счётчик найденных наблюдений</small>
+              </div>
+              <input type="checkbox" id="toggle-inat-show-badge" checked>
+              <span class="toggle-switch"></span>
+            </label>
+
+            
+
+            <!-- ПРОДВИНУТЫЙ ПОИСК РАСТЕНИЙ И ГРИБОВ -->
+            <div class="inat-search-box" style="margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <label style="font-weight: 700; font-size: 12px; margin: 0;">🔍 Поиск по названию (рус / лат):</label>
+                <div class="inat-search-type-segmented" id="inat-search-type-segmented">
+                  <button type="button" class="inat-search-type-btn active" data-type="screen">На экране</button>
+                  <button type="button" class="inat-search-type-btn" data-type="global">Общий</button>
+                </div>
+              </div>
+
+              <div class="input-with-action">
+                <input type="text" id="inat-filter-query" class="styled-input" placeholder="Например: Земляника, Лисичка, Sambucus…" autocomplete="off">
+                <button type="button" id="inat-filter-query-clear" class="input-action-btn" title="Очистить" hidden>✕</button>
+              </div>
+
+              <!-- Всплывающий список вариантов автодополнения (Taxa Autocomplete) -->
+              <div id="inat-autocomplete-wrap" class="inat-autocomplete-wrap" hidden>
+                <div id="inat-autocomplete-list" class="inat-autocomplete-list"></div>
+              </div>
+
+              <!-- Всплывающий проматываемый бокс результатов -->
+              <div id="inat-search-results-wrap" class="inat-search-results-wrap" hidden>
+                <div class="inat-search-results-header">
+                  <span id="inat-search-count-label">Найдено: 0</span>
+                  <button type="button" id="btn-inat-filter-apply-map" class="btn btn-primary" style="font-size: 11px; padding: 4px 10px;">
+                    👁️ Показать на карте
+                  </button>
+                </div>
+                <div id="inat-search-results-list" class="inat-search-results-list"></div>
+              </div>
+            </div>
+
+            <!-- Группы организмов -->
+            <div class="form-group" style="margin-bottom: 8px;">
+              <label for="inat-filter-taxa">Категория живой природы:</label>
+              <select id="inat-filter-taxa" class="styled-select">
+                <option value="Plantae,Fungi" selected>🌿 Растения и 🍄 Грибы</option>
+                <option value="Plantae">🌿 Только растения (деревья, травы, цветы)</option>
+                <option value="Fungi">🍄 Только грибы и лишайники</option>
+                <option value="Aves">🦅 Только птицы</option>
+                <option value="Insecta">🐞 Только насекомые</option>
+                <option value="Amphibia,Reptilia">🐸 Земноводные и рептилии</option>
+                <option value="Mammalia">🦊 Млекопитающие</option>
+                <option value="all">🌍 Все категории организмов</option>
+              </select>
+            </div>
+
+            <!-- Время года и конкретный месяц -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="inat-filter-season">Сезонность:</label>
+                <select id="inat-filter-season" class="styled-select">
+                  <option value="any" selected>Все сезоны</option>
+                  <option value="current">⚡ Сейчас</option>
+                  <option value="spring">🌸 Весна</option>
+                  <option value="summer">☀️ Лето</option>
+                  <option value="autumn">🍂 Осень</option>
+                  <option value="winter">❄️ Зима</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="inat-filter-month">Месяц находки:</label>
+                <select id="inat-filter-month" class="styled-select">
+                  <option value="any" selected>Любой месяц</option>
+                  <option value="1">Январь</option>
+                  <option value="2">Февраль</option>
+                  <option value="3">Март</option>
+                  <option value="4">Апрель</option>
+                  <option value="5">Май</option>
+                  <option value="6">Июнь</option>
+                  <option value="7">Июль</option>
+                  <option value="8">Август</option>
+                  <option value="9">Сентябрь</option>
+                  <option value="10">Октябрь</option>
+                  <option value="11">Ноябрь</option>
+                  <option value="12">Декабрь</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Популярность и качество -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="inat-filter-sort">Сортировка:</label>
+                <select id="inat-filter-sort" class="styled-select">
+                  <option value="votes" selected>⭐ Популярные</option>
+                  <option value="observed_on">📅 По дате находки</option>
+                  <option value="created_at">🆕 Новые в базе</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="inat-filter-quality">Достоверность:</label>
+                <select id="inat-filter-quality" class="styled-select">
+                  <option value="research" selected>✓ Research Grade</option>
+                  <option value="needs_id">⏳ На опознании</option>
+                  <option value="any">Все уровни</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Чекбоксы дополнительных фильтров -->
+            <div class="toggles-list" style="margin-bottom: 10px;">
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight: 600; display: block;">Только дикая природа (исключить культурные посадки)</span>
+                  <small class="hint-text">Убирает клумбы, комнатные растения и питомники (captive=false)</small>
+                </div>
+                <input type="checkbox" id="toggle-inat-wild" checked>
+                <span class="toggle-switch"></span>
+              </label>
+
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight: 600; display: block;">Только дикорастущие (аборигенные виды)</span>
+                  <small class="hint-text">Исключает завезенные человеком чужеродные растения</small>
+                </div>
+                <input type="checkbox" id="toggle-inat-native">
+                <span class="toggle-switch"></span>
+              </label>
+
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight: 600; display: block;">⚠️ Только редкие и охраняемые (Красная книга)</span>
+                  <small class="hint-text">Особо ценные, угрожаемые и краснокнижные виды</small>
+                </div>
+                <input type="checkbox" id="toggle-inat-threatened">
+                <span class="toggle-switch"></span>
+              </label>
+
+              <label class="toggle-item">
+                <div>
+                  <span style="font-weight: 600; display: block;">Только с фотографиями</span>
+                  <small class="hint-text">Исключает записи без прикрепленных снимков</small>
+                </div>
+                <input type="checkbox" id="toggle-inat-photos" checked>
+                <span class="toggle-switch"></span>
+              </label>
+            </div>
+
+            <div class="style-row" style="margin-bottom: 10px;">
+              <label for="inat-filter-limit" style="display: flex; justify-content: space-between; font-weight: 600;">
+                <span>Количество точек на экране:</span>
+                <b id="inat-filter-limit-val" style="color: var(--accent);">50</b>
+              </label>
+              <input type="range" id="inat-filter-limit" min="10" max="150" step="10" value="50" class="styled-range">
+            </div>
+
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+              <button type="button" id="btn-inat-refresh-now" class="btn btn-primary" style="flex: 1; font-size: 12px; padding: 8px 10px; font-weight: 700;">
+                🔄 Обновить точки на карте
+              </button>
+              <button type="button" id="btn-inat-export-json" class="btn btn-secondary" style="flex: 1; font-size: 12px; padding: 8px 10px; font-weight: 700;" title="Скачать сырой подробный JSON со всеми полями API для текущей видимой области">
+                💾 Скачать полный JSON
+              </button>
+            </div>
+
+
 
           </div>
         </details>
@@ -1508,7 +1869,7 @@
                 </label>
                 <label class="toggle-item">
                   <span>Кнопка «Скачать область»</span>
-                  <input type="checkbox" id="toggle-ui-precache" checked>
+                  <input type="checkbox" id="toggle-ui-precache">
                   <span class="toggle-switch"></span>
                 </label>
                 <label class="toggle-item">
@@ -2752,6 +3113,18 @@
           </button>
         </div>
 
+        <div class="pdr-quick-group" style="margin-bottom: 4px;">
+          <label class="toggle-item" style="margin: 0;">
+            <div>
+              <span style="font-weight:700; font-size:12px; display:block;">👣 Плашка шагов на экране</span>
+              <small class="hint-text">Счётчик шагов внизу экрана при ходьбе без GPS</small>
+            </div>
+            <input type="checkbox" id="pdr-quick-toggle-step-pill">
+            <span class="toggle-switch"></span>
+          </label>
+        </div>
+
+
         <!-- 3. ДЛИНА ШАГА -->
         <div class="pdr-quick-group">
           <div class="pdr-quick-group-header">
@@ -2867,7 +3240,10 @@
     </div>
   </div>
 
+
+
   <script src="js/leaflet.js"></script>
+  <script src="js/tile-retry.js"></script>
   <script src="js/config.js"></script>
   <script src="js/geo.js"></script>
   <script src="js/cache.js"></script>
@@ -2890,6 +3266,7 @@
   <!-- ПОДКЛЮЧАЕМ ДВИЖОК ШАГОМЕРА PDR: -->
   <script src="js/pdrEngine.js"></script>
   <script src="js/imuLogger.js"></script>
+  <script src="js/inaturalist.js"></script>
   <script src="js/main.js"></script>
 
 
