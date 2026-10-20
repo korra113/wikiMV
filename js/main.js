@@ -1750,35 +1750,28 @@
     if (e.alpha === null || e.alpha === undefined) return null;
 
     const degToRad = Math.PI / 180;
-    const alpha = (e.alpha || 0) * degToRad;
-    const beta  = (e.beta  || 0) * degToRad;
-    const gamma = (e.gamma || 0) * degToRad;
+    const alpha = (e.alpha || 0) * degToRad; // Z (азимут)
+    const beta  = (e.beta  || 0) * degToRad; // X (наклон вперед-назад)
+    const gamma = (e.gamma || 0) * degToRad; // Y (крен влево-вправо)
 
-    let hEast, hNorth;
-    const absBetaDeg = Math.abs(e.beta || 0);
+    const cA = Math.cos(alpha), sA = Math.sin(alpha);
+    const cB = Math.cos(beta),  sB = Math.sin(beta);
+    const cG = Math.cos(gamma), sG = Math.sin(gamma);
 
-    if (absBetaDeg < 65) {
-      hEast  = -Math.sin(alpha) * Math.cos(gamma) - Math.cos(alpha) * Math.sin(beta) * Math.sin(gamma);
-      hNorth =  Math.cos(alpha) * Math.cos(gamma) - Math.sin(alpha) * Math.sin(beta) * Math.sin(gamma);
-    } else {
-      const yE = -Math.sin(alpha) * Math.cos(beta);
-      const yN =  Math.cos(alpha) * Math.cos(beta);
-      const zE =  Math.cos(alpha) * Math.sin(gamma) + Math.sin(alpha) * Math.sin(beta) * Math.cos(gamma);
-      const zN =  Math.sin(alpha) * Math.sin(gamma) - Math.cos(alpha) * Math.sin(beta) * Math.cos(gamma);
+    // Вычисляем компоненты горизонтального вектора без скачкообразных условий
+    // Матрица поворота Z-X'-Y'' проецируется на плоскость горизонта
+    const worldEast  = -sA * cG - cA * sB * sG;
+    const worldNorth =  cA * cG - sA * sB * sG;
 
-      const signBeta = (e.beta >= 0) ? 1 : -1;
-      hEast  = yE * Math.cos(beta) - zE * Math.sin(beta) * signBeta;
-      hNorth = yN * Math.cos(beta) - zN * Math.sin(beta) * signBeta;
-    }
-
+    // Учет ориентации экрана (портретная/альбомная)
     const screenAngle = ((screen.orientation && screen.orientation.angle) || window.orientation || 0) * degToRad;
     const cosS = Math.cos(screenAngle);
     const sinS = Math.sin(screenAngle);
 
-    const worldEast  = hEast * cosS - hNorth * sinS;
-    const worldNorth = hEast * sinS + hNorth * cosS;
+    const rotEast  = worldEast * cosS - worldNorth * sinS;
+    const rotNorth = worldEast * sinS + worldNorth * cosS;
 
-    let heading = Math.atan2(worldEast, worldNorth) * (180 / Math.PI);
+    let heading = Math.atan2(rotEast, rotNorth) * (180 / Math.PI);
     return (heading + 360) % 360;
   }
 
