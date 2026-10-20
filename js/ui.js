@@ -3828,7 +3828,7 @@
     }, 60);
   }
 
-  let searchInatType = 'screen';
+  let searchInatType = 'global'; // <-- БЫЛО: 'screen', СТАЛО: 'global'
   let searchInatSelectedTaxon = null;
   let searchInatLastResults = [];
   let searchInatAutocompleteAbort = null;
