@@ -148,6 +148,7 @@ html, body {
   pointer-events: none;
   width: calc(100% - 28px);
   max-width: 420px;
+  background: transparent !important; /* <--- ДОБАВЬТЕ ЭТУ СТРОКУ */
 }
 
 .limit-row {
