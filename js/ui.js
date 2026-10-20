@@ -35,6 +35,14 @@
       return true;
     }
 
+    const vcHud = $('visual-compass-hud');
+    if (vcHud && !vcHud.hidden) {
+      if (window.cancelVisualCompassAdjust) {
+        window.cancelVisualCompassAdjust();
+        return true;
+      }
+    }
+
     const modalCompassAdj = $('modal-compass-adjust');
     if (modalCompassAdj && modalCompassAdj.classList.contains('open')) {
       modalCompassAdj.classList.remove('open');
@@ -199,7 +207,13 @@
       return true;
     }
 
-    // 12. Ничего не открыто — возвращаем false (разрешаем Android свернуть приложение)
+    // 11.5. Отключение режима слежения по кнопке "Назад"
+    if (WM.followMode && WM.followMode.isActive && WM.followMode.isActive()) {
+      WM.followMode.stop();
+      return true;
+    }
+
+    // 12. Ничего не открыто — возвращаем false
     return false;
   }
 
@@ -1008,6 +1022,7 @@
     motionvector: false,
     hideuibtn: false // по умолчанию выключена
   };
+  let uiVis = { ...UI_VIS_DEFAULT }; // <-- ДОБАВИТЬ ЭТУ СТРОКУ
 
   const VIS_KEYS = ['status', 'limit', 'pill', 'zoom', 'layers', 'search', 'mode', 'quickmeasure', 'measure', 'marker', 'precache', 'location', 'manualpdr', 'gpsdist', 'motion', 'compasscone', 'compassneedle', 'rays', 'theme', 'infomenu', 'rangering', 'motiontail', 'motionvector', 'hideuibtn'];
   const DEFAULT_INFO_ITEMS = {
@@ -2205,6 +2220,12 @@
 
     const cfg = WM.pdr ? WM.pdr.getConfig() : {};
 
+    const curMov = cfg.movementType || 'normal';
+    document.querySelectorAll('#pdr-quick-movement-segmented .pdr-quick-seg-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mov === curMov);
+    });
+    updatePdrQuickMovHint(curMov);
+
     // 1. Длина шага
     const curStepCm = Math.round((cfg.baseStepLength || 0.75) * 100);
     const sliderStep = $('pdr-quick-step-slider');
@@ -2268,6 +2289,18 @@
     }
   }
 
+  function updatePdrQuickMovHint(mode) {
+    const hint = $('pdr-quick-mov-hint');
+    if (!hint) return;
+    if (mode === 'straight') {
+      hint.textContent = '🌲 По прямой: держит азимут! Игнорирует виляние при обходе деревьев. Поворот только при 8 четких шагах в новую сторону.';
+    } else if (mode === 'chaotic') {
+      hint.textContent = '🔄 Маневры: мгновенный отклик на повороты (1-2 шага). Для поиска предметов, копа, петляющих троп.';
+    } else {
+      hint.textContent = '🚶 Обычный: баланс между фильтрацией покачиваний и фиксацией реальных поворотов.';
+    }
+  }
+
   function initPdrQuickModal() {
     const modal = $('modal-pdr-quick');
     if (!modal || modal._inited) return;
@@ -2296,6 +2329,26 @@
     $('btn-pdr-quick-open-compass')?.addEventListener('click', () => {
       closePdrQuickModal();
       if (window.openCompassAdjustModal) window.openCompassAdjustModal();
+    });
+
+    // Сегмент: Характер движения (Обычный / По прямой / Маневры)
+    document.querySelectorAll('#pdr-quick-movement-segmented .pdr-quick-seg-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#pdr-quick-movement-segmented .pdr-quick-seg-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const mov = btn.dataset.mov;
+        if (WM.pdr) WM.pdr.setConfig({ movementType: mov });
+        const mainMov = $('pdr-movement-type-select');
+        if (mainMov) mainMov.value = mov;
+        updatePdrQuickMovHint(mov);
+
+        const titles = {
+          straight: '🌲 Включён азимут «По прямой» (выход из леса)',
+          chaotic: '🔄 Включён «Маневренный» режим (быстрые повороты)',
+          normal: '🚶 Включён «Обычный» режим движения'
+        };
+        showToast(titles[mov] || 'Режим обновлён');
+      });
     });
 
     // Ползунок шага
@@ -4134,7 +4187,9 @@
       'btn-measure': () => '📏 Линейка: измерение расстояний на карте, добавление узлов и нескольких треков',
       'btn-add-marker': () => '📍 Добавить метку: создать заметку с эмодзи в центре экрана с возможностью перемещения',
       'btn-download-area': () => '📥 Скачать область: сохранить контуры и описания видимой области для автономной работы',
-      'btn-location': () => '🛰️ Моя геопозиция: определить и показать текущие координаты по GPS',
+      'btn-location': () => (WM.followMode && WM.followMode.isActive())
+        ? '🎯 Режим слежения: активен\nУдерживайте или сдвиньте карту для отключения'
+        : '🛰️ Моя геопозиция\nНажатие — показать координаты, удержание — режим слежения (прилипание камеры)',
       'btn-manual-pdr': () => (WM.manualPdr && WM.manualPdr.isActive())
         ? '📍 Ведение по датчикам активно\nНажмите для возврата к штатному GPS'
         : '📍 Поместить точку GPS сюда\nПривязать координаты к центру экрана и включить шагомер',
@@ -4771,6 +4826,143 @@
   }
 
   // =========================================================================
+  // ИНТЕРАКТИВНАЯ ЮСТИРОВКА КОМПАСА ПО КАРТЕ
+  // =========================================================================
+ let initialVisualOffset = 0;
+  let isVisualCompassActive = false;
+
+  window.WM = window.WM || {};
+  WM.isVisualCompassActive = () => isVisualCompassActive;
+
+  function updateVisualCompassUI(curOffset) {
+    const slider = $('vc-hud-slider');
+    const badge = $('vc-hud-offset-badge');
+    const headingEl = $('vc-hud-heading-val');
+    const settingsVal = $('pdr-alignment-offset-val');
+
+    const formattedOffset = (curOffset > 0 ? '+' : '') + curOffset + '°';
+
+    if (slider && parseInt(slider.value, 10) !== curOffset) {
+      slider.value = curOffset;
+    }
+    if (badge) badge.textContent = `Поправка: ${formattedOffset}`;
+    if (settingsVal) settingsVal.textContent = formattedOffset;
+
+    const curH = (WM.pdr && WM.pdr.getHeading) ? WM.pdr.getHeading() : null;
+    if (headingEl) {
+      headingEl.textContent = curH !== null ? `Курс: ${Math.round(curH)}°` : 'Курс: --';
+    }
+
+    // Передаем новый курс напрямую для мгновенного поворота без ожидания движения
+    if (WM.compass && WM.compass.updateVisuals) {
+      WM.compass.updateVisuals(curH);
+    }
+  }
+
+  function openVisualCompassAdjust() {
+    const hud = $('visual-compass-hud');
+    if (!hud) return;
+
+    $('modal-compass-adjust')?.classList.remove('open');
+    $('modal-pdr-quick')?.classList.remove('open');
+    $('modal')?.classList.remove('open');
+
+    initialVisualOffset = WM.pdr ? WM.pdr.getAlignmentOffset() : 0;
+    isVisualCompassActive = true;
+    document.body.classList.add('visual-compass-active');
+
+    if (WM.compass && WM.compass.start) WM.compass.start();
+    if (WM.compass && WM.compass.ensureUserMarkerVisible) {
+      WM.compass.ensureUserMarkerVisible();
+    }
+
+    updateVisualCompassUI(initialVisualOffset);
+    hud.hidden = false;
+    pushHistoryState('visualCompass');
+
+    showToast('🧭 Вращайте ползунок, совмещая луч с ориентиром на карте', 3000);
+  }
+
+  function closeVisualCompassHUD() {
+    isVisualCompassActive = false;
+    document.body.classList.remove('visual-compass-active');
+    const hud = $('visual-compass-hud');
+    if (hud) hud.hidden = true;
+    clearHistoryState('visualCompass');
+  }
+
+  function cancelVisualCompassAdjust() {
+    if (!isVisualCompassActive) return;
+    if (WM.pdr && WM.pdr.setAlignmentOffset) {
+      WM.pdr.setAlignmentOffset(initialVisualOffset);
+    }
+    closeVisualCompassHUD();
+    showToast('Калибровка соосности отменена');
+  }
+  window.cancelVisualCompassAdjust = cancelVisualCompassAdjust;
+
+  function applyVisualCompassAdjust() {
+    if (!isVisualCompassActive) return;
+    const finalOffset = WM.pdr ? WM.pdr.getAlignmentOffset() : 0;
+    closeVisualCompassHUD();
+    const formatted = (finalOffset > 0 ? '+' : '') + finalOffset + '°';
+    showToast(`✅ Соосность сохранена: ${formatted}`, 2500);
+  }
+
+  function initVisualCompassAdjustModule() {
+    const hud = $('visual-compass-hud');
+    const slider = $('vc-hud-slider');
+    if (!hud || hud._inited) return;
+    hud._inited = true;
+
+    const setOffset = (val) => {
+      let clamped = parseInt(val, 10);
+      if (clamped < -180) clamped = -180;
+      if (clamped > 180) clamped = 180;
+      if (WM.pdr && WM.pdr.setAlignmentOffset) {
+        WM.pdr.setAlignmentOffset(clamped);
+      }
+      updateVisualCompassUI(clamped);
+    };
+
+    if (slider) {
+      slider.addEventListener('input', (e) => setOffset(e.target.value));
+    }
+
+    $('btn-vc-step-minus5')?.addEventListener('click', () => {
+      const cur = WM.pdr ? WM.pdr.getAlignmentOffset() : 0;
+      setOffset(cur - 5);
+    });
+    $('btn-vc-step-minus1')?.addEventListener('click', () => {
+      const cur = WM.pdr ? WM.pdr.getAlignmentOffset() : 0;
+      setOffset(cur - 1);
+    });
+    $('btn-vc-step-plus1')?.addEventListener('click', () => {
+      const cur = WM.pdr ? WM.pdr.getAlignmentOffset() : 0;
+      setOffset(cur + 1);
+    });
+    $('btn-vc-step-plus5')?.addEventListener('click', () => {
+      const cur = WM.pdr ? WM.pdr.getAlignmentOffset() : 0;
+      setOffset(cur + 5);
+    });
+
+    $('btn-vc-reset')?.addEventListener('click', () => setOffset(0));
+    $('btn-vc-recenter')?.addEventListener('click', () => {
+      if (WM.compass && WM.compass.ensureUserMarkerVisible) {
+        WM.compass.ensureUserMarkerVisible();
+      }
+    });
+
+    $('btn-vc-cancel')?.addEventListener('click', cancelVisualCompassAdjust);
+    $('btn-vc-apply')?.addEventListener('click', applyVisualCompassAdjust);
+
+    // Подключение кнопок вызова
+    $('btn-adj-map-visual')?.addEventListener('click', openVisualCompassAdjust);
+    $('btn-pdr-quick-open-visual-compass')?.addEventListener('click', openVisualCompassAdjust);
+    $('btn-open-visual-compass-settings')?.addEventListener('click', openVisualCompassAdjust);
+  }
+
+  // =========================================================================
   // ДИАГНОСТИКА ДАТЧИКОВ И ТЕСТЕР ШАГОВ
   // =========================================================================
   // =========================================================================
@@ -4895,6 +5087,46 @@
     const presetLabel = $('pdr-preset-current-label');
     if (presetLabel && PDR_PRESETS[savedPresetKey]) {
       presetLabel.textContent = PDR_PRESETS[savedPresetKey].title;
+    }
+
+    // Получаем текущую конфигурацию PDR (если движок инициализирован)
+    const cfg = WM.pdr ? WM.pdr.getConfig() : {};
+
+    const selHeadingSource = $('pdr-heading-source-select');
+    const hintHeadingSource = $('pdr-heading-source-hint');
+    if (selHeadingSource) {
+      selHeadingSource.value = cfg.headingSource || 'fusion';
+      selHeadingSource.onchange = (e) => {
+        const val = e.target.value;
+        if (WM.pdr) WM.pdr.setConfig({ headingSource: val });
+        if (hintHeadingSource) {
+          hintHeadingSource.textContent = val === 'compass'
+            ? '«Только компас» отключает гироскоп и стабилизирует курс адаптивным фильтром. Подходит при дрейфе или плохом гироскопе.'
+            : '«Гироскоп + Компас» даёт максимальную плавность и быстроту реакции благодаря слиянию датчиков. Может плохо работать на бюджетных устройствах или при особенностях гироскопа.';
+        }
+        showToast(val === 'compass' ? '🧭 Режим курса: Только компас' : '🧭 Режим курса: Гироскоп + Компас');
+      };
+    }
+
+    const selMov = $('pdr-movement-type-select');
+    const hintMov = $('pdr-movement-type-hint');
+    if (selMov) {
+      selMov.value = cfg.movementType || 'normal';
+      selMov.onchange = (e) => {
+        const val = e.target.value;
+        if (WM.pdr) WM.pdr.setConfig({ movementType: val });
+        if (hintMov) {
+          if (val === 'straight') hintMov.textContent = '«По прямой» держит генеральный курс и игнорирует виляние при обходе препятствий.';
+          else if (val === 'chaotic') hintMov.textContent = '«Маневренный» мгновенно чертит любой резкий поворот.';
+          else hintMov.textContent = 'Стандартный сбалансированный режим.';
+        }
+        // Синхронизация с быстрым меню
+        document.querySelectorAll('#pdr-quick-movement-segmented .pdr-quick-seg-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.mov === val);
+        });
+        updatePdrQuickMovHint(val);
+        showToast(`🧭 Режим движения: ${selMov.options[selMov.selectedIndex].text.split(' ')[1]}`);
+      };
     }
 
     const btnOpenCompassAdjSettings = $('btn-open-compass-adjust-settings');
@@ -5106,7 +5338,7 @@
 
       if (declText) {
         const d = WM.pdr.getMagneticDeclination();
-        declText.textContent = `Автоматическая поправка к истинному Северу (${d > 0 ? '+' : ''}${d}°)`;
+        declText.textContent = `Автоматическая поправка к истинному Северу (${d >= 0 ? '+' : ''}${d}°)`;
       }
 
       if (chkDecl) {
@@ -5140,6 +5372,8 @@
           WM.pdr.setConfig({ carryingMode: e.target.value });
         };
       }
+
+
 
       const sliderStep = $('pdr-step-length-slider');
       const valStep = $('pdr-step-length-val');
@@ -5445,6 +5679,13 @@
     if (btnCancelTri) btnCancelTri.onclick = closeTriangleModal;
 
     if (btnActionTri) {
+
+      function updateLiveWalkedUI() {
+        if (!liveWalkedEl || !WM.pdr || !WM.pdr.getTriangleCurrentLegStats) return;
+        const stats = WM.pdr.getTriangleCurrentLegStats();
+        liveWalkedEl.textContent = `Пройдено: ${stats.steps} шагов (~${Math.round(stats.dist)} м)`;
+      }
+
       btnActionTri.onclick = async () => {
         // 1. Старт из точки A в сторону B
         if (walkStage === 0) {
@@ -5497,7 +5738,7 @@
 
           btnActionTri.textContent = 'Я вернулся в точку A ✓';
           WM.pdr.startTriangleLeg();
-          updateLiveWalkedUIUI();
+          updateLiveWalkedUI();
           showToast('🚶 Замкните контур, вернувшись в точку A');
         }
         // 4. Завершение и расчет
@@ -6608,7 +6849,8 @@
       initMobileTooltips();
       initQuickMenu();
       initCoordsModal();
-      initPdrDiagnosticsUI(); // <-- ДОБАВИТЬ ЭТУ СТРОКУ
+      initPdrDiagnosticsUI();
+      initVisualCompassAdjustModule(); // <--- ВОТ СЮДА!
 
       // Синхронизация обоих чекбоксов автоперехода в реальном времени:
       const chkPdrAuto1 = $('toggle-pdr-auto-engage');
@@ -6715,6 +6957,7 @@
           $('toggle-qm-item-manualpdr').checked = !!quickMenuConfig.items.manualPdr;
         }
 
+
         if ($('toggle-pdr-step-vibe') && WM.pdr) {
           $('toggle-pdr-step-vibe').checked = WM.pdr.getConfig().stepVibration !== false;
         }
@@ -6749,6 +6992,18 @@
             stepVal.textContent = e.target.value + ' см';
             if (WM.pdr) WM.pdr.setConfig({ baseStepLength: parseFloat(e.target.value) / 100 });
           };
+        }
+
+
+        if ($('pdr-heading-source-select')) {
+          const hSrc = pdrCfg.headingSource || 'fusion';
+          $('pdr-heading-source-select').value = hSrc;
+          const hint = $('pdr-heading-source-hint');
+          if (hint) {
+            hint.textContent = hSrc === 'compass'
+              ? '«Только компас» отключает гироскоп и стабилизирует курс адаптивным фильтром. Подходит при дрейфе или плохом гироскопе.'
+              : '«Гироскоп + Компас» даёт максимальную плавность и быстроту реакции благодаря слиянию датчиков.';
+          }
         }
 
         if ($('toggle-pdr-dynamic-stride')) $('toggle-pdr-dynamic-stride').checked = pdrCfg.useDynamicStride !== false;
@@ -7106,10 +7361,14 @@
             WM.pdr.setSoundEnabled(sndTop.checked);
           }
 
+
+
         if (WM.pdr) {
           const stepSlider = $('pdr-step-length-slider');
           WM.pdr.setConfig({
+            headingSource: $('pdr-heading-source-select') ? $('pdr-heading-source-select').value : 'fusion',
             carryingMode: $('pdr-carrying-mode') ? $('pdr-carrying-mode').value : 'hand',
+            movementType: $('pdr-movement-type-select') ? $('pdr-movement-type-select').value : 'normal',
             baseStepLength: stepSlider ? parseFloat(stepSlider.value) / 100 : 0.75,
             useDynamicStride: $('toggle-pdr-dynamic-stride') ? $('toggle-pdr-dynamic-stride').checked : true,
             sensitivity: $('pdr-sensitivity-select') ? $('pdr-sensitivity-select').value : 'normal',
@@ -7117,6 +7376,8 @@
             autoEngageOnSpoof: autoEngageSpoofVal
           });
         }
+
+
 
 
         if (hybridSlider) {
