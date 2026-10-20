@@ -7210,7 +7210,249 @@ body.sheet-open .measure-hud {
   will-change: transform;
   contain: layout style;
 }
+/* =========================================================================
+   HUD ВИЗУАЛЬНОЙ ЮСТИРОВКИ КОМПАСА ПО КАРТЕ
+   ========================================================================= */
 
+.visual-compass-hud {
+  position: absolute;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2500;
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1.5px solid var(--accent, #0284c7);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  box-shadow: 0 6px 24px rgba(2, 132, 199, 0.25), var(--shadow-float);
+  width: calc(100vw - 28px);
+  max-width: 440px;
+  user-select: none;
+  animation: toastFade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+body.sheet-open .visual-compass-hud,
+body.wm-ui-hidden .visual-compass-hud {
+  display: none !important;
+}
+
+.vc-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.vc-hud-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vc-hud-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.vc-hud-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.vc-hud-badge {
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--accent);
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.vc-hud-heading {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  white-space: nowrap;
+}
+
+.vc-hud-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vc-hud-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vc-slider {
+  flex: 1;
+  height: 8px;
+  cursor: grab;
+}
+.vc-slider:active {
+  cursor: grabbing;
+}
+
+.vc-hud-btn-step {
+  width: 32px;
+  height: 30px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  color: var(--text-main);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.vc-hud-btn-step:active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  transform: scale(0.92);
+}
+
+.vc-hud-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vc-hud-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vc-btn-sub {
+  height: 30px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.12s ease;
+}
+
+.vc-btn-sub:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.vc-hud-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vc-btn-action {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 6px;
+}
+
+/* Тема ночного зрения */
+[data-theme="night-vision"] .visual-compass-hud {
+  background: rgba(18, 3, 3, 0.96);
+  border-color: #ef4444;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.35);
+}
+
+[data-theme="night-vision"] .vc-hud-badge {
+  background: #ef4444;
+}
+
+body.visual-compass-active .wm-gps-cone {
+  transition: none !important;
+}
+/* Подсветка активной кнопки характера движения */
+#pdr-quick-movement-segmented .pdr-quick-seg-btn[data-mov="straight"].active {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+#pdr-quick-movement-segmented .pdr-quick-seg-btn[data-mov="chaotic"].active {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+/* Ночная тема */
+[data-theme="night-vision"] #pdr-quick-movement-segmented .pdr-quick-seg-btn.active {
+  background: rgba(239, 68, 68, 0.25) !important;
+  color: #ef4444 !important;
+  border-color: #ef4444 !important;
+}
+
+/* Индикация активного режима слежения за геопозицией */
+#btn-location.following {
+  background: var(--accent) !important;
+  color: #ffffff !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-bg), var(--shadow-float) !important;
+  animation: followPulse 1.8s infinite ease-in-out;
+}
+
+@keyframes followPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px var(--accent-bg), var(--shadow-float);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 7px var(--accent-bg), 0 0 16px var(--accent);
+    transform: scale(1.05);
+  }
+}
+
+[data-theme="dark"] #btn-location.following {
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25), var(--shadow-float) !important;
+}
+
+[data-theme="night-vision"] #btn-location.following {
+  background: #2b0505 !important;
+  color: #ff3333 !important;
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.4), var(--shadow-float) !important;
+}
+[data-theme="night-vision"] .vc-hud-btn-step:active {
+  background: #2b0505;
+  color: #ef4444;
+  border-color: #ef4444;
+}
 /* Привязка строго НАД перекрестием в центре (радиус прицела 22px + зазор 6px = 28px) */
 .wm-gps-dist-badge.col-badge.over-crosshair {
   transform: translate(-50%, calc(-100% - 28px)) !important;
