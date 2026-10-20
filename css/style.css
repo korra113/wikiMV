@@ -55,27 +55,34 @@ html, body {
   background: var(--bg-primary);
   color: var(--text-main);
 }
-/* Отключаем нестабильный блюр внутри Android WebView во избежание мерцания */
-@supports (-webkit-touch-callout: none) or (not (backdrop-filter: blur(1px))) {
-  .sheet, .topbar, .info-hud, .quick-menu-box, .modal-box,
-  .floating-btn, .hover-pill, .status-bar, .limit-badge {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-}
-
-/* Принудительно для Capacitor/WebView */
-body.capacitor-app .sheet,
-body.capacitor-app .topbar,
-body.capacitor-app .info-hud,
-body.capacitor-app .quick-menu-box,
-body.capacitor-app .floating-btn,
-body.capacitor-app .status-bar,
-body.capacitor-app .hover-pill,
-body.capacitor-app .leaflet-control-layers-expanded {
+/* Принудительно отключаем затратный GPU-блюр в Capacitor/Android WebView и на слабых устройствах */
+.capacitor-app .sheet,
+.capacitor-app .topbar,
+.capacitor-app .info-hud,
+.capacitor-app .quick-menu-box,
+.capacitor-app .floating-btn,
+.capacitor-app .status-bar,
+.capacitor-app .hover-pill,
+.capacitor-app .leaflet-control-layers-expanded,
+.capacitor-app .modal-box,
+.low-end .sheet,
+.low-end .topbar,
+.low-end .info-hud,
+.low-end .quick-menu-box,
+.low-end .floating-btn,
+.low-end .status-bar,
+.low-end .hover-pill,
+.low-end .leaflet-control-layers-expanded,
+.low-end .modal-box {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   background: var(--bg-primary) !important;
+}
+
+/* Полная остановка всех циклических анимаций и пульсаций box-shadow на слабых CPU/GPU */
+.low-end * {
+  animation: none !important;
+  transition-duration: 0.001ms !important;
 }
 #map,
 .leaflet-container {
@@ -93,17 +100,10 @@ body.capacitor-app .leaflet-control-layers-expanded {
 
 /* Убираем конфликт transform и принудительно сглаживаем границы растра на GPU */
 .leaflet-tile {
-  /* Прозрачный outline заставляет видеочип не отсекать крайний ряд субпикселей */
   outline: 1px solid transparent;
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
 }
 
-/* Отключение тяжелых фильтров во время зума и перемещения карты */
-.leaflet-zoom-animating .leaflet-wm-raster-pane-pane,
-.map-is-moving .leaflet-wm-raster-pane-pane {
-  filter: none !important;
-}
+
 /* =========================================================================
    ФОНОВАЯ ОБЗОРНАЯ КАРТА (Аварийная оффлайн-подложка)
    ========================================================================= */
@@ -934,7 +934,6 @@ body.sheet-open .compass-btn-top {
   flex-direction: column;
   align-items: center;
   transform-origin: 50% 50%;
-  transition: transform 0.14s ease-out;
   will-change: transform;
 }
 
@@ -996,7 +995,6 @@ body.sheet-open .compass-btn-top {
   height: 120px;
   transform-origin: 60px 60px;
   pointer-events: none;
-  transition: transform 0.14s ease-out;
   will-change: transform;
 }
 
@@ -1033,7 +1031,14 @@ body.sheet-open .compass-btn-top {
   background: rgba(2, 132, 199, 0.35);
   animation: wmGpsPulse 2.2s infinite ease-out;
 }
-
+.wm-gps-pulse-ring,
+.wm-nav-target-pulse,
+.wm-search-pin-pulse,
+.wm-nav-pulse-dot {
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
 
 /* =========================================================================
    СЛОИ РЕЛЬЕФА И ОТМЫВКИ (HILLSHADE, SHADED RELIEF, MAPS-FOR-FREE)
@@ -1509,8 +1514,10 @@ body.sheet-open .compass-btn-top {
   margin-top: -1.5px;
   display: block;
   flex-shrink: 0;
-  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.15));
+  /* БЫЛО: filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.15)); */
+  filter: none !important;
 }
+
 
 /* Во время анимации зума карты отключаем трансформации ховера */
 .leaflet-zoom-animating .wm-gc-bubble,
@@ -3163,9 +3170,14 @@ body.sheet-open .hover-pill {
   gap: 6px;
   margin-bottom: 10px;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 6px;
+  padding-bottom: 8px;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  scroll-behavior: smooth;
+  flex-wrap: nowrap;
 }
 
 .search-tab-btn {
@@ -3177,10 +3189,335 @@ body.sheet-open .hover-pill {
   color: var(--text-muted);
   border-radius: 12px;
   cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
+.search-tab-btn:active {
+  transform: scale(0.95);
+}
+
 .search-tab-btn.active {
   background: var(--accent-bg);
   color: var(--accent);
+}
+
+.search-inat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 2px 0;
+  animation: progressFadeIn 0.15s ease-out;
+}
+
+/* Бейдж источника iNaturalist во вкладке "Все" */
+.search-badge-inat {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+[data-theme="dark"] .search-badge-inat {
+  background: #064e3b;
+  color: #86efac;
+}
+
+/* =========================================================================
+   INATURALIST: РАСПОЗНАВАНИЕ ВИДОВ ПО ФОТО (COMPUTER VISION)
+   ========================================================================= */
+
+.inat-vision-box {
+  background: var(--bg-secondary);
+  border: 1.5px dashed var(--accent, #10b981);
+  border-radius: var(--radius-sm, 8px);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.inat-vision-box.dragover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+
+.inat-vision-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.inat-vision-head-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inat-vision-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.inat-vision-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  display: block;
+}
+
+.inat-vision-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  display: block;
+}
+
+.inat-vision-limit-badge {
+  font-size: 10px;
+  font-weight: 800;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid #10b981;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.inat-vision-limit-badge.limit-reached {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  animation: pulseTopWarnBtn 1.5s infinite ease-in-out;
+}
+
+.inat-vision-btn-pick {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.inat-vision-preview-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  animation: progressFadeIn 0.2s ease-out;
+}
+
+.inat-vision-preview-img-box {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+}
+
+.inat-vision-preview-img-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.inat-vision-preview-clear {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #ffffff;
+  border: none;
+  font-size: 10px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.inat-vision-preview-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.inat-vision-preview-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inat-vision-status-line {
+  font-size: 10.5px;
+  color: var(--accent);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.inat-vision-ancestor {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid #10b981;
+  color: #047857;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+
+[data-theme="dark"] .inat-vision-ancestor {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+}
+
+.inat-vision-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 230px;
+  overflow-y: auto;
+}
+
+.inat-vision-result-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 6px;
+  transition: transform 0.12s ease;
+}
+
+.inat-vision-result-card.top-match {
+  background: var(--accent-bg);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.inat-vision-thumb {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
+.inat-vision-icon-ph {
+  font-size: 22px;
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.inat-vision-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.inat-vision-title-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.inat-vision-ru {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inat-vision-score {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.inat-vision-score.high {
+  color: #10b981;
+}
+
+.inat-vision-la {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inat-vision-item-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.inat-vision-act-btn {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  color: var(--text-main);
+  cursor: pointer;
+  text-decoration: none;
+  line-height: 1.3;
+}
+
+.inat-vision-act-btn:hover {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+/* Ночной режим (красный монохром) */
+[data-theme="night-vision"] .inat-vision-box {
+  background: #120303;
+  border-color: #ef4444;
+}
+
+[data-theme="night-vision"] .inat-vision-limit-badge {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+[data-theme="night-vision"] .inat-vision-ancestor {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+[data-theme="night-vision"] .search-badge-inat {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
 }
 .search-results-list {
   max-height: 50vh;
@@ -3837,34 +4174,51 @@ body.sheet-open .hover-pill {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   background: var(--bg-glass-strong);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border: 1.5px solid #ef4444;
   box-shadow: 0 4px 18px rgba(239, 68, 68, 0.35), var(--shadow);
   border-radius: var(--radius-md);
-  padding: 5px 8px 5px 10px;
+  padding: 3px 6px 3px 8px;
   width: 100%;
-  max-width: 420px;
+  max-width: 360px;
   animation: toastFade 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
   box-sizing: border-box;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
 }
-
+.spoof-alert-panel:active {
+  transform: scale(0.99);
+}
 .spoof-alert-main {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   flex: 1;
 }
 
 .spoof-alert-icon {
-  font-size: 17px;
+  font-size: 15px;
   line-height: 1;
   animation: spoofIconPulse 1.4s infinite ease-in-out;
   flex-shrink: 0;
+}
+
+.spoof-alert-texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.spoof-alert-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 @keyframes spoofIconPulse {
@@ -3872,50 +4226,48 @@ body.sheet-open .hover-pill {
   50% { transform: scale(1.22); }
 }
 
-.spoof-alert-texts {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
 
 .spoof-alert-title {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 800;
   color: #ef4444;
-  line-height: 1.2;
   text-transform: uppercase;
   letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.spoof-settings-hint {
+  font-size: 10px;
+  opacity: 0.7;
 }
 
 .spoof-alert-sub {
-  font-size: 10.5px;
+  font-size: 9.5px;
   color: var(--text-muted);
-  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 150px;
+  max-width: 110px;
 }
 
 .spoof-alert-actions {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-shrink: 0;
 }
-
 .spoof-action-btn {
-  height: 28px;
-  padding: 0 8px;
+  height: 26px;
+  padding: 0 6px;
   border-radius: 6px;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  transition: all 0.15s ease;
+  gap: 2px;
+  transition: all 0.12s ease;
   white-space: nowrap;
   border: 1px solid var(--border);
   background: var(--bg-secondary);
@@ -3930,11 +4282,11 @@ body.sheet-open .hover-pill {
 }
 
 .spoof-action-btn:active {
-  transform: scale(0.93);
+  transform: scale(0.92);
 }
 
 .spoof-action-btn.pin {
-  background: rgba(2, 132, 199, 0.1);
+  background: rgba(2, 132, 199, 0.12);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -3950,9 +4302,21 @@ body.sheet-open .hover-pill {
 }
 
 .spoof-action-btn.close {
-  padding: 0 7px;
+  padding: 0 6px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
+}
+
+@media (max-width: 360px) {
+  .spoof-btn-text {
+    display: none;
+  }
+  .spoof-action-btn {
+    padding: 0 5px;
+  }
+  .spoof-alert-sub {
+    max-width: 80px;
+  }
 }
 
 .spoof-action-btn.close:hover {
@@ -3960,6 +4324,1657 @@ body.sheet-open .hover-pill {
   border-color: var(--danger);
   color: var(--danger);
 }
+
+
+
+
+.bottom-pill-stack {
+  position: absolute;
+  left: 50%;
+  bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column-reverse; /* #hover-pill всегда внизу, #pdr-step-pill над ней */
+  align-items: center;
+  gap: 7px;
+  pointer-events: none;
+  width: auto;
+  max-width: calc(100vw - 130px);
+}
+
+.bottom-pill-stack > * {
+  pointer-events: auto;
+}
+
+.bottom-pill-stack .hover-pill {
+  position: relative !important;
+  left: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  margin: 0 !important;
+}
+
+body.sheet-open .bottom-pill-stack,
+body.wm-ui-hidden .bottom-pill-stack {
+  display: none !important;
+}
+
+.pdr-step-pill {
+  background: var(--bg-glass-strong);
+  color: var(--text-main);
+  border: 1.5px solid var(--accent);
+  border-radius: 16px;
+  padding: 5px 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  user-select: none;
+  touch-action: manipulation;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.pdr-step-pill:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent-hover);
+  transform: scale(1.03);
+}
+
+.pdr-step-pill:active {
+  transform: scale(0.96);
+}
+
+.pdr-pill-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35);
+  animation: pdrPillPulseGreen 1.4s infinite ease-out;
+  flex-shrink: 0;
+}
+
+@keyframes pdrPillPulseGreen {
+  0% { transform: scale(0.9); opacity: 0.9; }
+  50% { transform: scale(1.35); opacity: 0.4; }
+  100% { transform: scale(0.9); opacity: 0.9; }
+}
+
+.pdr-pill-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.pdr-pill-text {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.pdr-pill-steps {
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.pdr-pill-dist {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-theme="night-vision"] .pdr-step-pill {
+  background: rgba(18, 3, 3, 0.94);
+  border-color: #ef4444;
+  color: #f87171;
+}
+
+[data-theme="night-vision"] .pdr-pill-pulse {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.4);
+}
+
+[data-theme="night-vision"] .pdr-pill-steps {
+  color: #ef4444;
+}
+
+
+
+
+
+/* =========================================================================
+   ИНТЕРАКТИВНЫЕ МЕТКИ INATURALIST
+   ========================================================================= */
+
+.wm-inat-div-icon {
+  background: transparent !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+.wm-inat-pin-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: manipulation;
+  transform: translate3d(0, 0, 0);
+}
+
+.wm-inat-target-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  transform: translate(-50%, -50%);
+  background: #10b981;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.wm-inat-bubble {
+  position: absolute;
+  bottom: 4px;
+  left: 0;
+  transform: translate3d(-50%, 0, 0);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.15s ease;
+}
+
+.wm-inat-pin-anchor:hover .wm-inat-bubble {
+  transform: translate3d(-50%, -2px, 0) scale(1.05);
+  z-index: 1000;
+}
+
+/* Research Grade теперь выделяется элегантной двойной рамкой/свечением в цвет вида */
+.wm-inat-bubble.research .wm-inat-badge-card {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3), 0 0 0 1.5px var(--inat-color, #10b981);
+}
+
+.wm-inat-img {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.wm-inat-badge-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.wm-inat-badge-texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.wm-inat-badge-ru {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.wm-inat-badge-la {
+  font-size: 9px;
+  color: #64748b;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.wm-inat-badge-tail {
+  margin-top: -1px;
+  display: block;
+}
+
+/* Компактная круглая точка на удалении */
+.wm-inat-pin-compact {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1.5px solid #10b981;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.wm-inat-pin-compact:hover {
+  transform: scale(1.25);
+}
+
+/* =========================================================================
+   КАРТОЧКА НАБЛЮДЕНИЯ (MODAL)
+   ========================================================================= */
+
+/* =========================================================================
+   ИНТЕРАКТИВНЫЕ МЕТКИ INATURALIST (СВЕТЛАЯ, ТЁМНАЯ И НОЧНАЯ ТЕМЫ)
+   ========================================================================= */
+
+.wm-inat-div-icon {
+  background: transparent !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+.wm-inat-pin-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  cursor: pointer;
+  pointer-events: auto !important;
+  user-select: none;
+  touch-action: manipulation;
+  transform: translate3d(0, 0, 0);
+}
+
+.wm-inat-target-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  transform: translate(-50%, -50%);
+  background: #10b981;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.wm-inat-bubble {
+  position: absolute;
+  bottom: 4px;
+  left: 0;
+  transform: translate3d(-50%, 0, 0);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.15s ease;
+  pointer-events: auto !important;
+}
+
+.wm-inat-pin-anchor:hover .wm-inat-bubble {
+  transform: translate3d(-50%, -2px, 0) scale(1.05);
+  z-index: 1000;
+}
+
+
+
+
+.wm-inat-img {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.wm-inat-badge-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.wm-inat-badge-texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.wm-inat-badge-ru {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.wm-inat-badge-la {
+  font-size: 9px;
+  color: #64748b;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.wm-inat-badge-tail {
+  margin-top: -1px;
+  display: block;
+}
+.wm-inat-badge-tail path {
+  fill: #ffffff;
+  transition: fill 0.15s;
+}
+
+/* Компактная круглая точка на удалении */
+.wm-inat-pin-compact {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1.5px solid #10b981;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  pointer-events: auto !important;
+  transition: transform 0.12s ease;
+}
+
+.wm-inat-pin-compact:hover {
+  transform: scale(1.25);
+}
+
+/* --- ТЁМНАЯ ТЕМА ДЛЯ МЕТОК --- */
+[data-theme="dark"] .wm-inat-badge-card {
+  background: var(--bg-glass-strong, #1f2937);
+  border-color: var(--inat-color, #10b981) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+[data-theme="dark"] .wm-inat-badge-ru {
+  color: var(--text-main, #f9fafb);
+}
+[data-theme="dark"] .wm-inat-badge-la {
+  color: var(--text-muted, #9ca3af);
+}
+[data-theme="dark"] .wm-inat-badge-tail path {
+  fill: var(--bg-primary, #111827);
+}
+[data-theme="dark"] .wm-inat-target-dot {
+  border-color: #111827;
+}
+[data-theme="dark"] .wm-inat-pin-compact {
+  background: var(--bg-glass-strong, #1f2937);
+  border-color: #059669;
+  color: var(--text-main, #f9fafb);
+}
+
+/* =========================================================================
+   КАРТОЧКА НАБЛЮДЕНИЯ (MODAL)
+   ========================================================================= */
+
+.inat-details-box {
+  max-width: 490px !important;
+  width: 95vw;
+  padding: 18px 20px !important;
+  border-radius: var(--radius-lg, 18px) !important;
+}
+
+.inat-modal-title-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Бейдж категории организма в шапке */
+.inat-type-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 12px;
+  width: fit-content;
+  border: 1px solid currentColor;
+  line-height: 1.2;
+}
+
+.inat-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.inat-header-ru {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.inat-header-la {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.inat-header-la i {
+  font-style: italic;
+  font-weight: 600;
+}
+
+.inat-en-name {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* Галерея фотографий с порядковым бейджем */
+.inat-photos-box {
+  margin-bottom: 12px;
+}
+
+.inat-photos-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.inat-photo-card {
+  position: relative;
+  flex: 0 0 170px;
+  height: 135px;
+  border-radius: var(--radius-md, 12px);
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.inat-photo-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+
+.inat-photo-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.inat-photo-counter {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.68);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.inat-photo-attr {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, transparent 100%);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 8.5px;
+  padding: 10px 6px 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Аудиозаписи звуков природы */
+.inat-sounds-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.inat-sound-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.inat-sound-item audio {
+  width: 100%;
+  height: 36px;
+  border-radius: 6px;
+  outline: none;
+}
+
+.inat-sound-attr {
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+
+/* Бейджи-пилюли статусов находки */
+.inat-meta-pills-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.inat-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3.5px 9px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  color: var(--text-main);
+  line-height: 1.25;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.inat-pill.research {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #86efac;
+}
+
+.inat-pill.need-id {
+  background: #fef3c7;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+.inat-pill.casual {
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+}
+
+.inat-pill.threatened {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+  font-weight: 800;
+}
+
+.inat-pill.native {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-color: #7dd3fc;
+}
+
+.inat-pill.endemic {
+  background: #ccfbf1;
+  color: #0f766e;
+  border-color: #5eead4;
+}
+
+.inat-pill.introduced {
+  background: #ffedd5;
+  color: #c2410c;
+  border-color: #fdba74;
+}
+
+.inat-pill.wild {
+  background: #ede9fe;
+  color: #6d28d9;
+  border-color: #c4b5fd;
+}
+
+.inat-pill.captive {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+
+.inat-pill.obscured {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+
+.inat-pill.faves {
+  color: #e11d48;
+  border-color: #fecdd3;
+  background: #fff1f2;
+}
+
+/* Карточная сетка ключевых данных */
+.inat-card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.inat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.inat-lbl {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.inat-observer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.inat-observer-avatar {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border-strong);
+}
+
+.inat-observer-avatar.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.inat-observer-name {
+  color: var(--text-main);
+  font-size: 12.5px;
+}
+
+.inat-observer-login {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.inat-observer-count {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.inat-coords-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.inat-coords-val {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.inat-coords-copy-mini {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Заметка наблюдателя */
+.inat-desc-box {
+  background: var(--bg-secondary);
+  border-left: 3.5px solid var(--accent);
+  padding: 9px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.inat-desc-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Таксономическое дерево */
+.inat-tree-box {
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md, 12px);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.inat-tree-content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 6px;
+}
+
+.inat-tree-node {
+  display: inline-flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 7px;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.inat-tree-node.current {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+}
+
+.inat-tree-rank {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.inat-tree-arrow {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+/* Опознания и консенсус */
+.inat-idents-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.inat-idents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.inat-ident-item {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inat-ident-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+}
+
+.inat-ident-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
+.inat-ident-avatar.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.inat-ident-taxon-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.inat-ident-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.inat-ident-badge.agreed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.inat-ident-badge.proposed {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.inat-ident-taxon-name {
+  color: var(--text-main);
+}
+
+.inat-ident-body {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.35;
+  background: var(--bg-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.inat-comment-item {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.inat-comment-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+
+.inat-comment-body {
+  line-height: 1.4;
+  color: var(--text-main);
+  word-break: break-word;
+}
+
+/* Кнопки действий */
+.inat-actions-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.action-card-btn.filter-taxon-btn {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border-color: #10b981;
+  font-weight: 700;
+}
+
+.action-card-btn.filter-taxon-btn:hover {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.action-card-btn.inat-link-btn {
+  background: var(--bg-secondary);
+  border-color: var(--border-strong);
+  color: var(--text-main);
+}
+
+/* --- ТЁМНАЯ ТЕМА --- */
+[data-theme="dark"] .inat-details-box {
+  background: var(--bg-primary, #111827);
+  border-color: var(--border, #374151);
+}
+
+[data-theme="dark"] .inat-card-grid,
+[data-theme="dark"] .inat-desc-box,
+[data-theme="dark"] .inat-tree-box,
+[data-theme="dark"] .inat-idents-box,
+[data-theme="dark"] .inat-sounds-box {
+  background: var(--bg-secondary, #1f2937);
+  border-color: var(--border, #374151);
+}
+
+[data-theme="dark"] .inat-ident-item,
+[data-theme="dark"] .inat-comment-item,
+[data-theme="dark"] .inat-tree-node {
+  background: var(--bg-primary, #111827);
+  border-color: var(--border, #374151);
+}
+
+[data-theme="dark"] .inat-tree-node.current {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #10b981;
+  color: #6ee7b7;
+}
+
+[data-theme="dark"] .inat-pill {
+  background: var(--bg-secondary);
+  border-color: var(--border-strong);
+  color: var(--text-main);
+}
+
+[data-theme="dark"] .inat-pill.research {
+  background: #064e3b;
+  color: #6ee7b7;
+  border-color: #059669;
+}
+
+[data-theme="dark"] .inat-pill.threatened {
+  background: #450a0a;
+  color: #fca5a5;
+  border-color: #991b1b;
+}
+
+[data-theme="dark"] .inat-pill.native {
+  background: #082f49;
+  color: #7dd3fc;
+  border-color: #0369a1;
+}
+
+[data-theme="dark"] .inat-pill.endemic {
+  background: #042f2e;
+  color: #5eead4;
+  border-color: #0d9488;
+}
+
+[data-theme="dark"] .inat-pill.introduced {
+  background: #431407;
+  color: #fdba74;
+  border-color: #9a3412;
+}
+
+[data-theme="dark"] .inat-pill.wild {
+  background: #2e1065;
+  color: #c4b5fd;
+  border-color: #6d28d9;
+}
+
+[data-theme="dark"] .action-card-btn.filter-taxon-btn {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+}
+
+/* --- ТЕМА НОЧНОГО ЗРЕНИЯ --- */
+[data-theme="night-vision"] .inat-details-box {
+  background: #050101 !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] .inat-type-tag {
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.15) !important;
+}
+
+[data-theme="night-vision"] .inat-card-grid,
+[data-theme="night-vision"] .inat-desc-box,
+[data-theme="night-vision"] .inat-tree-box,
+[data-theme="night-vision"] .inat-idents-box,
+[data-theme="night-vision"] .inat-sounds-box,
+[data-theme="night-vision"] .inat-ident-item,
+[data-theme="night-vision"] .inat-comment-item,
+[data-theme="night-vision"] .inat-tree-node {
+  background: #120303 !important;
+  border-color: #3b0707 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] .inat-pill {
+  background: #120303 !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] .action-card-btn.filter-taxon-btn {
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.15) !important;
+}
+
+/* =========================================================================
+   ПЛАШКА ЧИСЛА РАСТЕНИЙ ВВЕРХУ ЭКРАНА
+   ========================================================================= */
+.inat-count-badge {
+  pointer-events: auto;
+  background: var(--bg-glass-strong);
+  border: 1.5px solid #10b981;
+  color: #059669;
+  padding: 4px 12px;
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  user-select: none;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.inat-count-badge:hover {
+  background: var(--bg-primary);
+  border-color: #047857;
+}
+
+.inat-count-badge.filtered {
+  background: #ecfdf5;
+  border-color: #059669;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+}
+
+.inat-count-badge-clear {
+  background: none;
+  border: none;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0 0 0 4px;
+  line-height: 1;
+}
+
+.inat-count-badge-clear:hover {
+  transform: scale(1.2);
+}
+
+[data-theme="dark"] .inat-count-badge {
+  color: #34d399;
+  border-color: #059669;
+}
+[data-theme="dark"] .inat-count-badge.filtered {
+  background: #064e3b;
+}
+
+[data-theme="night-vision"] .inat-count-badge {
+  color: #ef4444 !important;
+  border-color: #ef4444 !important;
+  background: rgba(18, 3, 3, 0.94) !important;
+}
+
+/* =========================================================================
+   ЗОНА ПРОИЗРАСТАНИЯ (ПУЛЬСАЦИЯ ПРИ НАВЕДЕНИИ ПРИЦЕЛА)
+   ========================================================================= */
+.wm-inat-hover-zone {
+  animation: inatZonePulse 1.8s infinite ease-in-out;
+}
+
+@keyframes inatZonePulse {
+  0%, 100% {
+    stroke-opacity: 0.95;
+    fill-opacity: 0.22;
+  }
+  50% {
+    stroke-opacity: 0.45;
+    fill-opacity: 0.35;
+  }
+}
+
+.inat-crosshair-hovered .wm-inat-bubble {
+  transform: translate3d(-50%, -4px, 0) scale(1.1) !important;
+  z-index: 1200 !important;
+}
+
+.inat-crosshair-hovered .wm-inat-badge-card {
+  border-color: #047857 !important;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.65) !important;
+}
+
+/* =========================================================================
+   UI ПОИСКА INATURALIST (СЕГМЕНТ, СПИСОК РЕЗУЛЬТАТОВ)
+   ========================================================================= */
+.inat-search-type-segmented {
+  display: flex;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 1.5px;
+  gap: 2px;
+}
+
+.inat-search-type-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.12s ease;
+}
+
+.inat-search-type-btn.active {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.inat-search-results-wrap {
+  margin-top: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  animation: progressFadeIn 0.15s ease-out;
+}
+
+.inat-search-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.inat-search-results-list {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: 2px;
+}
+
+.inat-search-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.inat-search-item:hover {
+  background: var(--accent-bg);
+  border-color: #10b981;
+  transform: translateY(-1px);
+}
+
+.inat-search-item:active {
+  transform: scale(0.98);
+}
+
+.inat-search-thumb {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
+.inat-search-icon {
+  font-size: 20px;
+  line-height: 1;
+  width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.inat-search-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.2;
+}
+
+.inat-search-ru {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inat-search-la {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inat-search-extra {
+  font-size: 9.5px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.inat-search-goto-btn {
+  font-size: 16px;
+  color: var(--text-muted);
+  padding: 2px 4px;
+}
+
+.inat-search-item:hover .inat-search-goto-btn {
+  color: #10b981;
+  transform: scale(1.15);
+}
+
+/* =========================================================================
+   INATURALIST: КНОПКА ОБНОВЛЕНИЯ В ПЛАШКЕ И АВТОДОПОЛНЕНИЕ НАЗВАНИЙ
+   ========================================================================= */
+
+.inat-count-badge-action {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.inat-count-badge-action:hover {
+  transform: scale(1.22);
+}
+
+.inat-count-badge-action.spinning {
+  animation: spin 0.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Выпадающий список автодополнения видов */
+.inat-autocomplete-wrap {
+  position: relative;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  background: var(--bg-primary);
+  border: 1.5px solid var(--accent, #10b981);
+  border-radius: var(--radius-sm, 8px);
+  box-shadow: var(--shadow-float);
+  max-height: 210px;
+  overflow-y: auto;
+  z-index: 100;
+  animation: progressFadeIn 0.15s ease-out;
+}
+
+.inat-autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s ease;
+  user-select: none;
+}
+
+.inat-autocomplete-item:last-child {
+  border-bottom: none;
+}
+
+.inat-autocomplete-item:hover,
+.inat-autocomplete-item.active {
+  background: var(--accent-bg);
+}
+
+.inat-ac-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+
+.inat-ac-icon {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.inat-ac-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.2;
+}
+
+.inat-ac-ru {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inat-ac-la {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inat-ac-badge {
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+[data-theme="night-vision"] .inat-autocomplete-wrap {
+  background: #120303 !important;
+  border-color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .inat-autocomplete-item:hover,
+[data-theme="night-vision"] .inat-autocomplete-item.active {
+  background: rgba(239, 68, 68, 0.22) !important;
+}
+
+/* =========================================================================
+   ЧИПЫ СПИСКА НАБЛЮДЕНИЙ INATURALIST И ФИКС ЦЕНТРИРОВАНИЯ
+   ========================================================================= */
+
+.wm-inat-pin-compact {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  transform: translate(-50%, -50%) !important;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1.5px solid #10b981;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  pointer-events: auto !important;
+  transition: transform 0.12s ease;
+}
+
+.wm-inat-pin-compact:hover {
+  transform: translate(-50%, -50%) scale(1.25) !important;
+}
+
+/* Чипы наблюдений в окне списка */
+.inat-tag-chip {
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  user-select: none;
+  max-width: 100%;
+}
+
+.inat-tag-chip:hover {
+  background: var(--accent-bg);
+  border-color: #10b981;
+  color: #10b981;
+  transform: translateY(-1px);
+}
+
+.inat-tag-chip:active {
+  transform: scale(0.96);
+}
+
+.inat-tag-chip-icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.inat-tag-chip-ru {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inat-tag-chip-la {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inat-chip-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.inat-chip-stat.rg {
+  color: #16a34a;
+}
+[data-theme="dark"] .inat-chip-stat.rg {
+  color: #4ade80;
+}
+
+[data-theme="night-vision"] .inat-tag-chip:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+[data-theme="night-vision"] .inat-chip-stat.rg {
+  color: #ef4444;
+}
+
+/* Обёртка аватара/иконки карточки */
+.wm-inat-thumb-wrap {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Фотография наблюдения с цветной рамкой категории */
+.wm-inat-img {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid var(--inat-color, #10b981);
+}
+
+/* Эмодзи-бейдж типа объекта в нижнем правом углу фотографии */
+.wm-inat-corner-emoji {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 15px;
+  height: 15px;
+  font-size: 10px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  border: 1px solid var(--inat-color, #10b981);
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 2;
+}
+
+[data-theme="dark"] .wm-inat-corner-emoji {
+  background: #1f2937;
+}
+
+/* Заглушка, если фотографии у наблюдения нет */
+.wm-inat-badge-icon {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 50%;
+  font-size: 15px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--inat-color, #10b981);
+}
+
+/* Рамка карточки-облачка */
+.wm-inat-badge-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 2px solid var(--inat-color, #10b981) !important;
+  border-radius: 14px;
+  padding: 3px 8px 3px 4px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
+  max-width: 210px;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+/* Острие-мишень точно под координатами */
+.wm-inat-target-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  transform: translate(-50%, -50%);
+  background: var(--inat-color, #10b981);
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* Компактный маркер на отдалении (зум < 13) */
+.wm-inat-pin-compact {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--inat-color, #10b981);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  pointer-events: auto !important;
+  transition: transform 0.12s ease;
+}
+
+/* Подсветка карточки при наведении перекрестия */
+.inat-crosshair-hovered .wm-inat-badge-card {
+  box-shadow: 0 0 14px var(--inat-color, rgba(16, 185, 129, 0.65)) !important;
+}
+
+/* Тёмная тема */
+[data-theme="dark"] .wm-inat-badge-card {
+  background: var(--bg-glass-strong, #1f2937);
+  border-color: var(--inat-color, #059669);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme="dark"] .wm-inat-pin-compact {
+  background: var(--bg-glass-strong, #1f2937);
+  border-color: var(--inat-color, #059669);
+  color: var(--text-main, #f9fafb);
+}
+
+/* Ночной режим (сохраняет монохромный красный вид при включении фильтра) */
+[data-theme="night-vision"] .wm-inat-badge-card,
+[data-theme="night-vision"] .wm-inat-pin-compact,
+[data-theme="night-vision"] .wm-inat-corner-emoji {
+  border-color: #ef4444 !important;
+}
+[data-theme="night-vision"] .wm-inat-target-dot {
+  background: #ef4444 !important;
+}
+
+
+
+
+
+
+
 
 /* =========================================================================
    АНИМИРОВАННЫЙ КОНТУР КНОПКИ GPS ВО ВРЕМЯ ПОИСКА СИГНАЛА
@@ -4419,6 +6434,8 @@ body.wm-ui-hidden #btn-hide-ui {
   display: none;
 }
 
+
+
 /* Сетка и чипы тегов во вкладке поиска */
 .search-tags-wrap {
   display: flex;
@@ -4549,7 +6566,6 @@ body.wm-ui-hidden #btn-hide-ui {
 /* Аппаратное ускорение контейнеров карты на мобильных GPU */
 .leaflet-tile-container {
   will-change: transform;
-  transform: translateZ(0);
 }
 
 /* При щипковом зуме двух пальцев временно изолируем фильтры от пересчёта */
@@ -5140,21 +7156,28 @@ body.wm-ui-hidden #btn-hide-ui {
 }
 
 /* Оболочка пина: прижата строго к нижнему центру контейнера */
+/* 1. Изолируем слой маркеров Leaflet на отдельный аппаратный слой GPU */
+.leaflet-marker-pane {
+  will-change: transform;
+  contain: layout style;
+}
+
+/* 2. Заменяем дорогой filter: drop-shadow на быстрый аппаратный box-shadow и убираем touch-action: none с обёртки */
 .wm-marker-pin-wrap {
   position: absolute;
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  transform-origin: 50% 100%; /* Кончик капли — центр масштабирования */
+  transform-origin: 50% 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   cursor: pointer;
-  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.4));
-  transition: transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
-  user-select: none;
-  touch-action: none;
+  /* БЫЛО: filter: drop-shadow(...); touch-action: none; */
+  /* СТАЛО: */
+  touch-action: pan-x pan-y; /* Разрешает карте свободно свайпаться под пальцем */
   pointer-events: auto;
+  transition: transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 /* При наведении облачко увеличивается вверх, кончик капли не сдвигается ни на пиксель */
@@ -5181,9 +7204,10 @@ body.wm-ui-hidden #btn-hide-ui {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35); /* Аппаратная тень */
   box-sizing: border-box;
 }
+
 
 .wm-marker-emoji {
   font-size: 21px;
@@ -5213,8 +7237,8 @@ body.wm-ui-hidden #btn-hide-ui {
   height: 15px;
   margin-top: -1.5px;
   flex-shrink: 0;
+  /* filter: drop-shadow убран */
 }
-
 .wm-marker-tail path {
   fill: var(--marker-bg, #3b82f6);
   stroke: #ffffff;
@@ -5558,7 +7582,13 @@ body.sheet-open .measure-hud {
   align-items: center;
   justify-content: center;
   cursor: grab;
-  touch-action: none;
+  /* БЫЛО: touch-action: none; */
+  touch-action: pan-x pan-y;
+}
+/* touch-action: none включаем ТОЛЬКО в момент фактического перетаскивания узла */
+.leaflet-drag-target .wm-ruler-vertex-wrap,
+.wm-marker-pin-wrap.dragging {
+  touch-action: none !important;
 }
 
 .wm-ruler-vertex-dot {
