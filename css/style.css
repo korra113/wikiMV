@@ -55,9 +55,8 @@ html, body {
   background: var(--bg-primary);
   color: var(--text-main);
 }
-/* Принудительно отключаем затратный GPU-блюр в Capacitor/Android WebView и на слабых устройствах */
+/* СТАЛО: (убраны .topbar) */
 .capacitor-app .sheet,
-.capacitor-app .topbar,
 .capacitor-app .info-hud,
 .capacitor-app .quick-menu-box,
 .capacitor-app .floating-btn,
@@ -66,7 +65,6 @@ html, body {
 .capacitor-app .leaflet-control-layers-expanded,
 .capacitor-app .modal-box,
 .low-end .sheet,
-.low-end .topbar,
 .low-end .info-hud,
 .low-end .quick-menu-box,
 .low-end .floating-btn,
@@ -175,7 +173,11 @@ html, body {
   color: var(--danger);
   border-color: var(--danger);
 }
-
+.topbar,
+.capacitor-app .topbar,
+.low-end .topbar {
+  background: transparent !important;
+}
 /* =========================================================================
    ВЫБОР КАРТ И СТАТУС ИХ ДОСТУПНОСТИ
    ========================================================================= */
