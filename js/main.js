@@ -1619,6 +1619,10 @@
 
   function startPdrTracking() {
     if (!WM.pdr) return;
+    // Сразу задаём магнитное склонение для текущей точки, чтобы курс не «прыгал» после первого шага
+    if (userLatLng && WM.pdr.updateRegionCoordinates) {
+      WM.pdr.updateRegionCoordinates(userLatLng[0], userLatLng[1]);
+    }
     WM.pdr.start(onPdrStepTaken, (heading) => {
       // Синхронизируем, если компас доступен
       if (currentHeading !== null) {
