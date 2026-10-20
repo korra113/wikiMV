@@ -119,7 +119,8 @@
 
   function calculateMagneticDeclination(lat, lng) {
     if (window.WM && WM.geoMag && typeof WM.geoMag.getDeclination === 'function') {
-      return WM.geoMag.getDeclination(lat, lng);
+      const decl = WM.geoMag.getDeclination(lat, lng);
+      return Number.isFinite(decl) ? decl : 0;
     }
     return 0;
   }
@@ -225,6 +226,10 @@
       correctedCompass += magneticDeclinationDeg;
     }
     correctedCompass = (correctedCompass % 360 + 360) % 360;
+    if (!Number.isFinite(correctedCompass)) return;
+
+    // Самовосстановление: если курс когда-либо стал NaN/Infinity, сбрасываем его
+    if (fusedHeading !== null && !Number.isFinite(fusedHeading)) fusedHeading = null;
 
     if (fusedHeading === null) {
       fusedHeading = correctedCompass;
