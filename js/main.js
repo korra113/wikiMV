@@ -1859,7 +1859,17 @@
       }
     }
   }
-  function updateCompassVisuals() {
+
+
+  function updateCompassVisuals(headingOverride) {
+    if (typeof headingOverride === 'number' && !isNaN(headingOverride)) {
+      currentHeading = headingOverride;
+    } else if (WM.pdr && WM.pdr.getHeading) {
+      const pdrH = WM.pdr.getHeading();
+      if (pdrH !== null && !isNaN(pdrH)) {
+        currentHeading = pdrH;
+      }
+    }
     if (currentHeading === null) return;
 
     // Живое обновление цифр в открытом модальном окне юстировки:
@@ -1882,11 +1892,13 @@
     }
 
     // 2. Поворот конуса направления на метке GPS
-    if (isConeEnabled && me) {
+    const isVisActive = (WM.isVisualCompassActive && WM.isVisualCompassActive());
+    if ((isConeEnabled || isVisActive) && me) {
       const el = me.getElement();
       if (el) {
         const cone = el.querySelector('.wm-gps-cone');
         if (cone) {
+          if (isVisActive) cone.style.display = '';
           smoothConeAngle = unwrapAngle(currentHeading, smoothConeAngle);
           cone.style.transform = `rotate(${smoothConeAngle}deg)`;
         }
@@ -1989,6 +2001,27 @@
       }
     }
   };
+
+  WM.compass.updateVisuals = updateCompassVisuals;
+  WM.compass.ensureUserMarkerVisible = function() {
+    if (!userLatLng) {
+      const c = map.getCenter();
+      setGpsCoords([c.lat, c.lng], { latitude: c.lat, longitude: c.lng, accuracy: 5 }, Date.now(), true);
+    } else if (!me) {
+      setGpsCoords(userLatLng, { latitude: userLatLng[0], longitude: userLatLng[1], accuracy: 5 }, Date.now(), true);
+    }
+    if (me) {
+      const el = me.getElement();
+      if (el) {
+        const cone = el.querySelector('.wm-gps-cone');
+        if (cone) cone.style.display = '';
+      }
+    }
+    if (userLatLng) {
+      map.panTo(userLatLng);
+    }
+  };
+  // ======================
 
   try {
     const savedVis = JSON.parse(localStorage.getItem('wm_ui_vis') || '{}');
@@ -2759,7 +2792,7 @@
     let strokeColor = '#8b5cf6';
 
     if (isMotionVectorEnabled && motionCourse !== null) {
-      signedDiff = (motionCourse - bearingToTarget + 540) % 360 - 180;
+      signedDiff = (motionCourse - bearingToCenter + 540) % 360 - 180;
       diffAngle = Math.abs(signedDiff);
 
       if (WM.navVibro && activeNavTarget && speed >= 0.35) {
@@ -3272,6 +3305,125 @@
     }
   }
 
+  // =========================================================================
+  // РЕЖИМ СЛЕЖЕНИЯ ЗА ГЕОПОЗИЦИЕЙ (ПРИЛИПАНИЕ КАМЕРЫ К GPS / PDR)
+  // =========================================================================
+  let isFollowMode = false;
+  let isUserDragging = false;
+  let dragStartCenter = null;
+  let hasExceededDragThreshold = false;
+  const DRAG_BREAK_THRESHOLD_PX = 50; // Порог в пикселях: отлепляет только заметный осознанный свайп
+
+  function startFollowMode() {
+    isFollowMode = true;
+    const btnLoc = document.getElementById('btn-location');
+    if (btnLoc) {
+      btnLoc.classList.add('following');
+      btnLoc.title = '🎯 Слежение активно (удерживайте или сдвиньте карту для отключения)';
+    }
+
+    if (WM.compass && WM.compass.start) {
+      WM.compass.start();
+    }
+
+    if (userLatLng) {
+      map.panTo(userLatLng, { animate: true, duration: 0.35 });
+      if (WM.ui && WM.ui.showToast) {
+        WM.ui.showToast('🎯 Режим слежения включён (камера привязана к точке)');
+      }
+    } else {
+      if (WM.ui && WM.ui.showToast) {
+        WM.ui.showToast('🎯 Поиск позиции и включение слежения…');
+      }
+      acquireLocation(
+        (ll) => {
+          if (isFollowMode) {
+            map.panTo(ll, { animate: true, duration: 0.35 });
+            if (WM.ui && WM.ui.showToast) {
+              WM.ui.showToast('🎯 Режим слежения включён');
+            }
+          }
+        },
+        (err) => {
+          if (WM.ui && WM.ui.showToast) {
+            WM.ui.showToast('Ошибка геопозиции: ' + err.message);
+          }
+        }
+      );
+    }
+  }
+
+  function stopFollowMode(silent = false) {
+    if (!isFollowMode) return;
+    isFollowMode = false;
+    const btnLoc = document.getElementById('btn-location');
+    if (btnLoc) {
+      btnLoc.classList.remove('following');
+      btnLoc.title = '🛰️ Моя геопозиция (удерживайте для слежения)';
+    }
+    if (!silent && WM.ui && WM.ui.showToast) {
+      WM.ui.showToast('🔓 Режим слежения отключён');
+    }
+  }
+
+  function toggleFollowMode() {
+    if (isFollowMode) {
+      stopFollowMode(false);
+    } else {
+      startFollowMode();
+    }
+  }
+
+  WM.followMode = {
+    isActive: () => isFollowMode,
+    start: startFollowMode,
+    stop: stopFollowMode,
+    toggle: toggleFollowMode
+  };
+
+  // Отслеживание сдвигов карты: случайные движения < 50px возвращаются обратно,
+  // а заметные свайпы >= 50px отлепляют слежение
+  map.on('dragstart', () => {
+    isUserDragging = true;
+    dragStartCenter = map.getCenter();
+    hasExceededDragThreshold = false;
+  });
+
+  map.on('drag', () => {
+    if (!isFollowMode || !dragStartCenter) return;
+    const screenCenter = map.getSize().divideBy(2);
+    const oldCenterScreenPos = map.latLngToContainerPoint(dragStartCenter);
+    const displacement = oldCenterScreenPos.distanceTo(screenCenter);
+    if (displacement >= DRAG_BREAK_THRESHOLD_PX) {
+      hasExceededDragThreshold = true;
+    }
+  });
+
+  map.on('dragend', () => {
+    isUserDragging = false;
+    if (!isFollowMode) return;
+
+    if (hasExceededDragThreshold) {
+      stopFollowMode(true);
+      if (WM.ui && WM.ui.showToast) {
+        WM.ui.showToast('🔓 Слежение отключено (смещение карты)');
+      }
+    } else {
+      // Случайное микро-смещение (< 50px) — прилипаем обратно к точке!
+      if (userLatLng) {
+        map.panTo(userLatLng, { animate: true, duration: 0.25 });
+      }
+    }
+    dragStartCenter = null;
+    hasExceededDragThreshold = false;
+  });
+
+  map.on('zoomend', () => {
+    if (isFollowMode && userLatLng && !isUserDragging) {
+      map.panTo(userLatLng, { animate: false });
+    }
+  });
+
   function setGpsCoords(ll, coords, timestamp, isPdrBypass = false) {
     if (isManualPdrActive && !isPdrBypass) {
       return;
@@ -3304,6 +3456,15 @@
         interactive: false,
         zIndexOffset: 1200
       }).addTo(map);
+    }
+
+    // Если активно слежение (GPS или шагомер без GPS) — центрируем камеру
+    if (isFollowMode && !isUserDragging) {
+      if (map.getBounds().contains(targetLL)) {
+        map.panTo(targetLL, { animate: true, duration: 0.3 });
+      } else {
+        map.setView(targetLL, map.getZoom());
+      }
     }
 
     updateMotionHistory(ll, coords, timestamp);
@@ -3407,43 +3568,134 @@
     );
   }
 
-  document.getElementById('btn-location').onclick = () => {
-    if (WM.compass && WM.compass.start) {
-      WM.compass.start();
-    }
+  const btnLoc = document.getElementById('btn-location');
+  if (btnLoc) {
+    let locHoldTimer = null;
+    let isLocLongPress = false;
+    let lastLocLongPressTime = 0;
+    let locTouchStartPt = null;
+    let isLocTouchAction = false;
 
-    // ЗАЩИТА: Если активно глушение — НЕ переносим карту в координаты глушилки!
-    if (isSpoofed) {
+    // 1. ПК: Правый клик мыши включает/выключает слежение
+    btnLoc.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isLocTouchAction) return;
+      toggleFollowMode();
+    });
+
+    // 2. Смартфон: touchstart (удержание 420 мс)
+    btnLoc.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      isLocTouchAction = true;
+      isLocLongPress = false;
+      const t = e.touches[0];
+      locTouchStartPt = { x: t.clientX, y: t.clientY };
+      clearTimeout(locHoldTimer);
+
+      locHoldTimer = setTimeout(() => {
+        isLocLongPress = true;
+        lastLocLongPressTime = Date.now();
+        if (navigator.vibrate) navigator.vibrate(45);
+        toggleFollowMode();
+      }, 420);
+    }, { passive: true });
+
+    btnLoc.addEventListener('touchmove', (e) => {
+      if (!locTouchStartPt) return;
+      const t = e.touches[0];
+      if (Math.hypot(t.clientX - locTouchStartPt.x, t.clientY - locTouchStartPt.y) > 10) {
+        clearTimeout(locHoldTimer);
+      }
+    }, { passive: true });
+
+    btnLoc.addEventListener('touchend', (e) => {
+      clearTimeout(locHoldTimer);
+      locTouchStartPt = null;
+      if (isLocLongPress) {
+        lastLocLongPressTime = Date.now();
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      setTimeout(() => { isLocTouchAction = false; }, 350);
+    }, { passive: false });
+
+    btnLoc.addEventListener('touchcancel', () => {
+      clearTimeout(locHoldTimer);
+      locTouchStartPt = null;
+      isLocLongPress = false;
+      isLocTouchAction = false;
+    });
+
+    // 3. ПК: удержание левой кнопки мыши (>420 мс)
+    let mouseLocTimer = null;
+    let mouseLocLong = false;
+
+    btnLoc.addEventListener('mousedown', (e) => {
+      if (isLocTouchAction || e.button !== 0) return;
+      mouseLocLong = false;
+      clearTimeout(mouseLocTimer);
+      mouseLocTimer = setTimeout(() => {
+        mouseLocLong = true;
+        lastLocLongPressTime = Date.now();
+        toggleFollowMode();
+      }, 420);
+    });
+    btnLoc.addEventListener('mouseup', () => clearTimeout(mouseLocTimer));
+    btnLoc.addEventListener('mouseleave', () => clearTimeout(mouseLocTimer));
+
+    // 4. Обычный короткий клик
+    btnLoc.onclick = (e) => {
+      if (isLocLongPress || mouseLocLong || (Date.now() - lastLocLongPressTime < 600)) {
+        isLocLongPress = false;
+        mouseLocLong = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (WM.compass && WM.compass.start) {
+        WM.compass.start();
+      }
+
+      // Если режим слежения уже включен, короткий клик просто возвращает камеру на точку
+      if (isFollowMode && userLatLng) {
+        map.panTo(userLatLng, { animate: true, duration: 0.25 });
+        return;
+      }
+
+      // Если активно глушение — показываем безопасную/PDR позицию
+      if (isSpoofed) {
+        if (userLatLng) {
+          map.setView(userLatLng, Math.max(map.getZoom(), 16));
+          if (WM.ui && WM.ui.showToast) {
+            WM.ui.showToast('⚠️ Показана безопасная точка (глушение активно)');
+          }
+        } else {
+          if (WM.ui && WM.ui.showToast) {
+            WM.ui.showToast('⚠️ GPS заглушен! Наведите прицел и нажмите «Я тут»');
+          }
+        }
+        return;
+      }
+
+      // Обычный переход к координатам
       if (userLatLng) {
         map.setView(userLatLng, Math.max(map.getZoom(), 16));
-        if (WM.ui && WM.ui.showToast) {
-          WM.ui.showToast('⚠️ Показана безопасная точка (глушение активно)');
-        }
-      } else {
-        if (WM.ui && WM.ui.showToast) {
-          WM.ui.showToast('⚠️ GPS заглушен! Наведите прицел и нажмите «Я тут»');
-        }
       }
-      return;
-    }
 
-    // Если координаты уже известны и сигнала не заглушен — переносим МГНОВЕННО, не дожидаясь ответа спутников
-    if (userLatLng) {
-      map.setView(userLatLng, Math.max(map.getZoom(), 16));
-    }
-
-    // Параллельно запускаем опрос для уточнения координат и включаем анимацию контура
-    acquireLocation(
-      (ll) => {
-        map.setView(ll, Math.max(map.getZoom(), 16));
-      },
-      (e) => {
-        if (!userLatLng && WM.ui && WM.ui.showToast) {
-          WM.ui.showToast('Ошибка геопозиции: ' + e.message);
+      acquireLocation(
+        (ll) => {
+          map.setView(ll, Math.max(map.getZoom(), 16));
+        },
+        (err) => {
+          if (!userLatLng && WM.ui && WM.ui.showToast) {
+            WM.ui.showToast('Ошибка геопозиции: ' + err.message);
+          }
         }
-      }
-    );
-  };
+      );
+    };
+  }
 
   WM.setGpsPosition = function(lat, lng, speed = 5, heading = 0) {
     const pCoords = {
