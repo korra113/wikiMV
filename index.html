@@ -731,6 +731,8 @@
               </div>
             </div>
 
+
+
             <!-- 2. ВЫСОКОТОЧНАЯ КАЛИБРОВКА (ВЫНЕСЕНА НАВЕРХ) -->
             <div class="pdr-card-box pdr-calib-card">
               <div class="pdr-card-header-row">
@@ -876,6 +878,19 @@
                 <span class="chevron">▼</span>
               </summary>
               <div class="spoiler-body pdr-sub-body">
+
+                <div class="form-group" style="margin-bottom: 8px;">
+                  <label for="pdr-heading-source-select" style="font-weight: 700; color: var(--text-main); margin-bottom: 4px;">
+                    🧭 Источник данных о направлении (курсе):
+                  </label>
+                  <select id="pdr-heading-source-select" class="styled-select">
+                    <option value="fusion" selected>Гироскоп + Компас (по умолчанию, слияние)</option>
+                    <option value="compass">Только электронный компас (адаптивная фильтрация)</option>
+                  </select>
+                  <small class="hint-text" id="pdr-heading-source-hint">
+                    «Гироскоп + Компас» даёт максимальную плавность. «Только компас» рекомендуется, если гироскоп неисправен или уводит курс.
+                  </small>
+                </div>
                 
                 <!-- Положение телефона -->
                 <div class="form-group" style="margin-bottom: 8px;">
@@ -930,17 +945,37 @@
                     <option value="high">Тяжелое инерционное (для сильной тряски)</option>
                   </select>
                 </div>
+                <div class="form-group" style="margin-bottom: 8px;">
+                  <label for="pdr-movement-type-select" style="font-weight: 700; color: var(--text-main); margin-bottom: 4px;">
+                    🧭 Характер движения (удержание курса):
+                  </label>
+                  <select id="pdr-movement-type-select" class="styled-select">
+                    <option value="normal" selected>🚶 Обычный (стандартный баланс фильтров)</option>
+                    <option value="straight">🌲 По прямой / Азимут (выход из леса, отсечение обхода веток)</option>
+                    <option value="chaotic">🔄 Маневренный / Поиск (быстрый отклик на любые повороты)</option>
+                  </select>
+                  <small class="hint-text" id="pdr-movement-type-hint">
+                    «По прямой» держит генеральный курс и игнорирует виляние при обходе препятствий.
+                  </small>
+                </div>
 
                 <hr class="style-divider" style="margin: 6px 0;">
 
                 <!-- Соосность и склонение -->
-                <div class="style-row" style="margin-bottom: 8px;">
-                  <label for="pdr-alignment-offset-slider" style="display:flex; justify-content:space-between; font-weight:600;">
-                    <span>Ручная поправка соосности экрана:</span>
-                    <b id="pdr-alignment-offset-val" style="color:var(--accent);">0°</b>
-                  </label>
-                  <input type="range" id="pdr-alignment-offset-slider" min="-180" max="180" step="1" value="0" class="styled-range">
-                  <small class="hint-text">Угол смещения, если телефон закреплен на руле или в руке под углом.</small>
+                <div class="pdr-card-box" style="margin-bottom: 8px; border: 1.5px dashed var(--accent); background: var(--bg-primary);">
+                  <div class="pdr-card-header-row">
+                    <div>
+                      <div style="font-weight: 700; font-size: 12.5px; color: var(--text-main);">
+                        📐 Соосность курса: <b id="pdr-alignment-offset-val" style="color:var(--accent);">0°</b>
+                      </div>
+                      <small class="hint-text" style="margin: 2px 0 0;">
+                        Поправка угла установки смартфона относительно направления взгляда
+                      </small>
+                    </div>
+                    <button type="button" id="btn-open-visual-compass-settings" class="btn btn-primary" style="font-size: 11.5px; padding: 6px 12px; white-space: nowrap;">
+                      🗺️ Настроить на карте
+                    </button>
+                  </div>
                 </div>
 
                 <label class="toggle-item" style="margin-bottom: 8px;">
@@ -2628,6 +2663,14 @@
         </div>
         <span style="font-size: 18px; margin-left: 8px;">🌙</span>
       </button>
+
+      <button type="button" id="btn-adj-map-visual" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: space-between; text-align: left; padding: 10px 12px;">
+        <div>
+          <div style="font-weight: 700; font-size: 13px;">🗺️ Выставить по ориентирам карты</div>
+          <small class="hint-text" style="margin: 0;">Вращение конуса прямо на карте ползунком (просеки, дороги, реки)</small>
+        </div>
+        <span style="font-size: 18px; margin-left: 8px;">🎯</span>
+      </button>
     </div>
 
     <div class="modal-actions" style="justify-content: space-between; margin-top: 14px;">
@@ -2682,16 +2725,25 @@
             <span class="pdr-qaction-icon">📐</span>
             <div class="pdr-qaction-texts">
               <span class="pdr-qaction-title">По 3 точкам</span>
-              <span class="pdr-qaction-sub">A → B → C → A </span>
+              <span class="pdr-qaction-sub">A → B → C → A</span>
             </div>
             <span class="pdr-qaction-arrow">›</span>
           </button>
 
-          <button type="button" id="btn-pdr-quick-open-compass" class="pdr-quick-action-card">
+          <button type="button" id="btn-pdr-quick-open-visual-compass" class="pdr-quick-action-card">
+            <span class="pdr-qaction-icon">🎯</span>
+            <div class="pdr-qaction-texts">
+              <span class="pdr-qaction-title">По карте</span>
+              <span class="pdr-qaction-sub">Просеки, ориентиры</span>
+            </div>
+            <span class="pdr-qaction-arrow">›</span>
+          </button>
+
+          <button type="button" id="btn-pdr-quick-open-compass" class="pdr-quick-action-card" style="grid-column: 1 / -1;">
             <span class="pdr-qaction-icon">🧭</span>
             <div class="pdr-qaction-texts">
-              <span class="pdr-qaction-title">Кор-я компаса</span>
-              <span class="pdr-qaction-sub">Солнце, луна, север</span>
+              <span class="pdr-qaction-title">Коррекция по Северу / Солнцу / Луне</span>
+              <span class="pdr-qaction-sub">Быстрая привязка азимута</span>
             </div>
             <span class="pdr-qaction-arrow">›</span>
           </button>
@@ -2731,6 +2783,26 @@
           </div>
         </div>
 
+        <div class="pdr-quick-group">
+          <div class="pdr-quick-group-header">
+            <span class="pdr-quick-group-title">🧭 Характер движения:</span>
+          </div>
+          <div class="pdr-quick-segmented" id="pdr-quick-movement-segmented">
+            <button type="button" class="pdr-quick-seg-btn active" data-mov="normal" title="Сбалансированный режим">
+              <span>🚶 Обычный</span>
+            </button>
+            <button type="button" class="pdr-quick-seg-btn" data-mov="straight" title="Удержание прямого курса через бурелом">
+              <span>🌲 По прямой</span>
+            </button>
+            <button type="button" class="pdr-quick-seg-btn" data-mov="chaotic" title="Поиск, частые резкие повороты">
+              <span>🔄 Маневры</span>
+            </button>
+          </div>
+          <small class="hint-text" id="pdr-quick-mov-hint" style="margin-top: 4px;">
+            Обычный: баланс между фильтрацией покачиваний и фиксацией поворотов.
+          </small>
+        </div>
+
         <!-- 5. ПОРОГ СРАБАТЫВАНИЯ (ЧУВСТВИТЕЛЬНОСТЬ) -->
         <div class="pdr-quick-group" style="margin-bottom: 4px;">
           <div class="pdr-quick-group-header">
@@ -2760,10 +2832,44 @@
     </div>
   </div>
 
-<script src="js/leaflet.js"></script>
+  <div id="visual-compass-hud" class="visual-compass-hud" hidden>
+    <div class="vc-hud-header">
+      <div class="vc-hud-title-wrap">
+        <span class="vc-hud-icon">🧭</span>
+        <span class="vc-hud-title">Юстировка по ориентирам</span>
+        <b id="vc-hud-offset-badge" class="vc-hud-badge">Поправка: 0°</b>
+      </div>
+      <span id="vc-hud-heading-val" class="vc-hud-heading">Курс: 0°</span>
+    </div>
+
+    <div class="vc-hud-body">
+      <div class="vc-hud-slider-row">
+        <button type="button" id="btn-vc-step-minus5" class="vc-hud-btn-step" title="-5°">−5°</button>
+        <button type="button" id="btn-vc-step-minus1" class="vc-hud-btn-step" title="-1°">−1°</button>
+        <input type="range" id="vc-hud-slider" min="-180" max="180" step="1" value="0" class="styled-range vc-slider">
+        <button type="button" id="btn-vc-step-plus1" class="vc-hud-btn-step" title="+1°">+1°</button>
+        <button type="button" id="btn-vc-step-plus5" class="vc-hud-btn-step" title="+5°">+5°</button>
+      </div>
+
+      <div class="vc-hud-footer">
+        <div class="vc-hud-actions-left">
+          <button type="button" id="btn-vc-recenter" class="vc-btn-sub" title="Центрировать на позиции">🛰️ Моя точка</button>
+          <button type="button" id="btn-vc-reset" class="vc-btn-sub" title="Сбросить поправку на 0°">↺ 0°</button>
+        </div>
+        <div class="vc-hud-actions-right">
+          <button type="button" id="btn-vc-cancel" class="btn btn-secondary vc-btn-action">✕ Отмена</button>
+          <button type="button" id="btn-vc-apply" class="btn btn-primary vc-btn-action">✓ Готово</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/leaflet.js"></script>
   <script src="js/config.js"></script>
   <script src="js/geo.js"></script>
   <script src="js/cache.js"></script>
+  <script src="js/geomag.js"></script>
+
   <script src="js/api.js"></script>
   <script src="js/loader.js"></script>
   <script src="js/view.js"></script>
