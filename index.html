@@ -245,8 +245,8 @@
       <!-- Панель управления поиском iNaturalist (тип поиска и кнопка Показать на карте) -->
       <div id="search-inat-toolbar" class="search-inat-toolbar" hidden>
         <div class="inat-search-type-segmented" id="search-inat-type-segmented">
-          <button type="button" class="inat-search-type-btn active" data-type="screen">На экране</button>
-          <button type="button" class="inat-search-type-btn" data-type="global">Общий</button>
+          <button type="button" class="inat-search-type-btn" data-type="screen">На экране</button>
+          <button type="button" class="inat-search-type-btn active" data-type="global">Общий</button>
         </div>
         <button type="button" id="btn-search-inat-apply-map" class="btn btn-primary" style="font-size: 11px; padding: 4px 10px;" hidden>
           👁️ Показать на карте
@@ -1245,7 +1245,7 @@
                   <span class="inat-vision-icon">📷</span>
                   <div>
                     <span class="inat-vision-title">Определить вид по фото</span>
-                    <span class="inat-vision-sub">Нейросеть iNaturalist Computer Vision</span>
+                    <span class="inat-vision-sub">Нейросеть iNaturalist Computer Vision, определяет грибы, рлюбые растения, насекомых, животных. БУДЬТЕ ОСТОРОЖНЫ! Может ошибаться</span>
                   </div>
                 </div>
                 <span id="inat-vision-limit-badge" class="inat-vision-limit-badge" title="Лимит: не более 3 фото в минуту">3 / 3</span>
@@ -1307,8 +1307,8 @@
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                 <label style="font-weight: 700; font-size: 12px; margin: 0;">🔍 Поиск по названию (рус / лат):</label>
                 <div class="inat-search-type-segmented" id="inat-search-type-segmented">
-                  <button type="button" class="inat-search-type-btn active" data-type="screen">На экране</button>
-                  <button type="button" class="inat-search-type-btn" data-type="global">Общий</button>
+                  <button type="button" class="inat-search-type-btn" data-type="screen">На экране</button>
+                  <button type="button" class="inat-search-type-btn active" data-type="global">Общий</button>
                 </div>
               </div>
 
@@ -1395,9 +1395,9 @@
               <div class="form-group" style="margin-bottom: 0;">
                 <label for="inat-filter-quality">Достоверность:</label>
                 <select id="inat-filter-quality" class="styled-select">
-                  <option value="research" selected>✓ Research Grade</option>
+                  <option value="research">✓ Research Grade</option>
                   <option value="needs_id">⏳ На опознании</option>
-                  <option value="any">Все уровни</option>
+                  <option value="any" selected>Все уровни</option>
                 </select>
               </div>
             </div>
