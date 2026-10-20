@@ -243,52 +243,29 @@
     const compassDelta = ((correctedCompass - (lastExternalCompass || correctedCompass) + 540) % 360) - 180;
     lastExternalCompass = correctedCompass;
 
-    // =====================================================================
-    // РЕЖИМ 2: ТОЛЬКО ЭЛЕКТРОННЫЙ КОМПАС (Адаптивный LPF + подавление шага)
-    // =====================================================================
-    if (CONFIG.headingSource === 'compass') {
+    // Если нет физического гироскопа — используем адаптивный цикличный LPF
+    if (!hasTrueHardwareGyro || CONFIG.headingSource === 'compass') {
       const dt = Math.min(0.2, Math.max(0.01, (now - (lastCompassUpdateTime || (now - 20))) / 1000));
       lastCompassUpdateTime = now;
 
       const absDiff = Math.abs(diff);
 
-      // 1. Зона нечувствительности (Deadband) против аппаратного шума сенсора (< 1.2°)
-      if (absDiff < 1.2) {
-        return;
+      // Deadband против дрожания на месте
+      if (absDiff < 1.0) return;
+
+      // Если разворот резкий (например, прыжок через 360° или поворот за угол)
+      // используем круговой коэффициент фильтрации
+      let filterWeight = 0.15;
+      if (absDiff > 45.0) {
+        filterWeight = 0.40; // быстрый захват нового направления
+      } else if (absDiff > 15.0) {
+        filterWeight = 0.25;
       }
 
-      // 2. Детектор единичных магнитных всплесков (проход мимо столба/арматуры)
-      if (absDiff > 60.0) {
-        compassSpikeCounter++;
-        if (compassSpikeCounter < 3) {
-          // Игнорируем единичный выброс до подтверждения
-          return;
-        }
-      } else {
-        compassSpikeCounter = 0;
-      }
-
-      // 3. Адаптивный фильтр нижних частот:
-      // Срезает шаговой маятник (раскачивание корпуса влево-вправо на 4°-12°)
-      let filterWeight;
-      if (absDiff < 14.0) {
-        if (CONFIG.headingDamping === 'high') filterWeight = 0.04;
-        else if (CONFIG.headingDamping === 'low') filterWeight = 0.12;
-        else filterWeight = 0.07;
-      } else if (absDiff < 40.0) {
-        // Умеренный плавный поворот
-        if (CONFIG.headingDamping === 'high') filterWeight = 0.10;
-        else if (CONFIG.headingDamping === 'low') filterWeight = 0.25;
-        else filterWeight = 0.16;
-      } else {
-        // Осознанный крутой поворот за угол
-        filterWeight = 0.45;
-      }
-
-      // 4. Ограничение предельной скорости поворота (не более 150°/с при фильтрации)
+      // Защита от бесконечного вращения: ограничиваем макс. угловую скорость поворота
       let turnStep = diff * filterWeight;
-      const maxTurnStep = 150.0 * dt;
-      if (Math.abs(turnStep) > maxTurnStep && absDiff < 90.0) {
+      const maxTurnStep = 180.0 * dt;
+      if (Math.abs(turnStep) > maxTurnStep && absDiff < 120.0) {
         turnStep = Math.sign(turnStep) * maxTurnStep;
       }
 
@@ -512,7 +489,9 @@
     aUp = (rawAx * lpfGravity.x + rawAy * lpfGravity.y + rawAz * lpfGravity.z) / gNorm - gNorm;
 
     const currentHeading = getFusedHeading();
-    const isStationaryManipulating = (currentGyroMag > sensCfg.maxGyroNoise && Math.abs(aUp) < 0.25);
+    const isStationaryManipulating = hasTrueHardwareGyro 
+      ? (currentGyroMag > sensCfg.maxGyroNoise && Math.abs(aUp) < 0.25)
+      : false;
 
     // Сброс зависших кандидатов шага по таймауту
     if (pendingStepCandidate && (now - pendingStepCandidate.time > 1350)) pendingStepCandidate = null;
@@ -733,122 +712,44 @@
       return confirmedHeading;
     }
 
-    // --- ВСТАВКА: ДЕТЕКТОР ПРЯМОЙ ЛИНИИ (Straight-Lock) ---
-    // Проверяем показания внешнего компаса
+    // Если активен детектор прямолинейного движения
     const compassRef = lastExternalCompass !== null ? lastExternalCompass : rawHeading;
     const isStraight = checkStraightLineLock(compassRef);
 
     if (isStraight) {
       const trueCompassAvg = getAverageCompassHeading();
-      
-      // 1. Принудительно выправляем сшитый курс pdrEngine, чтобы он не уплывал в дугу:
       fusedHeading = trueCompassAvg;
-
-      // 2. Гасим любые ложные кандидаты на поворот:
       candidateHeading = null;
       candidateStepsCount = 0;
       candidateAnglesBuffer = [];
 
-      // 3. Плавно подтягиваем подтверждённый курс шага к среднему компасу:
       const straightDiff = getAngularDiff(trueCompassAvg, confirmedHeading);
-      confirmedHeading = (confirmedHeading + straightDiff * 0.15 + 360) % 360;
-      
+      confirmedHeading = (confirmedHeading + straightDiff * 0.2 + 360) % 360;
       return confirmedHeading;
     }
-    // --- КОНЕЦ ВСТАВКИ ---
 
     const diffFromConfirmed = getAngularDiff(rawHeading, confirmedHeading);
     const absDiff = Math.abs(diffFromConfirmed);
     const movType = CONFIG.movementType || 'normal';
 
-    // -------------------------------------------------------------
-    // РЕЖИМ 1: «ХАОТИЧНО / МАНЕВРЕННЫЙ» (Быстрый отклик на любые повороты)
-    // -------------------------------------------------------------
-    if (movType === 'chaotic') {
-      if (absDiff < 28) {
-        confirmedHeading = (confirmedHeading + diffFromConfirmed * 0.35 + 360) % 360;
-        candidateHeading = null;
-        candidateStepsCount = 0;
-        candidateAnglesBuffer = [];
-        return confirmedHeading;
-      }
-      // Поворот подтверждается уже со 2-го шага
-      if (candidateHeading === null) {
-        candidateHeading = rawHeading;
-        candidateStepsCount = 1;
-        return confirmedHeading;
-      }
-      confirmedHeading = rawHeading;
-      candidateHeading = null;
-      candidateStepsCount = 0;
-      return confirmedHeading;
-    }
-
-    // -------------------------------------------------------------
-    // РЕЖИМ 2: «ПО ПРЯМОЙ / АЗИМУТ» (Железное удержание линии через чащу)
-    // -------------------------------------------------------------
-    if (movType === 'straight') {
-      // Покачивания до 22° практически не сдвигают курс (коэффициент всего 0.03)
-      if (absDiff < 22) {
-        confirmedHeading = (confirmedHeading + diffFromConfirmed * 0.03 + 360) % 360;
-        candidateHeading = null;
-        candidateStepsCount = 0;
-        candidateAnglesBuffer = [];
-        return confirmedHeading;
-      }
-
-      // Для смены направления требуется целых 8 шагов подряд в новую сторону с высокой кучностью (14°)
-      const straightRequiredSteps = isSouthernSector(rawHeading) ? 10 : 8;
-      const straightTolerance = 14;
-
-      if (candidateHeading === null) {
-        candidateHeading = rawHeading;
-        candidateStepsCount = 1;
-        candidateAnglesBuffer = [rawHeading];
-        return confirmedHeading;
-      }
-
-      const diffFromCandidate = Math.abs(getAngularDiff(rawHeading, candidateHeading));
-      if (diffFromCandidate <= straightTolerance) {
-        candidateStepsCount++;
-        candidateAnglesBuffer.push(rawHeading);
-        if (candidateStepsCount >= straightRequiredSteps) {
-          let sumSin = 0, sumCos = 0;
-          candidateAnglesBuffer.forEach(ang => {
-            const rad = ang * Math.PI / 180;
-            sumSin += Math.sin(rad);
-            sumCos += Math.cos(rad);
-          });
-          confirmedHeading = (Math.atan2(sumSin, sumCos) * 180 / Math.PI + 360) % 360;
-          candidateHeading = null;
-          candidateStepsCount = 0;
-          candidateAnglesBuffer = [];
-          return confirmedHeading;
-        }
-        return confirmedHeading;
-      } else {
-        candidateHeading = rawHeading;
-        candidateStepsCount = 1;
-        candidateAnglesBuffer = [rawHeading];
-        return confirmedHeading;
-      }
-    }
-
-    // -------------------------------------------------------------
-    // РЕЖИМ 3: «ОБЫЧНЫЙ» (Сбалансированный стандартный алгоритм)
-    // -------------------------------------------------------------
-    if (absDiff < 18) {
-      confirmedHeading = (confirmedHeading + diffFromConfirmed * 0.12 + 360) % 360;
+    // 1. Небольшие покачивания корпуса при шаге (до 20°) плавно сглаживаем
+    if (absDiff < 20) {
+      const smoothFactor = hasTrueHardwareGyro ? 0.15 : 0.25;
+      confirmedHeading = (confirmedHeading + diffFromConfirmed * smoothFactor + 360) % 360;
       candidateHeading = null;
       candidateStepsCount = 0;
       candidateAnglesBuffer = [];
       return confirmedHeading;
     }
 
-    const isTargetSouth = isSouthernSector(rawHeading);
-    const isOriginSouth = isSouthernSector(confirmedHeading);
-    const requiredSteps = (isTargetSouth || isOriginSouth) ? 6 : 3;
-    const clusterTolerance = (isTargetSouth || isOriginSouth) ? 18 : 26;
+    // 2. Для устройств без физического гироскопа:
+    // Поворот подтверждается за 2 шага, допуск расширен до 38°,
+    // что исключает застревание на Юго-Востоке из-за микрошума компаса
+    const requiredSteps = hasTrueHardwareGyro 
+      ? (movType === 'straight' ? 6 : 3) 
+      : (movType === 'straight' ? 3 : 2);
+
+    const clusterTolerance = hasTrueHardwareGyro ? 24 : 38;
 
     if (candidateHeading === null) {
       candidateHeading = rawHeading;
@@ -862,6 +763,7 @@
       candidateStepsCount++;
       candidateAnglesBuffer.push(rawHeading);
 
+      // Векторное круговое усреднение (Circular Mean) исключает ошибки при переходе через 0°/360°
       let sumSin = 0, sumCos = 0;
       candidateAnglesBuffer.forEach(ang => {
         const rad = ang * Math.PI / 180;
@@ -879,6 +781,7 @@
       }
       return confirmedHeading;
     } else {
+      // Смена направления шага на новое
       candidateHeading = rawHeading;
       candidateStepsCount = 1;
       candidateAnglesBuffer = [rawHeading];
