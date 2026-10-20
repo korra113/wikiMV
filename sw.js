@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v69'; // Обновляем версию для сброса кэша
+const SHELL_CACHE = 'wm-shell-v71'; // Обновляем версию для сброса кэша
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -41,6 +41,8 @@ const ASSETS_TO_CACHE = [
   'css/leaflet.css',
   'css/style.css',
   'js/leaflet.js',
+  'js/tile-retry.js',
+  'js/geomag.js',
   'js/config.js',
   'js/geo.js',
   'js/cache.js',
@@ -58,7 +60,9 @@ const ASSETS_TO_CACHE = [
   'js/shadowHeight.js',
   'js/rangeRing.js',
   'js/imageOverlay.js',
-  'js/pdrEngine.js', // <-- ОБЯЗАТЕЛЬНО ДОБАВИТЬ СЮДА
+  'js/pdrEngine.js',
+  'js/imuLogger.js',    // <-- ДОБАВИТЬ
+  'js/inaturalist.js',  // <-- ДОБАВИТЬ
   'js/main.js'
 ];
 self.addEventListener('install', (event) => {
@@ -212,6 +216,7 @@ self.addEventListener('fetch', (event) => {
   if (
     url.includes('api.wikimapia.org') || 
     url.includes('firebaseio.com') ||
+    url.includes('inaturalist.org') || // <-- ДОБАВИТЬ СЮДА
     url.includes('nominatim') || 
     url.includes('photon') || 
     url.includes('wttr.in') ||    
