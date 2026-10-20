@@ -8,7 +8,7 @@
     query: '',
     season: 'any',
     month: 'any',
-    quality: 'research',
+    quality: 'any',      // <-- БЫЛО: 'research', СТАЛО: 'any' (Все уровни)
     sort: 'votes',
     wildOnly: true,
     nativeOnly: false,
@@ -37,7 +37,7 @@
   let hoveredObsId = null;
 
   // Поиск и фильтрация на карте
-  let searchType = 'screen'; // 'screen' | 'global'
+  let searchType = 'global'; // 'screen' | 'global'
   let activeMapFilter = null; // null | { query: string, taxonId: number|null, results: Array }
   let searchDebounceTimer = null;
   let autocompleteDebounceTimer = null;
@@ -671,7 +671,8 @@
           </div>
           <span class="inat-vision-la">${escapeHtml(latinName)} · ${meta.name}</span>
           <div class="inat-vision-item-actions">
-            <button type="button" class="inat-vision-act-btn btn-show-map">👁️ Найти на карте</button>
+            <button type="button" class="inat-vision-act-btn btn-show-map">👁️ На карте</button>
+            <button type="button" class="inat-vision-act-btn btn-copy-name" title="Скопировать название «Русское (Латинское)»">📋</button>
             <a href="https://www.inaturalist.org/taxa/${taxon.id}" target="_blank" rel="noopener noreferrer" class="inat-vision-act-btn">↗ iNat</a>
           </div>
         </div>
@@ -680,6 +681,18 @@
       card.querySelector('.btn-show-map')?.addEventListener('click', (e) => {
         e.stopPropagation();
         applyFilterToMap(ruName, taxon);
+      });
+
+      card.querySelector('.btn-copy-name')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const copyText = (latinName && latinName !== ruName)
+          ? `${ruName} (${latinName})`
+          : ruName;
+        navigator.clipboard.writeText(copyText).then(() => {
+          if (WM.ui && WM.ui.showToast) {
+            WM.ui.showToast(`📋 Скопировано: ${copyText}`);
+          }
+        });
       });
 
       listEl.appendChild(card);
@@ -2139,7 +2152,7 @@
     if (selMonth) selMonth.value = config.month || 'any';
 
     const selQuality = document.getElementById('inat-filter-quality');
-    if (selQuality) selQuality.value = config.quality || 'research';
+    if (selQuality) selQuality.value = config.quality || 'any'; 
 
     const selSort = document.getElementById('inat-filter-sort');
     if (selSort) selSort.value = config.sort || 'votes';
