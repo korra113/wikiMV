@@ -3,7 +3,9 @@
 
   const CONFIG = {
     navigationType: 'step',       // 'step' (пешком/бег) | 'vehicular' (вело/авто)
+    headingSource: 'fusion',      // 'fusion' (гироскоп+компас) | 'compass' (только компас)
     carryingMode: 'hand',         // 'hand' | 'pocket'
+    movementType: 'normal',       // 'normal' (баланс) | 'straight' (азимут/лес) | 'chaotic' (маневренный)
     baseStepLength: 0.75,         // метры
     vehicularSpeedKmh: 18,        // базовая скорость для вело/авто при потере GPS (км/ч)
     useDynamicStride: true,       // модель Вайнберга
@@ -56,6 +58,9 @@
   let lastExternalCompass = null;
   let magneticAnomalyActive = false;
   let anomalyCooldownTimer = 0;
+  let compassSpikeCounter = 0;
+  let lastCompassUpdateTime = 0;
+
 
   // Мировые ускорения ENU
   let aEast = 0, aNorth = 0, aUp = 0;
@@ -113,9 +118,8 @@
   let hasGravityInit = false;
 
   function calculateMagneticDeclination(lat, lng) {
-    // Для европейской части РФ склонение около +11°...+13°
-    if (lat >= 53 && lat <= 60 && lng >= 34 && lng <= 42) {
-      return 12.3;
+    if (window.WM && WM.geoMag && typeof WM.geoMag.getDeclination === 'function') {
+      return WM.geoMag.getDeclination(lat, lng);
     }
     return 0;
   }
@@ -233,10 +237,71 @@
     const compassDelta = ((correctedCompass - (lastExternalCompass || correctedCompass) + 540) % 360) - 180;
     lastExternalCompass = correctedCompass;
 
-    // Детектор реальной магнитной аномалии:
-    // Подавляем ложное срабатывание, если скачок произошел во время быстрого наклона (pitch rate > 20°/с)
+    // =====================================================================
+    // РЕЖИМ 2: ТОЛЬКО ЭЛЕКТРОННЫЙ КОМПАС (Адаптивный LPF + подавление шага)
+    // =====================================================================
+    if (CONFIG.headingSource === 'compass') {
+      const dt = Math.min(0.2, Math.max(0.01, (now - (lastCompassUpdateTime || (now - 20))) / 1000));
+      lastCompassUpdateTime = now;
+
+      const absDiff = Math.abs(diff);
+
+      // 1. Зона нечувствительности (Deadband) против аппаратного шума сенсора (< 1.2°)
+      if (absDiff < 1.2) {
+        return;
+      }
+
+      // 2. Детектор единичных магнитных всплесков (проход мимо столба/арматуры)
+      if (absDiff > 60.0) {
+        compassSpikeCounter++;
+        if (compassSpikeCounter < 3) {
+          // Игнорируем единичный выброс до подтверждения
+          return;
+        }
+      } else {
+        compassSpikeCounter = 0;
+      }
+
+      // 3. Адаптивный фильтр нижних частот:
+      // Срезает шаговой маятник (раскачивание корпуса влево-вправо на 4°-12°)
+      let filterWeight;
+      if (absDiff < 14.0) {
+        if (CONFIG.headingDamping === 'high') filterWeight = 0.04;
+        else if (CONFIG.headingDamping === 'low') filterWeight = 0.12;
+        else filterWeight = 0.07;
+      } else if (absDiff < 40.0) {
+        // Умеренный плавный поворот
+        if (CONFIG.headingDamping === 'high') filterWeight = 0.10;
+        else if (CONFIG.headingDamping === 'low') filterWeight = 0.25;
+        else filterWeight = 0.16;
+      } else {
+        // Осознанный крутой поворот за угол
+        filterWeight = 0.45;
+      }
+
+      // 4. Ограничение предельной скорости поворота (не более 150°/с при фильтрации)
+      let turnStep = diff * filterWeight;
+      const maxTurnStep = 150.0 * dt;
+      if (Math.abs(turnStep) > maxTurnStep && absDiff < 90.0) {
+        turnStep = Math.sign(turnStep) * maxTurnStep;
+      }
+
+      fusedHeading = (fusedHeading + turnStep + 360) % 360;
+      return;
+    }
+
+    // =====================================================================
+    // РЕЖИМ 1: СЛИЯНИЕ ГИРОСКОП + КОМПАС (по умолчанию)
+    // =====================================================================
     const gyroYawRateDeg = Math.abs(currentGyroMag * (180 / Math.PI));
     const isRapidPitching = Math.abs(cleanGx * (180 / Math.PI)) > 20.0;
+
+    if (hasTrueHardwareGyro && !magneticAnomalyActive) {
+      const biasAdaptRate = 0.0003; 
+      biasGz -= (diff * (Math.PI / 180)) * biasAdaptRate;
+      const maxBias = 0.087;
+      biasGz = Math.max(-maxBias, Math.min(maxBias, biasGz));
+    }
 
     if (hasTrueHardwareGyro && !isRapidPitching) {
       if (Math.abs(compassDelta) > 50 && gyroYawRateDeg < 20) {
@@ -249,23 +314,20 @@
       magneticAnomalyActive = false;
     }
 
-    // Адаптивный вес фильтра сшивки:
-    // Не позволяет курсу «залипать» при отставании гироскопа
     let filterWeight;
     const absDiff = Math.abs(diff);
 
     if (magneticAnomalyActive) {
-      filterWeight = 0.05; // При реальной аномалии мягко демпфируем, но не блокируем намертво
+      filterWeight = 0.05;
     } else if (hasTrueHardwareGyro) {
       if (absDiff > 40) {
-        filterWeight = 0.35; // Быстрая подтяжка при отставании сшивки
+        filterWeight = 0.35;
       } else if (absDiff > 15) {
         filterWeight = 0.18;
       } else {
         filterWeight = (CONFIG.headingDamping === 'high') ? 0.05 : 0.09;
       }
     } else {
-      // Бюджетные устройства без аппаратного гироскопа
       if (absDiff > 45) {
         filterWeight = 0.45;
       } else if (absDiff > 15) {
@@ -280,6 +342,9 @@
 
   function getFusedHeading() {
     if (fusedHeading !== null) return fusedHeading;
+    if (CONFIG.headingSource === 'compass') {
+      return (lastExternalCompass !== null) ? lastExternalCompass : 0;
+    }
     return getRawMadgwickHeading();
   }
 
@@ -421,27 +486,22 @@
     // 7. Интеграция курса гироскопом с защитой от паразитного рыскания при наклонах
     const isWindowsDesktop = navigator.userAgent.includes('Windows');
 
-    if (hasTrueHardwareGyro && !isWindowsDesktop) {
+    if (CONFIG.headingSource !== 'compass' && hasTrueHardwareGyro && !isWindowsDesktop) {
       madgwickUpdate(cleanGx, cleanGy, cleanGz, rawAx, rawAy, rawAz, dt);
 
-      // Если идет активный наклон устройства вперед-назад (|cleanGx| высок),
-      // уменьшаем вес проекции по X, чтобы запаздывающий вектор gravity LPF
-      // не вносил ложное курсовое вращение (yaw) в горизонтальную плоскость
-      const pitchRateDeg = Math.abs(cleanGx * (180 / Math.PI));
-      const effectiveUpX = pitchRateDeg > 25.0 ? (upX * 0.2) : upX;
-
-      const worldGyroZ = cleanGx * effectiveUpX + cleanGy * upY + cleanGz * upZ;
+      // Используем честную проекцию без пороговых ступеней (upX, upY, upZ)
+      const worldGyroZ = cleanGx * upX + cleanGy * upY + cleanGz * upZ;
 
       if (fusedHeading !== null) {
         const gyroYawRateDeg = Math.abs(worldGyroZ * (180 / Math.PI));
-        // Фильтруем шумы покоя (< 2.2°/с) и физически невозможные выбросы (> 400°/с)
-        if (gyroYawRateDeg > 2.2 && gyroYawRateDeg < 400.0) {
+
+        // Шумовой порог: на ходу микроколебания руки до 3.0°/с должны взаимно гаситься компасом
+        if (gyroYawRateDeg > 1.8 && gyroYawRateDeg < 350.0) {
           const gyroYawStepDeg = -(worldGyroZ * (180 / Math.PI)) * dt;
           fusedHeading = (fusedHeading + gyroYawStepDeg + 360) % 360;
         }
       }
     }
-
     // 8. Вертикальное ускорение шага вдоль оси тяжести: a_up = (a · g)/|g| - |g|
     aUp = (rawAx * lpfGravity.x + rawAy * lpfGravity.y + rawAz * lpfGravity.z) / gNorm - gNorm;
 
@@ -603,23 +663,252 @@
       }
     }
   }
+// =========================================================================
+  // СИСТЕМА ПОДТВЕРЖДЕНИЯ ПОВОРОТА ШАГАМИ (STEP-BASED TURN HYSTERESIS)
+  // С ОСОБОЙ СТАБИЛИЗАЦИЕЙ ЮЖНОГО СЕКТОРА (Ю, ЮЗ, ЮВ)
+  // =========================================================================
+  let confirmedHeading = null;
+  let candidateHeading = null;
+  let candidateStepsCount = 0;
+  let candidateAnglesBuffer = [];
+
+  function isSouthernSector(deg) {
+    const norm = (deg % 360 + 360) % 360;
+    // Сектор от 115° (ВЮВ) через 180° (Юг) до 245° (ЗЮЗ)
+    return norm >= 115 && norm <= 245;
+  }
+
+  function getAngularDiff(a, b) {
+    return ((a - b + 540) % 360) - 180;
+  }
+
+  // Буфер истории компаса на моментах шагов для детектора прямой линии
+  const recentStepCompassHeadings = [];
+
+  function checkStraightLineLock(currentCompass) {
+    if (currentCompass === null || isNaN(currentCompass)) return false;
+
+    recentStepCompassHeadings.push(currentCompass);
+    if (recentStepCompassHeadings.length > 5) recentStepCompassHeadings.shift();
+    if (recentStepCompassHeadings.length < 5) return false;
+
+    // Вычисляем максимальный угловой размах за последние 5 шагов
+    let minDiff = Infinity, maxDiff = -Infinity;
+    const base = recentStepCompassHeadings[0];
+
+    for (const h of recentStepCompassHeadings) {
+      const d = ((h - base + 540) % 360) - 180;
+      if (d < minDiff) minDiff = d;
+      if (d > maxDiff) maxDiff = d;
+    }
+
+    // Если размах не превышает 7° (т.е. колебания в коридоре ±3.5°) — мы идём строго прямо
+    return (maxDiff - minDiff) <= 7.0;
+  }
+
+  function getAverageCompassHeading() {
+    if (!recentStepCompassHeadings.length) return confirmedHeading;
+    let sumSin = 0, sumCos = 0;
+    recentStepCompassHeadings.forEach(h => {
+      const rad = h * Math.PI / 180;
+      sumSin += Math.sin(rad);
+      sumCos += Math.cos(rad);
+    });
+    return (Math.atan2(sumSin, sumCos) * 180 / Math.PI + 360) % 360;
+  }
+
+  function filterHeadingBySteps(rawHeading) {
+    if (rawHeading === null || isNaN(rawHeading)) {
+      return confirmedHeading !== null ? confirmedHeading : 0;
+    }
+
+    if (confirmedHeading === null) {
+      confirmedHeading = rawHeading;
+      return confirmedHeading;
+    }
+
+    // --- ВСТАВКА: ДЕТЕКТОР ПРЯМОЙ ЛИНИИ (Straight-Lock) ---
+    // Проверяем показания внешнего компаса
+    const compassRef = lastExternalCompass !== null ? lastExternalCompass : rawHeading;
+    const isStraight = checkStraightLineLock(compassRef);
+
+    if (isStraight) {
+      const trueCompassAvg = getAverageCompassHeading();
+      
+      // 1. Принудительно выправляем сшитый курс pdrEngine, чтобы он не уплывал в дугу:
+      fusedHeading = trueCompassAvg;
+
+      // 2. Гасим любые ложные кандидаты на поворот:
+      candidateHeading = null;
+      candidateStepsCount = 0;
+      candidateAnglesBuffer = [];
+
+      // 3. Плавно подтягиваем подтверждённый курс шага к среднему компасу:
+      const straightDiff = getAngularDiff(trueCompassAvg, confirmedHeading);
+      confirmedHeading = (confirmedHeading + straightDiff * 0.15 + 360) % 360;
+      
+      return confirmedHeading;
+    }
+    // --- КОНЕЦ ВСТАВКИ ---
+
+    const diffFromConfirmed = getAngularDiff(rawHeading, confirmedHeading);
+    const absDiff = Math.abs(diffFromConfirmed);
+    const movType = CONFIG.movementType || 'normal';
+
+    // -------------------------------------------------------------
+    // РЕЖИМ 1: «ХАОТИЧНО / МАНЕВРЕННЫЙ» (Быстрый отклик на любые повороты)
+    // -------------------------------------------------------------
+    if (movType === 'chaotic') {
+      if (absDiff < 28) {
+        confirmedHeading = (confirmedHeading + diffFromConfirmed * 0.35 + 360) % 360;
+        candidateHeading = null;
+        candidateStepsCount = 0;
+        candidateAnglesBuffer = [];
+        return confirmedHeading;
+      }
+      // Поворот подтверждается уже со 2-го шага
+      if (candidateHeading === null) {
+        candidateHeading = rawHeading;
+        candidateStepsCount = 1;
+        return confirmedHeading;
+      }
+      confirmedHeading = rawHeading;
+      candidateHeading = null;
+      candidateStepsCount = 0;
+      return confirmedHeading;
+    }
+
+    // -------------------------------------------------------------
+    // РЕЖИМ 2: «ПО ПРЯМОЙ / АЗИМУТ» (Железное удержание линии через чащу)
+    // -------------------------------------------------------------
+    if (movType === 'straight') {
+      // Покачивания до 22° практически не сдвигают курс (коэффициент всего 0.03)
+      if (absDiff < 22) {
+        confirmedHeading = (confirmedHeading + diffFromConfirmed * 0.03 + 360) % 360;
+        candidateHeading = null;
+        candidateStepsCount = 0;
+        candidateAnglesBuffer = [];
+        return confirmedHeading;
+      }
+
+      // Для смены направления требуется целых 8 шагов подряд в новую сторону с высокой кучностью (14°)
+      const straightRequiredSteps = isSouthernSector(rawHeading) ? 10 : 8;
+      const straightTolerance = 14;
+
+      if (candidateHeading === null) {
+        candidateHeading = rawHeading;
+        candidateStepsCount = 1;
+        candidateAnglesBuffer = [rawHeading];
+        return confirmedHeading;
+      }
+
+      const diffFromCandidate = Math.abs(getAngularDiff(rawHeading, candidateHeading));
+      if (diffFromCandidate <= straightTolerance) {
+        candidateStepsCount++;
+        candidateAnglesBuffer.push(rawHeading);
+        if (candidateStepsCount >= straightRequiredSteps) {
+          let sumSin = 0, sumCos = 0;
+          candidateAnglesBuffer.forEach(ang => {
+            const rad = ang * Math.PI / 180;
+            sumSin += Math.sin(rad);
+            sumCos += Math.cos(rad);
+          });
+          confirmedHeading = (Math.atan2(sumSin, sumCos) * 180 / Math.PI + 360) % 360;
+          candidateHeading = null;
+          candidateStepsCount = 0;
+          candidateAnglesBuffer = [];
+          return confirmedHeading;
+        }
+        return confirmedHeading;
+      } else {
+        candidateHeading = rawHeading;
+        candidateStepsCount = 1;
+        candidateAnglesBuffer = [rawHeading];
+        return confirmedHeading;
+      }
+    }
+
+    // -------------------------------------------------------------
+    // РЕЖИМ 3: «ОБЫЧНЫЙ» (Сбалансированный стандартный алгоритм)
+    // -------------------------------------------------------------
+    if (absDiff < 18) {
+      confirmedHeading = (confirmedHeading + diffFromConfirmed * 0.12 + 360) % 360;
+      candidateHeading = null;
+      candidateStepsCount = 0;
+      candidateAnglesBuffer = [];
+      return confirmedHeading;
+    }
+
+    const isTargetSouth = isSouthernSector(rawHeading);
+    const isOriginSouth = isSouthernSector(confirmedHeading);
+    const requiredSteps = (isTargetSouth || isOriginSouth) ? 6 : 3;
+    const clusterTolerance = (isTargetSouth || isOriginSouth) ? 18 : 26;
+
+    if (candidateHeading === null) {
+      candidateHeading = rawHeading;
+      candidateStepsCount = 1;
+      candidateAnglesBuffer = [rawHeading];
+      return confirmedHeading;
+    }
+
+    const diffFromCandidate = Math.abs(getAngularDiff(rawHeading, candidateHeading));
+    if (diffFromCandidate <= clusterTolerance) {
+      candidateStepsCount++;
+      candidateAnglesBuffer.push(rawHeading);
+
+      let sumSin = 0, sumCos = 0;
+      candidateAnglesBuffer.forEach(ang => {
+        const rad = ang * Math.PI / 180;
+        sumSin += Math.sin(rad);
+        sumCos += Math.cos(rad);
+      });
+      candidateHeading = (Math.atan2(sumSin, sumCos) * 180 / Math.PI + 360) % 360;
+
+      if (candidateStepsCount >= requiredSteps) {
+        confirmedHeading = candidateHeading;
+        candidateHeading = null;
+        candidateStepsCount = 0;
+        candidateAnglesBuffer = [];
+        return confirmedHeading;
+      }
+      return confirmedHeading;
+    } else {
+      candidateHeading = rawHeading;
+      candidateStepsCount = 1;
+      candidateAnglesBuffer = [rawHeading];
+      return confirmedHeading;
+    }
+  }
 
 
+  let strideHeadingHistory = [];
 
   function commitStep(strideMeters, headingDeg, deltaAltStep, bodyImpulseAngle) {
+    strideHeadingHistory.push(headingDeg);
+    if (strideHeadingHistory.length > 2) strideHeadingHistory.shift();
+
+    // Применяем усреднение за полный цикл шага (2 шага: левая + правая нога)
+    let smoothedStepHeading = headingDeg;
+    if (strideHeadingHistory.length === 2) {
+      const diff = ((strideHeadingHistory[1] - strideHeadingHistory[0] + 540) % 360) - 180;
+      smoothedStepHeading = (strideHeadingHistory[0] + diff * 0.5 + 360) % 360;
+    }
+
+    const effectiveStepHeading = filterHeadingBySteps(smoothedStepHeading);
+
     if (isAlignmentTesting) {
       alignmentStepsDone++;
       alignmentImpulseVectors.push({
         step: alignmentStepsDone,
         impulseAngle: bodyImpulseAngle,
-        deviceYaw: headingDeg
+        deviceYaw: effectiveStepHeading
       });
       if (alignmentStepsDone >= alignmentStepsTarget) finishAlignmentWalk();
     }
 
     // НАКОПЛЕНИЕ ДАННЫХ ДЛЯ КАЛИБРОВКИ ТРЕУГОЛЬНИКОМ
     if (isTriangleCalibrating) {
-      currentLegHeadings.push(headingDeg);
+      currentLegHeadings.push(effectiveStepHeading);
       currentLegPdrDist += strideMeters;
       currentLegSteps++;
     }
@@ -630,11 +919,12 @@
     }
 
     window.dispatchEvent(new CustomEvent('wm:pdr-step', {
-      detail: { strideMeters, headingDeg, stepCount, deltaAltStep, currentAltitude }
+      detail: { strideMeters, headingDeg: effectiveStepHeading, stepCount, deltaAltStep, currentAltitude }
     }));
 
     if (onStepCallback) {
-      onStepCallback(strideMeters, headingDeg, stepCount, deltaAltStep, currentAltitude);
+      // ПЕРЕДАЕМ СТАБИЛИЗИРОВАННЫЙ КУРС В main.js
+      onStepCallback(strideMeters, effectiveStepHeading, stepCount, deltaAltStep, currentAltitude);
     }
   }
 
@@ -730,6 +1020,14 @@
       const mode = localStorage.getItem('wm_pdr_mode');
       if (mode === 'hand' || mode === 'pocket') CONFIG.carryingMode = mode;
 
+      const movType = localStorage.getItem('wm_pdr_movement_type');
+      if (movType === 'normal' || movType === 'straight' || movType === 'chaotic') {
+        CONFIG.movementType = movType;
+      }
+
+      const hSrc = localStorage.getItem('wm_pdr_heading_source');
+      if (hSrc === 'fusion' || hSrc === 'compass') CONFIG.headingSource = hSrc;
+
       const stride = parseFloat(localStorage.getItem('wm_pdr_step_length'));
       if (stride && stride >= 0.4 && stride <= 1.3) CONFIG.baseStepLength = stride;
 
@@ -813,6 +1111,16 @@
       minValleySinceLastPeak = Infinity;
       lastPeakTime = performance.now();
 
+      // Сброс фильтра поворотов при новом запуске
+      confirmedHeading = null;
+      candidateHeading = null;
+      candidateStepsCount = 0;
+      candidateAnglesBuffer = [];
+
+      // >>> ВСТАВИТЬ СЮДА <<<
+      compassSpikeCounter = 0;
+      lastCompassUpdateTime = 0;
+
       window.addEventListener('devicemotion', handleDeviceMotion, false);
 
       if (CONFIG.navigationType === 'vehicular') {
@@ -826,6 +1134,17 @@
       walkingState = 'IDLE';
       pendingStepCandidate = null;
       stopVehicularLoop();
+
+      // Очистка состояния фильтра поворотов при остановке
+      confirmedHeading = null;
+      candidateHeading = null;
+      candidateStepsCount = 0;
+      candidateAnglesBuffer = [];
+
+      // >>> ВСТАВИТЬ СЮДА <<<
+      compassSpikeCounter = 0;
+      lastCompassUpdateTime = 0;
+
       if (!onTelemetryCallback) {
         window.removeEventListener('devicemotion', handleDeviceMotion, false);
       }
@@ -884,12 +1203,17 @@
     },
 
     setManualHeading(targetBearingDeg = 0) {
-      // Вычисляем текущий нескомпенсированный курс
       const current = getFusedHeading();
       const diff = ((targetBearingDeg - current + 540) % 360) - 180;
       
       CONFIG.alignmentOffset = ((CONFIG.alignmentOffset + diff + 540) % 360) - 180;
       fusedHeading = (targetBearingDeg % 360 + 360) % 360;
+
+      // Мгновенно синхронизируем подтвержденный курс с ручной юстировкой:
+      confirmedHeading = fusedHeading;
+      candidateHeading = null;
+      candidateStepsCount = 0;
+      candidateAnglesBuffer = [];
       
       try {
         localStorage.setItem('wm_pdr_alignment_offset', CONFIG.alignmentOffset.toString());
@@ -900,6 +1224,23 @@
         heading: fusedHeading
       };
     },
+    setAlignmentOffset(newOffset) {
+      const clamped = Math.round(((newOffset + 180) % 360 + 360) % 360 - 180);
+      const delta = clamped - (CONFIG.alignmentOffset || 0);
+      CONFIG.alignmentOffset = clamped;
+
+      if (fusedHeading !== null) {
+        fusedHeading = (fusedHeading + delta + 360) % 360;
+      }
+      if (confirmedHeading !== null) {
+        confirmedHeading = (confirmedHeading + delta + 360) % 360;
+      }
+      try {
+        localStorage.setItem('wm_pdr_alignment_offset', clamped.toString());
+      } catch (e) {}
+      return clamped;
+    },
+    getAlignmentOffset: () => (CONFIG.alignmentOffset || 0),
     resetAlignmentOffset() {
       CONFIG.alignmentOffset = 0;
       try {
@@ -1005,6 +1346,13 @@
           try { localStorage.setItem('wm_pdr_step_vibe', CONFIG.stepVibration ? 'true' : 'false'); } catch (e) {}
         }
         if (newCfg.useDynamicStride !== undefined) localStorage.setItem('wm_pdr_dynamic_stride', newCfg.useDynamicStride ? 'true' : 'false');
+
+        if (newCfg.headingSource) {
+          CONFIG.headingSource = newCfg.headingSource;
+          try { localStorage.setItem('wm_pdr_heading_source', newCfg.headingSource); } catch (e) {}
+        }
+
+        if (newCfg.movementType) localStorage.setItem('wm_pdr_movement_type', newCfg.movementType);
         if (newCfg.sensitivity) localStorage.setItem('wm_pdr_sensitivity', newCfg.sensitivity);
         if (newCfg.headingDamping) localStorage.setItem('wm_pdr_damping', newCfg.headingDamping);
         if (newCfg.autoEngageOnSpoof !== undefined) localStorage.setItem('wm_pdr_auto_engage', newCfg.autoEngageOnSpoof ? 'true' : 'false');
