@@ -5381,11 +5381,12 @@ body.wm-ui-hidden .bottom-pill-stack {
   background: var(--bg-glass-strong);
   border: 1.5px solid #10b981;
   color: #059669;
-  padding: 4px 12px;
-  border-radius: 20px;
+  padding: 5px 12px;
+  border-radius: 18px;
   box-shadow: var(--shadow);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   font-size: 12px;
   font-weight: 700;
@@ -5394,9 +5395,21 @@ body.wm-ui-hidden .bottom-pill-stack {
   -webkit-backdrop-filter: blur(12px);
   cursor: pointer;
   transition: all 0.15s ease;
-  white-space: nowrap;
+  white-space: normal;      /* <-- разрешает перенос на новую строку */
+  max-width: 100%;          /* <-- не выходит за рамки topbar */
+  text-align: center;
+  line-height: 1.35;
+  box-sizing: border-box;
 }
 
+#inat-count-badge-text {
+  word-break: break-word;   /* <-- перенос длинных слов и названий */
+  overflow-wrap: break-word;
+}
+
+.inat-count-badge-action {
+  flex-shrink: 0;           /* <-- кнопки 🔄 и ✕ не деформируются при переносе */
+}
 .inat-count-badge:hover {
   background: var(--bg-primary);
   border-color: #047857;
