@@ -43,7 +43,8 @@
       '.wm-overlay-handle-wrap, .wm-overlay-handle-dot, .wm-overlay-frame-poly, ' +
       '.wm-overlay-select-pin-wrap, .wm-overlay-select-pin, ' +
       '.wm-gps-badge-wrap, .wm-gps-dist-badge, ' +
-      '.wm-inat-pin-anchor, .wm-inat-bubble, .wm-inat-div-icon, .wm-inat-pin-compact' // <-- ДОБАВЛЕНО
+      '.wm-inat-pin-anchor, .wm-inat-bubble, .wm-inat-div-icon, .wm-inat-pin-compact, ' +
+      '.inat-geomodel-hud, .modal-overlay'
     ));
   }
   function isScaleAppropriate(o, zoom, mapSize, strictScreenFit = false) {
