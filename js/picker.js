@@ -274,55 +274,46 @@
   async function handleIntentionalTap(clickedLatLng) {
     if (Date.now() < suppressClickUntil) return;
 
+    // 1. Быстрое измерение (2 точки)
     if (WM.quickMeasure && WM.quickMeasure.isActive()) {
       const targetLatLng = (mode === 'cross') ? map.getCenter() : clickedLatLng;
       WM.quickMeasure.onMapClick(targetLatLng);
       return;
     }
 
-    if (mode === 'cross') {
-      // 1. Проверяем объект iNaturalist под перекрестием
-      if (WM.inat && WM.inat.isCrosshairSelectable && WM.inat.isCrosshairSelectable()) {
-        const inatHandled = WM.inat.openHovered();
-        if (inatHandled) return;
-      }
-
-      // 2. Стандартный поиск полигонов Wikimapia
-      const center = map.getCenter();
-      const hits = hitTest(center, { strictScreenFit: true });
-
-      if (hits.length) {
-        select(hits[0], hits.slice(0, 8));
-      } else {
-        await ensurePointLoaded(center, false, true);
-      }
-      return;
-    }
-    // Второй идентичный блок удалён
-
-    if (WM.shadowHeight && WM.shadowHeight.isActive()) {
-      const targetLatLng = (mode === 'cross') ? map.getCenter() : clickedLatLng;
-      WM.shadowHeight.onMapClick(targetLatLng);
-      return;
-    }
-
-    if (WM.quickMenu && (WM.quickMenu.isOpen() || WM.quickMenu.wasJustOpened())) {
-      return;
-    }
-
+    // 2. Линейка (измерение расстояний и маршрут)
     if (WM.measure && WM.measure.isActive()) {
       const targetLatLng = (mode === 'cross') ? map.getCenter() : clickedLatLng;
       WM.measure.onMapClick(targetLatLng);
       return;
     }
 
+    // 3. Измерение высоты по тени
+    if (WM.shadowHeight && WM.shadowHeight.isActive()) {
+      const targetLatLng = (mode === 'cross') ? map.getCenter() : clickedLatLng;
+      WM.shadowHeight.onMapClick(targetLatLng);
+      return;
+    }
+
+    // 4. Если только что открылось быстрое меню
+    if (WM.quickMenu && (WM.quickMenu.isOpen() || WM.quickMenu.wasJustOpened())) {
+      return;
+    }
+
+    // 5. Закрытие открытой снизу шторки по клику в карту
     const sheet = document.getElementById('sheet');
     if (sheet && sheet.classList.contains('open') && !sheet.classList.contains('full')) {
       if (WM.ui && WM.ui.closeSheet) WM.ui.closeSheet();
       return;
     }
 
+    // 6. Обычный выбор объектов в режиме перекрестия
     if (mode === 'cross') {
+      if (WM.inat && WM.inat.isCrosshairSelectable && WM.inat.isCrosshairSelectable()) {
+        const inatHandled = WM.inat.openHovered();
+        if (inatHandled) return;
+      }
+
       const center = map.getCenter();
       const hits = hitTest(center, { strictScreenFit: true });
 
@@ -334,6 +325,7 @@
       return;
     }
 
+    // 7. Обычный выбор объектов в режиме «Палец» (прямой клик по объекту)
     const hits = await ensurePointLoaded(clickedLatLng, false, false);
     if (hits && hits.length) {
       select(hits[0], hits.slice(0, 8));
