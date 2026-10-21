@@ -3401,19 +3401,28 @@
   </div>
 
   <!-- МОДАЛЬНОЕ ОКНО УМНЫХ ПОДСКАЗОК И РАДАРА ВИДОВ (/v2/taxa/suggest) -->
+  <!-- МОДАЛЬНОЕ ОКНО РАДАРА ВИДОВ С КНОПКОЙ НЕЙРОСЕТИ -->
   <div id="modal-inat-suggest" class="modal-overlay">
     <div class="modal-box modal-box-large inat-suggest-modal-box">
       <div class="modal-header">
         <div class="inat-suggest-header-title">
-          <h3>🔮 Что искать вокруг прямо сейчас?</h3>
-          <span id="inat-suggest-loc-sub" class="inat-suggest-subtitle">📍 Определение биома…</span>
+          <h3>🔮 Что вокруг меня?</h3>
+          <span id="inat-suggest-loc-sub" class="inat-suggest-subtitle">📍 Определение координат…</span>
         </div>
         <button class="modal-close-x" id="inat-suggest-close-x">✕</button>
       </div>
 
       <div class="inat-suggest-meta-bar">
         <span id="inat-suggest-month-label" class="inat-suggest-month-tag">Сезон: Текущий месяц</span>
-        <button type="button" id="btn-inat-suggest-recenter" class="btn-link" style="font-size: 11px;">↺ Пересчитать для центра карты</button>
+        <button type="button" id="btn-inat-suggest-recenter" class="btn-link" style="font-size: 11px;">↺ Для центра карты</button>
+      </div>
+
+      <!-- Кнопка переключения прогнозирования нейросети -->
+      <div class="inat-suggest-ai-control-box">
+        <button type="button" id="btn-inat-suggest-toggle-ai" class="btn btn-secondary inat-suggest-ai-toggle-btn">
+          <span>🤖 Включить прогноз от нейросети</span>
+        </button>
+        <div id="inat-suggest-ai-notice" class="inat-suggest-ai-notice" hidden></div>
       </div>
 
       <!-- Категории организмов -->
@@ -3428,8 +3437,8 @@
 
       <div class="inat-suggest-results-wrap">
         <div class="inat-suggest-count-row">
-          <span>Вероятные виды в этой местности: (<b id="inat-suggest-count">0</b>)</span>
-          <small class="hint-text">Оценка нейросети Geo-Prior и сезонности iNat v2</small>
+          <span>Виды в этой местности: (<b id="inat-suggest-count">0</b>)</span>
+          <small class="hint-text" id="inat-suggest-source-hint">📊 Частота реальных находок вокруг (база iNat)</small>
         </div>
         <div id="inat-suggest-items-list" class="inat-suggest-list"></div>
       </div>
