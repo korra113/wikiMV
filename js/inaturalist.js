@@ -2914,6 +2914,19 @@
   let isSuggestionsLoading = false;
   let activeSuggestCategory = 'all';
 
+  const SUGGEST_PAGE_SIZE = 15;
+  const SUGGEST_MIN_AI_SCORE = 0.04; // Порог вероятности ИИ (4%)
+
+  let suggestAllPool = []; // Полный пул предсказаний ИИ
+  let suggestItems = [];   // Отображённые в DOM элементы
+  let suggestHasMore = true;
+  let suggestIsLoadingMore = false;
+  let suggestSourceType = 'ai';
+  let suggestCoords = null;
+  let suggestMonth = null;
+  let suggestFallbackPage = 1; // Страница для фоллбэк-находок
+  const suggestSeenTaxonIds = new Set();
+
   const ICONIC_TAXON_IDS = {
     Plantae: 47126,
     Fungi: 47170,
@@ -2935,8 +2948,8 @@
       months: String(curMonth),
       source: 'observations',
       order_by: 'default',
+      limit: '50',
       locale: 'ru',
-      // Запрашиваем ровно те поля таксона, которые нужны для карточки:
       fields: '(score:!t,taxon:(id:!t,name:!t,preferred_common_name:!t,rank:!t,iconic_taxon_name:!t,default_photo:(square_url:!t)))'
     });
 
@@ -2946,34 +2959,252 @@
 
     try {
       const data = await inatGet('taxa/suggest', params, null, 'v2');
-      return data.results || [];
+      const results = (data.results || []).map(r => {
+        r._source = 'ai';
+        return r;
+      });
+      return { results, source: 'ai', total: results.length };
     } catch (e) {
       console.warn('[iNat] Fallback to species_counts due to:', e);
-      try {
-        const fallbackParams = new URLSearchParams({
-          lat: c.lat.toFixed(4),
-          lng: c.lng.toFixed(4),
-          radius: '50',
-          month: String(curMonth),
-          per_page: '20',
-          locale: 'ru',
-          fields: '(taxon:(id:!t,name:!t,preferred_common_name:!t,iconic_taxon_name:!t,rank:!t,default_photo:(square_url:!t)),count:!t)'
-        });
-        if (iconic && iconic !== 'all') fallbackParams.set('iconic_taxa', iconic);
-        const fbData = await inatGet('observations/species_counts', fallbackParams, null, 'v2');
-        return (fbData.results || []).map(r => ({ taxon: r.taxon, score: r.count }));
-      } catch (err2) {
-        return [];
-      }
+      return await fetchFallbackSpeciesCounts(c, curMonth, iconic, 1);
     }
   }
 
-  // Обновляем слушатель переключения чипов в initSmartSuggestionsUI:
+  function createSuggestionCard(it) {
+    const t = it.taxon || it;
+    const meta = getTaxonMeta(t);
+    const ruName = t.preferred_common_name || t.name || 'Неизвестный организм';
+    const latinName = (t.name && t.name !== ruName) ? t.name : '';
+    const rank = RANKS_RU[t.rank] || t.rank || 'вид';
+    const photoUrl = t.default_photo?.square_url || '';
+
+    const isAi = it._source === 'ai';
+    let scoreBadgeHtml = '';
+
+    if (isAi) {
+      const rawScore = it.score || it.combined_score || 0;
+      const scorePct = typeof rawScore === 'number' && rawScore <= 1 
+        ? Math.round(rawScore * 100) 
+        : Math.min(100, Math.round(rawScore));
+      if (scorePct > 0) {
+        scoreBadgeHtml = `
+          <span class="inat-suggest-score-badge ai" title="🤖 Прогноз нейросети Geo-Prior по климату и сезону (вероятность ${scorePct}%)">
+            🤖 ${scorePct}%
+          </span>`;
+      }
+    } else {
+      const count = it.count || it.score || 0;
+      if (count > 0) {
+        scoreBadgeHtml = `
+          <span class="inat-suggest-score-badge fallback" title="📊 Реальные находки вокруг (база данных iNat: ${count} шт.)">
+            📊 ${count} шт.
+          </span>`;
+      }
+    }
+
+    const subLine = latinName ? `${escapeHtml(latinName)} · ${escapeHtml(rank)}` : escapeHtml(rank);
+
+    const card = document.createElement('div');
+    card.className = 'inat-suggest-card';
+    card.style.borderLeftColor = meta.color;
+
+    card.innerHTML = `
+      ${photoUrl ? `<img src="${photoUrl}" class="inat-suggest-thumb" alt="" loading="lazy">` : `<span class="inat-suggest-icon-ph">${meta.icon}</span>`}
+      <div class="inat-suggest-info">
+        <div class="inat-suggest-title-row">
+          <span class="inat-suggest-ru">${escapeHtml(ruName)}</span>
+          ${scoreBadgeHtml}
+        </div>
+        <span class="inat-suggest-la">${subLine}</span>
+        <div class="inat-suggest-actions">
+          <button type="button" class="inat-suggest-btn btn-show-map">👁️ Искать на карте</button>
+          <button type="button" class="inat-suggest-btn btn-show-geomodel" style="color:#0284c7; border-color:#0284c7;">🧠 Ареал (AI)</button>
+          <a href="https://www.inaturalist.org/taxa/${t.id}" target="_blank" rel="noopener noreferrer" class="inat-suggest-btn">↗ iNat</a>
+        </div>
+      </div>
+    `;
+
+    card.querySelector('.btn-show-map')?.addEventListener('click', () => {
+      closeSmartSuggestionsModal();
+      applyFilterToMap(ruName, t);
+    });
+
+    card.querySelector('.btn-show-geomodel')?.addEventListener('click', () => {
+      closeSmartSuggestionsModal();
+      showGeomodelForTaxon(t);
+    });
+
+    return card;
+  }
+
+  function updateSuggestHeaderNotice() {
+    const hintEl = document.getElementById('inat-suggest-source-hint') || 
+                   document.querySelector('.inat-suggest-count-row .hint-text');
+    if (!hintEl) return;
+    if (suggestSourceType === 'ai') {
+      hintEl.innerHTML = '🤖 Оценка нейросети Geo-Prior и сезонности iNat v2';
+      hintEl.style.color = '#10b981';
+    } else {
+      hintEl.innerHTML = '📊 Частота реальных находок вокруг (фоллбэк базы iNat)';
+      hintEl.style.color = '#0284c7';
+    }
+  }
+
+   // Запрос реальных находок с сервера с поддержкой пагинации (page)
+  async function fetchFallbackSpeciesCounts(c, curMonth, iconic, page = 1) {
+    try {
+      const fbParams = new URLSearchParams({
+        lat: c.lat.toFixed(4),
+        lng: c.lng.toFixed(4),
+        radius: '60',
+        month: String(curMonth),
+        page: String(page),
+        per_page: String(SUGGEST_PAGE_SIZE),
+        locale: 'ru',
+        fields: '(taxon:(id:!t,name:!t,preferred_common_name:!t,iconic_taxon_name:!t,rank:!t,default_photo:(square_url:!t)),count:!t)'
+      });
+      if (iconic && iconic !== 'all') fbParams.set('iconic_taxa', iconic);
+
+      const fbData = await inatGet('observations/species_counts', fbParams, null, 'v2');
+      const results = (fbData.results || []).map(r => ({
+        taxon: r.taxon,
+        score: r.count,
+        count: r.count,
+        _source: 'fallback'
+      }));
+      return { results, source: 'fallback', total: fbData.total_results || results.length };
+    } catch (err) {
+      return { results: [], source: 'fallback', total: 0 };
+    }
+  }
+
+  function appendSuggestionsChunk(chunk) {
+    const listEl = document.getElementById('inat-suggest-items-list');
+    const countEl = document.getElementById('inat-suggest-count');
+    if (!listEl) return;
+
+    const validToAdd = [];
+    for (const it of chunk) {
+      const t = it.taxon || it;
+      if (!t || !t.id || suggestSeenTaxonIds.has(t.id)) continue;
+
+      if (it._source === 'ai') {
+        const rawScore = it.score || it.combined_score || 0;
+        if (rawScore < SUGGEST_MIN_AI_SCORE) continue;
+      }
+
+      suggestSeenTaxonIds.add(t.id);
+      validToAdd.push(it);
+      suggestItems.push(it);
+    }
+
+    const fragment = document.createDocumentFragment();
+    validToAdd.forEach(it => {
+      fragment.appendChild(createSuggestionCard(it));
+    });
+    listEl.appendChild(fragment);
+
+    if (countEl) countEl.textContent = `${suggestItems.length}`;
+    updateSuggestEndNotice(listEl);
+  }
+
+  function renderSuggestionsList(items) {
+    const listEl = document.getElementById('inat-suggest-items-list');
+    const countEl = document.getElementById('inat-suggest-count');
+    if (!listEl) return;
+
+    listEl.innerHTML = '';
+    suggestItems = [];
+    suggestSeenTaxonIds.clear();
+    suggestAllPool = items || [];
+    suggestFallbackPage = 1;
+    suggestHasMore = true;
+
+    updateSuggestHeaderNotice();
+
+    if (!suggestAllPool.length) {
+      listEl.innerHTML = '<div class="muted" style="padding: 24px 0;">Для выбранной категории в текущей локации подсказок не найдено.</div>';
+      if (countEl) countEl.textContent = '0';
+      return;
+    }
+
+    // Выводим только первую порцию (15 шт.)
+    const initialChunk = suggestAllPool.slice(0, SUGGEST_PAGE_SIZE);
+    appendSuggestionsChunk(initialChunk);
+  }
+
+  async function loadMoreSuggestions() {
+    if (suggestIsLoadingMore || !suggestHasMore) return;
+    const listEl = document.getElementById('inat-suggest-items-list');
+    if (!listEl) return;
+
+    suggestIsLoadingMore = true;
+
+    const loaderEl = document.createElement('div');
+    loaderEl.id = 'inat-suggest-loading-more-pill';
+    loaderEl.className = 'inat-suggest-loading-more';
+    loaderEl.textContent = '⏳ Загрузка других видов…';
+    listEl.appendChild(loaderEl);
+
+    try {
+      const currentCount = suggestItems.length;
+
+      // 1. Если в пуле нейросети ещё остались неотображённые виды — берём их порцией
+      if (currentCount < suggestAllPool.length) {
+        await new Promise(r => setTimeout(r, 200)); // небольшая пауза для плавности UI
+        loaderEl.remove();
+        const nextChunk = suggestAllPool.slice(currentCount, currentCount + SUGGEST_PAGE_SIZE);
+        appendSuggestionsChunk(nextChunk);
+      } 
+      // 2. Виды нейросети закончились — догружаем реальные наблюдения вокруг через species_counts
+      else {
+        suggestFallbackPage++;
+        const res = await fetchFallbackSpeciesCounts(
+          suggestCoords, 
+          suggestMonth, 
+          activeSuggestCategory, 
+          suggestFallbackPage
+        );
+
+        loaderEl.remove();
+
+        if (!res.results || res.results.length === 0) {
+          suggestHasMore = false;
+          updateSuggestEndNotice(listEl);
+        } else {
+          appendSuggestionsChunk(res.results);
+          if (res.results.length < SUGGEST_PAGE_SIZE) {
+            suggestHasMore = false;
+            updateSuggestEndNotice(listEl);
+          }
+        }
+      }
+    } catch (e) {
+      loaderEl.remove();
+      suggestHasMore = false;
+    } finally {
+      suggestIsLoadingMore = false;
+    }
+  }
+
+  function updateSuggestEndNotice(listEl) {
+    const oldNotice = listEl.querySelector('.inat-suggest-end-notice');
+    if (oldNotice) oldNotice.remove();
+
+    if (!suggestHasMore && suggestItems.length > 0) {
+      const endNotice = document.createElement('div');
+      endNotice.className = 'inat-suggest-end-notice';
+      endNotice.textContent = `✓ Показаны все наиболее вероятные виды (${suggestItems.length} шт.)`;
+      listEl.appendChild(endNotice);
+    }
+  }
+
   function initSmartSuggestionsUI() {
     const modal = document.getElementById('modal-inat-suggest');
     const closeX = document.getElementById('inat-suggest-close-x');
     const closeBtn = document.getElementById('inat-suggest-close-btn');
     const btnRecenter = document.getElementById('btn-inat-suggest-recenter');
+    const listEl = document.getElementById('inat-suggest-items-list');
 
     if (closeX) closeX.onclick = closeSmartSuggestionsModal;
     if (closeBtn) closeBtn.onclick = closeSmartSuggestionsModal;
@@ -2985,94 +3216,50 @@
       btnRecenter.onclick = () => openSmartSuggestionsModal(activeSuggestCategory);
     }
 
-    // При клике на категорию загружаем свежий топ именно для неё
+    // Слушатель бесконечного скролла
+    if (listEl && !listEl._scrollBound) {
+      listEl._scrollBound = true;
+      listEl.addEventListener('scroll', () => {
+        if (suggestIsLoadingMore || !suggestHasMore) return;
+        if (listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 90) {
+          loadMoreSuggestions();
+        }
+      }, { passive: true });
+    }
+
+    // Переключение категорий организмов
     document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(btn => {
       btn.onclick = async () => {
         document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         activeSuggestCategory = btn.dataset.taxa;
 
-        const listEl = document.getElementById('inat-suggest-items-list');
-        if (listEl) listEl.innerHTML = '<div class="muted" style="padding: 24px 0;">⏳ Поиск организмов категории…</div>';
+        const list = document.getElementById('inat-suggest-items-list');
+        if (list) {
+          list.scrollTop = 0;
+          list.innerHTML = '<div class="muted" style="padding: 24px 0;">⏳ Поиск организмов категории…</div>';
+        }
 
-        const c = (WM.gpsState && WM.gpsState.lat) ? WM.gpsState : (map ? map.getCenter() : { lat: 55.75, lng: 37.62 });
-        const items = await fetchSmartSuggestions(c, null, activeSuggestCategory);
-        renderSuggestionsList(items);
+        // Сброс пагинации
+        suggestCurrentPage = 1;
+        suggestHasMore = true;
+
+        const c = suggestCoords || ((WM.gpsState && WM.gpsState.lat) ? WM.gpsState : (map ? map.getCenter() : { lat: 55.75, lng: 37.62 }));
+        const res = await fetchSmartSuggestions(c, suggestMonth, activeSuggestCategory, 1, SUGGEST_PAGE_SIZE);
+        suggestSourceType = res.source;
+        renderSuggestionsList(res.results, false);
       };
     });
   }
 
-  function renderSuggestionsList(items) {
-    const listEl = document.getElementById('inat-suggest-items-list');
-    const countEl = document.getElementById('inat-suggest-count');
-    if (!listEl) return;
-    listEl.innerHTML = '';
-
-    let filtered = items;
-    if (activeSuggestCategory !== 'all') {
-      filtered = items.filter(it => {
-        const t = it.taxon || it;
-        return t.iconic_taxon_name === activeSuggestCategory;
-      });
-    }
-
-    if (countEl) countEl.textContent = `${filtered.length}`;
-
-    if (!filtered.length) {
-      listEl.innerHTML = '<div class="muted" style="padding: 24px 0;">Для выбранной категории в текущей локации подсказок не найдено.</div>';
-      return;
-    }
-
-    filtered.forEach(it => {
-      const t = it.taxon || it;
-      const meta = getTaxonMeta(t);
-      const ruName = t.preferred_common_name || t.name || 'Неизвестный организм';
-      const latinName = (t.name && t.name !== ruName) ? t.name : '';
-      const rank = RANKS_RU[t.rank] || t.rank || 'вид';
-      const photoUrl = t.default_photo?.square_url || '';
-      const score = it.score || it.combined_score || 0;
-      const scorePct = typeof score === 'number' && score <= 1 ? Math.round(score * 100) : Math.min(100, Math.round(score));
-
-      // Формируем вторую строчку: если латинское имя есть, ставим разделитель, иначе только ранг
-      const subLine = latinName ? `${escapeHtml(latinName)} · ${escapeHtml(rank)}` : escapeHtml(rank);
-
-      const card = document.createElement('div');
-      card.className = 'inat-suggest-card';
-      card.style.borderLeftColor = meta.color;
-
-      card.innerHTML = `
-        ${photoUrl ? `<img src="${photoUrl}" class="inat-suggest-thumb" alt="" loading="lazy">` : `<span class="inat-suggest-icon-ph">${meta.icon}</span>`}
-        <div class="inat-suggest-info">
-          <div class="inat-suggest-title-row">
-            <span class="inat-suggest-ru">${escapeHtml(ruName)}</span>
-            ${scorePct > 0 ? `<span class="inat-suggest-score-badge" title="Вероятность биоклиматической приуроченности">${scorePct}%</span>` : ''}
-          </div>
-          <span class="inat-suggest-la">${subLine}</span>
-          <div class="inat-suggest-actions">
-            <button type="button" class="inat-suggest-btn btn-show-map">👁️ Искать на карте</button>
-            <button type="button" class="inat-suggest-btn btn-show-geomodel" style="color:#0284c7; border-color:#0284c7;">🧠 Ареал (AI)</button>
-            <a href="https://www.inaturalist.org/taxa/${t.id}" target="_blank" rel="noopener noreferrer" class="inat-suggest-btn">↗ iNat</a>
-          </div>
-        </div>
-      `;
-
-      card.querySelector('.btn-show-map')?.addEventListener('click', () => {
-        closeSmartSuggestionsModal();
-        applyFilterToMap(ruName, t);
-      });
-
-      card.querySelector('.btn-show-geomodel')?.addEventListener('click', () => {
-        closeSmartSuggestionsModal();
-        showGeomodelForTaxon(t);
-      });
-
-      listEl.appendChild(card);
-    });
-  }
-
-  async function openSmartSuggestionsModal() {
+  async function openSmartSuggestionsModal(category = 'all') {
     let modal = document.getElementById('modal-inat-suggest');
     if (!modal) return;
+
+    activeSuggestCategory = category;
+    document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(b => {
+      b.classList.toggle('active', b.dataset.taxa === category);
+    });
 
     const listEl = document.getElementById('inat-suggest-items-list');
     const subTitleEl = document.getElementById('inat-suggest-loc-sub');
@@ -3082,18 +3269,26 @@
     const monthsRu = ['', 'январе', 'феврале', 'марте', 'апреле', 'мае', 'июне', 'июле', 'августе', 'сентябре', 'октябре', 'ноябре', 'декабре'];
     const curMonth = new Date().getMonth() + 1;
 
+    suggestCoords = c;
+    suggestMonth = curMonth;
+    suggestCurrentPage = 1;
+    suggestHasMore = true;
+
     if (subTitleEl) subTitleEl.textContent = `📍 ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
     if (monthEl) monthEl.textContent = `Сезон: в ${monthsRu[curMonth]}`;
 
-    if (listEl) listEl.innerHTML = '<div class="muted" style="padding: 24px 0;">🧠 Опрос нейросети Geo-Prior iNaturalist v2…</div>';
+    if (listEl) {
+      listEl.scrollTop = 0;
+      listEl.innerHTML = '<div class="muted" style="padding: 24px 0;">🧠 Опрос нейросети Geo-Prior iNaturalist v2…</div>';
+    }
 
     modal.classList.add('open');
     isSuggestionsLoading = true;
 
     try {
-      const items = await fetchSmartSuggestions(c, curMonth);
-      modal._lastSuggestions = items;
-      renderSuggestionsList(items);
+      const res = await fetchSmartSuggestions(c, curMonth, activeSuggestCategory, 1, SUGGEST_PAGE_SIZE);
+      suggestSourceType = res.source;
+      renderSuggestionsList(res.results, false);
     } catch (e) {
       if (listEl) listEl.innerHTML = `<div class="muted" style="color:var(--danger); padding:20px 0;">Ошибка загрузки подсказок: ${escapeHtml(e.message)}</div>`;
     } finally {
