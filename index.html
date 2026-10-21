@@ -150,6 +150,7 @@
     <!-- Кнопка перехода в получение ключей при исчерпании лимита -->
     <button id="btn-get-key-top" class="topbar-action-btn" hidden>🔑 Получить ключ</button>
     <div id="inat-count-badge" class="inat-count-badge" hidden>
+      <span id="inat-count-badge-spinner" class="inat-badge-spinner" hidden></span>
       <span id="inat-count-badge-text">🌿 Растения: 0</span>
       <button type="button" id="inat-count-badge-refresh" class="inat-count-badge-action" title="Обновить точки для текущего экрана" hidden>🔄</button>
       <button type="button" id="inat-count-badge-clear" class="inat-count-badge-action inat-count-badge-clear" title="Сбросить фильтр" hidden>✕</button>
@@ -298,6 +299,20 @@
         </div>
       </div>
       <div id="inat-list-items" class="search-tags-wrap" style="max-height: 55vh; overflow-y: auto;"></div>
+    </div>
+  </div>
+
+  <div id="modal-inat-cluster" class="modal-overlay">
+    <div class="modal-box modal-box-large inat-cluster-modal-box">
+      <div class="modal-header">
+        <h3 id="inat-cluster-title">🌿 Наблюдения в этой точке (0)</h3>
+        <button class="modal-close-x" id="inat-cluster-close-x">✕</button>
+      </div>
+      <p class="modal-desc" style="margin-bottom: 10px;">В этой точке или вплотную друг к другу обнаружено несколько находок. Выберите нужный объект для просмотра:</p>
+      <div id="inat-cluster-items-list" class="inat-cluster-items-list"></div>
+      <div class="modal-actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button type="button" id="inat-cluster-cancel-btn" class="btn btn-secondary">Закрыть</button>
+      </div>
     </div>
   </div>
 
@@ -1174,50 +1189,78 @@
           </div>
         </details>
 
+        <!-- РАЗДЕЛ: СЛОЙ И РАСПОЗНАВАНИЕ ФЛОРЫ И ФАУНЫ (iNaturalist) -->
         <details class="spoiler" id="spoiler-inaturalist">
           <summary class="spoiler-title">
-            <span>🌿 Слой и распознавание флоры и фауны (iNat)</span>
+            <span>🌿 Флора и фауна (iNaturalist)</span>
             <span class="chevron">▼</span>
           </summary>
-          <div class="spoiler-body">
-            
-            <label class="toggle-item" style="margin-bottom: 10px;">
-              <div>
-                <span style="font-weight: 700; display: block;">Отображать наблюдения на карте</span>
-                <small class="hint-text">Загружает реальные точки находок флоры и грибов при перемещении карты (зум 10+)</small>
+          <div class="spoiler-body inat-settings-body">
+           <div class="inat-vision-box" id="inat-vision-box">
+              <div class="inat-vision-head">
+                <div class="inat-vision-head-title">
+                  <span class="inat-vision-icon">📷</span>
+                  <div>
+                    <span class="inat-vision-title">Определить вид по фото (ИИ)</span>
+                    <span class="inat-vision-sub">Нейросеть iNaturalist распознаёт растения, грибы, птиц и насекомых</span>
+                  </div>
+                </div>
+                <span id="inat-vision-limit-badge" class="inat-vision-limit-badge" title="Лимит: до 3 фото в минуту">3 / 3</span>
               </div>
-              <input type="checkbox" id="toggle-inat-layer-enable">
-              <span class="toggle-switch"></span>
-            </label>
 
-            <!-- ВЛОЖЕННЫЙ СПОЙЛЕР ТОКЕНА / АВТОРИЗАЦИИ -->
+              <div id="inat-vision-token-warning" class="guide-tip-box" style="margin: 8px 0; border-color: #ef4444; background: rgba(239, 68, 68, 0.08);" hidden>
+                <div class="guide-tip-title" style="color: #ef4444;" id="inat-vision-token-warning-title">⚠️ Требуется API токен iNaturalist</div>
+                <p id="inat-vision-token-warning-desc" style="margin: 0 0 6px; font-size: 11.5px; line-height: 1.4;">
+                  Для работы нейросети сервер iNaturalist требует авторизационный JWT токен. Укажите его в настройках ниже.
+                </p>
+                <button type="button" id="btn-inat-vision-goto-auth" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;">
+                  🔑 Перейти к вводу токена
+                </button>
+              </div>
+
+              <input type="file" id="inat-vision-file-input" accept="image/*" style="display: none;">
+
+              <div class="inat-vision-actions-row">
+                <button type="button" id="btn-inat-vision-pick" class="btn btn-primary inat-vision-btn-pick">
+                  <span>📸 Сделать снимок или выбрать фото</span>
+                </button>
+              </div>
+
+              <div id="inat-vision-preview-wrap" class="inat-vision-preview-wrap" hidden>
+                <div class="inat-vision-preview-img-box">
+                  <img id="inat-vision-preview-img" alt="Превью" src="">
+                  <button type="button" id="btn-inat-vision-clear" class="inat-vision-preview-clear" title="Убрать фото">✕</button>
+                </div>
+                <div class="inat-vision-preview-info">
+                  <span id="inat-vision-preview-name" class="inat-vision-preview-name">photo.jpg</span>
+                  <div id="inat-vision-status-line" class="inat-vision-status-line">Анализ снимка…</div>
+                </div>
+              </div>
+
+              <div id="inat-vision-results" class="inat-vision-results" hidden>
+                <div id="inat-vision-ancestor-banner" class="inat-vision-ancestor" hidden></div>
+                <div id="inat-vision-results-list" class="inat-vision-results-list"></div>
+              </div>
+            </div>
+
+            <!-- 8. СЛУЖЕБНЫЙ ПОД-СПОЙЛЕР: ТОКЕН АВТОРИЗАЦИИ (В САМОМ НИЗУ) -->
             <details class="spoiler sub-spoiler" id="spoiler-inat-auth">
               <summary class="spoiler-title sub-spoiler-title">
-                <span>🔑 API токен iNaturalist(не обязателен)</span>
+                <span>🔑 API токен iNaturalist (для распознавания по фото)</span>
                 <span class="chevron">▼</span>
               </summary>
               <div class="spoiler-body">
-                <!-- Памятка об особенности 24-часовых токенов -->
                 <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 10px;">
-                  <div class="guide-tip-title">⏳ Особенность токенов iNaturalist (24 часа)</div>
+                  <div class="guide-tip-title">⏳ Токены iNaturalist действуют 24 часа</div>
                   <p style="margin: 0; font-size: 11.5px; line-height: 1.45;">
-                    Для обычного просмотра и поиска объектов флоры и фауны на карте токен не нужен. Токены iNaturalist имеют формат JWT и действуют <b>ровно 24 часа</b> с момента генерации на сайте [2]. По истечении этого времени токен «протухает», и для дальнейшего распознавания по фото требуется скопировать новый ключ [1]. Обычный просмотр точек на карте работает и без токена [1].
+                    Обычный просмотр карты, фильтры и радар видов работают <b>полностью без токена</b> [1]. Ключ необходим только для распознавания видов по фото нейросетью. Токен генерируется в вашем аккаунте на сайте <a href="https://www.inaturalist.org/users/api_token" target="_blank" rel="noopener noreferrer" class="link-colored">inaturalist.org/users/api_token ↗</a> [2].
                   </p>
-                </div>
-
-                <div style="font-size: 12px; line-height: 1.5; color: var(--text-main); margin-bottom: 10px;">
-                  <b>Как получить личный токен:</b>
-                  <ol style="margin: 4px 0 0; padding-left: 18px;">
-                    <li>Войдите в свой аккаунт на сайте <a href="https://www.inaturalist.org/login" target="_blank" rel="noopener noreferrer" class="link-colored">inaturalist.org/login ↗</a>.</li>
-                    <li>Перейдите на страницу токена <a href="https://www.inaturalist.org/users/api_token" target="_blank" rel="noopener noreferrer" class="link-colored">inaturalist.org/users/api_token ↗</a> [2].</li>
-                    <li>Скопируйте значение из поля <code>api_token</code> и вставьте ниже.</li>
-                  </ol>
                 </div>
 
                 <div class="form-group" style="margin-bottom: 8px;">
                   <label for="inat-token-input">API Token (JWT):</label>
                   <div class="input-with-action">
-                    <input type="password" id="inat-token-input" class="styled-input" placeholder="Вставьте токен..." autocomplete="off">
+                    <input type="password" id="inat-token-input" class="styled-input" placeholder="Вставьте токен формата eyJhbGciOi..." autocomplete="off">
                     <button type="button" id="btn-inat-token-toggle-eye" class="input-action-btn" title="Показать/скрыть">👁️</button>
                   </div>
                 </div>
@@ -1231,234 +1274,260 @@
                   </button>
                 </div>
 
-                <!-- Блок таймера жизни токена -->
                 <div id="inat-token-status" class="hint-text" style="font-weight: 600; line-height: 1.45;">
                   ⚪ Используется открытый гостевой доступ
                 </div>
               </div>
             </details>
+            <!-- 1. БАЗОВОЕ ОТОБРАЖЕНИЕ И РЕЖИМЫ -->
+            <div class="inat-settings-card">
+              <label class="toggle-item inat-main-toggle">
+                <div>
+                  <span class="inat-toggle-title">Отображать наблюдения на карте</span>
+                  <small class="hint-text">Загружает реальные точки находок при перемещении карты (зум 10+)</small>
+                </div>
+                <input type="checkbox" id="toggle-inat-layer-enable">
+                <span class="toggle-switch"></span>
+              </label>
 
-<!-- БЛОК РАСПОЗНАВАНИЯ ПО ФОТО (iNaturalist Vision AI) -->
-            <div class="inat-vision-box" id="inat-vision-box">
-              <div class="inat-vision-head">
-                <div class="inat-vision-head-title">
-                  <span class="inat-vision-icon">📷</span>
+              <div class="inat-card-grid-row" style="margin-top: 10px;">
+                <label class="toggle-item" style="margin: 0;">
                   <div>
-                    <span class="inat-vision-title">Определить вид по фото</span>
-                    <span class="inat-vision-sub">Нейросеть iNaturalist Computer Vision, определяет грибы, рлюбые растения, насекомых, животных. БУДЬТЕ ОСТОРОЖНЫ! Может ошибаться</span>
+                    <span style="font-weight: 600; font-size: 12px; display: block;">📊 Плашка в шапке</span>
+                    <small class="hint-text">Счётчик находок вверху экрана</small>
+                  </div>
+                  <input type="checkbox" id="toggle-inat-show-badge" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <div class="form-group" style="margin: 0;">
+                  <label for="inat-zoom-out-mode">Режим при отдалении (зум &lt; 11):</label>
+                  <select id="inat-zoom-out-mode" class="styled-select">
+                    <option value="grid" selected>⬡ Сетка плотности (Гексагоны)</option>
+                    <option value="heatmap">🔥 Тепловая карта (Heatmap)</option>
+                    <option value="points">🟣 Точечные тайлы</option>
+                    <option value="markers">📍 Кластеры-метки</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="style-row" style="margin-top: 10px; margin-bottom: 2px;">
+                <label for="inat-filter-limit" style="display: flex; justify-content: space-between; font-weight: 600;">
+                  <span>Лимит точек на экране:</span>
+                  <b id="inat-filter-limit-val" style="color: var(--accent);">100</b>
+                </label>
+                <input type="range" id="inat-filter-limit" min="10" max="200" step="10" value="100" class="styled-range">
+              </div>
+            </div>
+
+            <!-- 2. КАТЕГОРИЯ И ПОИСК ВИДА -->
+            <div class="inat-settings-card">
+              <div class="inat-card-section-label">🎯 Категория организмов и поиск вида:</div>
+
+              <div class="form-group" style="margin-bottom: 10px;">
+                <label for="inat-filter-taxa">Группа живой природы:</label>
+                <select id="inat-filter-taxa" class="styled-select inat-taxa-select">
+                  <option value="Plantae,Fungi" selected>🌿 Растения и 🍄 Грибы</option>
+                  <option value="Plantae">🌿 Только растения (деревья, травы, кустарники)</option>
+                  <option value="Fungi">🍄 Только грибы и лишайники</option>
+                  <option value="Insecta">🐞 Насекомые</option>
+                  <option value="Aves">🦅 Птицы</option>
+                  <option value="Mammalia">🦊 Млекопитающие</option>
+                  <option value="Amphibia,Reptilia">🐸 Земноводные и пресмыкающиеся</option>
+                  <option value="all">🌍 Все категории организмов</option>
+                </select>
+              </div>
+
+              <div class="inat-search-box">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <label style="font-weight: 700; font-size: 11.5px; margin: 0;">Поиск конкретного вида (рус / лат):</label>
+                  <div class="inat-search-type-segmented" id="inat-search-type-segmented">
+                    <button type="button" class="inat-search-type-btn" data-type="screen">На экране</button>
+                    <button type="button" class="inat-search-type-btn active" data-type="global">Общий</button>
                   </div>
                 </div>
-                <span id="inat-vision-limit-badge" class="inat-vision-limit-badge" title="Лимит: не более 3 фото в минуту">3 / 3</span>
-              </div>
 
-              <!-- Предупреждение о необходимости токена -->
-              <div id="inat-vision-token-warning" class="guide-tip-box" style="margin: 8px 0; border-color: #ef4444; background: rgba(239, 68, 68, 0.08);" hidden>
-                <div class="guide-tip-title" style="color: #ef4444;" id="inat-vision-token-warning-title">⚠️ Требуется API токен iNaturalist</div>
-                <p id="inat-vision-token-warning-desc" style="margin: 0 0 6px; font-size: 11.5px; line-height: 1.4;">
-                  Для работы нейросети распознавания видов сервер iNaturalist требует авторизационный JWT токен. Укажите его в настройках выше.
-                </p>
-                <button type="button" id="btn-inat-vision-goto-auth" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;">
-                  🔑 Перейти к вводу токена
-                </button>
-              </div>
-
-              <!-- Скрытый инпут для выбора файла или съёмки с камеры -->
-              <input type="file" id="inat-vision-file-input" accept="image/*" style="display: none;">
-
-              <div class="inat-vision-actions-row">
-                <button type="button" id="btn-inat-vision-pick" class="btn btn-primary inat-vision-btn-pick">
-                  <span>📸 Сделать снимок или выбрать фото</span>
-                </button>
-              </div>
-
-              <!-- Превью выбранного снимка и статус нейросети -->
-              <div id="inat-vision-preview-wrap" class="inat-vision-preview-wrap" hidden>
-                <div class="inat-vision-preview-img-box">
-                  <img id="inat-vision-preview-img" alt="Превью" src="">
-                  <button type="button" id="btn-inat-vision-clear" class="inat-vision-preview-clear" title="Убрать фото">✕</button>
+                <div class="input-with-action">
+                  <input type="text" id="inat-filter-query" class="styled-input" placeholder="Например: Земляника, Лисичка, Sambucus…" autocomplete="off">
+                  <button type="button" id="inat-filter-query-clear" class="input-action-btn" title="Очистить" hidden>✕</button>
                 </div>
-                <div class="inat-vision-preview-info">
-                  <span id="inat-vision-preview-name" class="inat-vision-preview-name">photo.jpg</span>
-                  <div id="inat-vision-status-line" class="inat-vision-status-line">Анализ снимка…</div>
-                </div>
-              </div>
 
-              <!-- Результаты распознавания -->
-              <div id="inat-vision-results" class="inat-vision-results" hidden>
-                <div id="inat-vision-ancestor-banner" class="inat-vision-ancestor" hidden></div>
-                <div id="inat-vision-results-list" class="inat-vision-results-list"></div>
+                <div id="inat-autocomplete-wrap" class="inat-autocomplete-wrap" hidden>
+                  <div id="inat-autocomplete-list" class="inat-autocomplete-list"></div>
+                </div>
+
+                <div id="inat-search-results-wrap" class="inat-search-results-wrap" hidden>
+                  <div class="inat-search-results-header">
+                    <span id="inat-search-count-label">Найдено: 0</span>
+                    <button type="button" id="btn-inat-filter-apply-map" class="btn btn-primary" style="font-size: 11px; padding: 4px 10px;">
+                      👁️ Показать на карте
+                    </button>
+                  </div>
+                  <div id="inat-search-results-list" class="inat-search-results-list"></div>
+                </div>
               </div>
             </div>
 
+            <!-- 3. ДИНАМИЧЕСКИЙ БЛОК: БИОЛОГИЧЕСКИЕ СТАДИИ И ПРИЗНАКИ -->
+            <div class="inat-settings-card" id="inat-dynamic-traits-card">
+              <div class="inat-card-section-label">🧬 Биологические признаки и стадии:</div>
 
-            <label class="toggle-item" style="margin-bottom: 10px;">
-              <div>
-                <span style="font-weight: 600; display: block;">Плашка числа растений вверху экрана</span>
-                <small class="hint-text">Отображает вверху компактный счётчик найденных наблюдений</small>
-              </div>
-              <input type="checkbox" id="toggle-inat-show-badge" checked>
-              <span class="toggle-switch"></span>
-            </label>
-
-            
-
-            <!-- ПРОДВИНУТЫЙ ПОИСК РАСТЕНИЙ И ГРИБОВ -->
-            <div class="inat-search-box" style="margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <label style="font-weight: 700; font-size: 12px; margin: 0;">🔍 Поиск по названию (рус / лат):</label>
-                <div class="inat-search-type-segmented" id="inat-search-type-segmented">
-                  <button type="button" class="inat-search-type-btn" data-type="screen">На экране</button>
-                  <button type="button" class="inat-search-type-btn active" data-type="global">Общий</button>
-                </div>
+              <!-- Контейнер фенофаз растений -->
+              <div id="inat-trait-plants" class="form-group inat-trait-section" style="margin-bottom: 0;">
+                <label for="inat-filter-phenology">Фенологическая фаза растения:</label>
+                <select id="inat-filter-phenology" class="styled-select">
+                  <option value="any" selected>Любая фаза (все стадии)</option>
+                  <option value="flowering">🌸 Только цветущие (Flowering)</option>
+                  <option value="fruiting">🍓 Только с плодами и ягодами (Fruiting)</option>
+                  <option value="budding">🌿 Бутонизация (Flower Budding)</option>
+                  <option value="vegetative">🌱 Вегетация (без бутонов и цветков)</option>
+                </select>
+                <small class="hint-text" style="margin-top: 3px;">Фильтрует по подтверждённым аннотациям ботаников iNaturalist</small>
               </div>
 
-              <div class="input-with-action">
-                <input type="text" id="inat-filter-query" class="styled-input" placeholder="Например: Земляника, Лисичка, Sambucus…" autocomplete="off">
-                <button type="button" id="inat-filter-query-clear" class="input-action-btn" title="Очистить" hidden>✕</button>
-              </div>
-
-              <!-- Всплывающий список вариантов автодополнения (Taxa Autocomplete) -->
-              <div id="inat-autocomplete-wrap" class="inat-autocomplete-wrap" hidden>
-                <div id="inat-autocomplete-list" class="inat-autocomplete-list"></div>
-              </div>
-
-              <!-- Всплывающий проматываемый бокс результатов -->
-              <div id="inat-search-results-wrap" class="inat-search-results-wrap" hidden>
-                <div class="inat-search-results-header">
-                  <span id="inat-search-count-label">Найдено: 0</span>
-                  <button type="button" id="btn-inat-filter-apply-map" class="btn btn-primary" style="font-size: 11px; padding: 4px 10px;">
-                    👁️ Показать на карте
-                  </button>
-                </div>
-                <div id="inat-search-results-list" class="inat-search-results-list"></div>
-              </div>
-            </div>
-
-            <!-- Группы организмов -->
-            <div class="form-group" style="margin-bottom: 8px;">
-              <label for="inat-filter-taxa">Категория живой природы:</label>
-              <select id="inat-filter-taxa" class="styled-select">
-                <option value="Plantae,Fungi" selected>🌿 Растения и 🍄 Грибы</option>
-                <option value="Plantae">🌿 Только растения (деревья, травы, цветы)</option>
-                <option value="Fungi">🍄 Только грибы и лишайники</option>
-                <option value="Aves">🦅 Только птицы</option>
-                <option value="Insecta">🐞 Только насекомые</option>
-                <option value="Amphibia,Reptilia">🐸 Земноводные и рептилии</option>
-                <option value="Mammalia">🦊 Млекопитающие</option>
-                <option value="all">🌍 Все категории организмов</option>
-              </select>
-            </div>
-
-            <!-- Время года и конкретный месяц -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="inat-filter-season">Сезонность:</label>
-                <select id="inat-filter-season" class="styled-select">
-                  <option value="any" selected>Все сезоны</option>
-                  <option value="current">⚡ Сейчас</option>
-                  <option value="spring">🌸 Весна</option>
-                  <option value="summer">☀️ Лето</option>
-                  <option value="autumn">🍂 Осень</option>
-                  <option value="winter">❄️ Зима</option>
+              <!-- Контейнер стадий насекомых -->
+              <div id="inat-trait-insects" class="form-group inat-trait-section" style="margin-bottom: 0;" hidden>
+                <label for="inat-filter-lifestage-insects">Стадия развития насекомого:</label>
+                <select id="inat-filter-lifestage-insects" class="styled-select">
+                  <option value="any" selected>Любая стадия</option>
+                  <option value="adult">🦋 Взрослая особь (Имаго)</option>
+                  <option value="larva">🐛 Гусеница / Личинка</option>
+                  <option value="pupa">🪺 Куколка</option>
+                  <option value="nymph">🦗 Нимфа</option>
+                  <option value="egg">🥚 Яйцо / Кладка</option>
                 </select>
               </div>
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="inat-filter-month">Месяц находки:</label>
-                <select id="inat-filter-month" class="styled-select">
-                  <option value="any" selected>Любой месяц</option>
-                  <option value="1">Январь</option>
-                  <option value="2">Февраль</option>
-                  <option value="3">Март</option>
-                  <option value="4">Апрель</option>
-                  <option value="5">Май</option>
-                  <option value="6">Июнь</option>
-                  <option value="7">Июль</option>
-                  <option value="8">Август</option>
-                  <option value="9">Сентябрь</option>
-                  <option value="10">Октябрь</option>
-                  <option value="11">Ноябрь</option>
-                  <option value="12">Декабрь</option>
+
+              <!-- Контейнер возрастных стадий животных и птиц -->
+              <div id="inat-trait-animals" class="form-group inat-trait-section" style="margin-bottom: 0;" hidden>
+                <label for="inat-filter-lifestage-animals">Возрастная группа:</label>
+                <select id="inat-filter-lifestage-animals" class="styled-select">
+                  <option value="any" selected>Любой возраст</option>
+                  <option value="adult">🦅 Взрослая особь</option>
+                  <option value="juvenile">🐣 Птенец / Детёныш / Ювенильная</option>
                 </select>
+              </div>
+
+              <!-- Заглушка для грибов (стадии неприменимы) -->
+              <div id="inat-trait-fungi-note" class="hint-text inat-trait-section" style="margin: 0; line-height: 1.4;" hidden>
+                ℹ️ Для грибов и лишайников фенологические фазы не используются — отображаются все плодовые тела.
               </div>
             </div>
 
-            <!-- Популярность и качество -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="inat-filter-sort">Сортировка:</label>
-                <select id="inat-filter-sort" class="styled-select">
-                  <option value="votes" selected>⭐ Популярные</option>
-                  <option value="observed_on">📅 По дате находки</option>
-                  <option value="created_at">🆕 Новые в базе</option>
-                </select>
+            <!-- 4. СЕЗОННОСТЬ И ВРЕМЯ НАХОДКИ -->
+            <div class="inat-settings-card">
+              <div class="inat-card-section-label">📅 Сезонность и период:</div>
+              <div class="inat-card-grid-row">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label for="inat-filter-season">Время года:</label>
+                  <select id="inat-filter-season" class="styled-select">
+                    <option value="any" selected>Все сезоны</option>
+                    <option value="current">⚡ Сейчас (текущий)</option>
+                    <option value="spring">🌸 Весна</option>
+                    <option value="summer">☀️ Лето</option>
+                    <option value="autumn">🍂 Осень</option>
+                    <option value="winter">❄️ Зима</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label for="inat-filter-month">Месяц находки:</label>
+                  <select id="inat-filter-month" class="styled-select">
+                    <option value="any" selected>Любой месяц</option>
+                    <option value="1">Январь</option>
+                    <option value="2">Февраль</option>
+                    <option value="3">Март</option>
+                    <option value="4">Апрель</option>
+                    <option value="5">Май</option>
+                    <option value="6">Июнь</option>
+                    <option value="7">Июль</option>
+                    <option value="8">Август</option>
+                    <option value="9">Сентябрь</option>
+                    <option value="10">Октябрь</option>
+                    <option value="11">Ноябрь</option>
+                    <option value="12">Декабрь</option>
+                  </select>
+                </div>
               </div>
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="inat-filter-quality">Достоверность:</label>
-                <select id="inat-filter-quality" class="styled-select">
-                  <option value="research">✓ Research Grade</option>
-                  <option value="needs_id">⏳ На опознании</option>
-                  <option value="any" selected>Все уровни</option>
-                </select>
+            </div>
+
+            <!-- 5. КРИТЕРИИ И СТАТУС НАХОДОК -->
+            <div class="inat-settings-card">
+              <div class="inat-card-section-label">🛡️ Качество данных и экологический статус:</div>
+              <div class="toggles-list" style="margin-bottom: 10px;">
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight: 600; display: block;">Только дикая природа (без клумб и питомников)</span>
+                    <small class="hint-text">Исключает посадки и неволю (captive=false)</small>
+                  </div>
+                  <input type="checkbox" id="toggle-inat-wild" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight: 600; display: block;">Только аборигенные виды (дикорастущие)</span>
+                    <small class="hint-text">Исключает интродуцентов и заносные виды</small>
+                  </div>
+                  <input type="checkbox" id="toggle-inat-native">
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight: 600; display: block;">⚠️ Только редкие и Красная книга</span>
+                    <small class="hint-text">Особо охраняемые и уязвимые виды (threatened)</small>
+                  </div>
+                  <input type="checkbox" id="toggle-inat-threatened">
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight: 600; display: block;">Только с фотографиями</span>
+                    <small class="hint-text">Скрывает карточки без фотоснимков</small>
+                  </div>
+                  <input type="checkbox" id="toggle-inat-photos" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+              </div>
+
+              <div class="inat-card-grid-row">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label for="inat-filter-sort">Сортировка:</label>
+                  <select id="inat-filter-sort" class="styled-select">
+                    <option value="random" selected>🎲 Случайный выбор</option>
+                    <option value="random_votes">🎲⭐ Случайный + рейтинг</option>
+                    <option value="votes">⭐ По числу голосов</option>
+                    <option value="observed_on">📅 По дате находки</option>
+                    <option value="created_at">🆕 Новые в базе</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label for="inat-filter-quality">Достоверность:</label>
+                  <select id="inat-filter-quality" class="styled-select">
+                    <option value="any" selected>Все уровни</option>
+                    <option value="research">✓ Research Grade (подтверждено)</option>
+                    <option value="needs_id">⏳ На определении</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            <!-- Чекбоксы дополнительных фильтров -->
-            <div class="toggles-list" style="margin-bottom: 10px;">
-              <label class="toggle-item">
-                <div>
-                  <span style="font-weight: 600; display: block;">Только дикая природа (исключить культурные посадки)</span>
-                  <small class="hint-text">Убирает клумбы, комнатные растения и питомники (captive=false)</small>
-                </div>
-                <input type="checkbox" id="toggle-inat-wild" checked>
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <div>
-                  <span style="font-weight: 600; display: block;">Только дикорастущие (аборигенные виды)</span>
-                  <small class="hint-text">Исключает завезенные человеком чужеродные растения</small>
-                </div>
-                <input type="checkbox" id="toggle-inat-native">
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <div>
-                  <span style="font-weight: 600; display: block;">⚠️ Только редкие и охраняемые (Красная книга)</span>
-                  <small class="hint-text">Особо ценные, угрожаемые и краснокнижные виды</small>
-                </div>
-                <input type="checkbox" id="toggle-inat-threatened">
-                <span class="toggle-switch"></span>
-              </label>
-
-              <label class="toggle-item">
-                <div>
-                  <span style="font-weight: 600; display: block;">Только с фотографиями</span>
-                  <small class="hint-text">Исключает записи без прикрепленных снимков</small>
-                </div>
-                <input type="checkbox" id="toggle-inat-photos" checked>
-                <span class="toggle-switch"></span>
-              </label>
-            </div>
-
-            <div class="style-row" style="margin-bottom: 10px;">
-              <label for="inat-filter-limit" style="display: flex; justify-content: space-between; font-weight: 600;">
-                <span>Количество точек на экране:</span>
-                <b id="inat-filter-limit-val" style="color: var(--accent);">50</b>
-              </label>
-              <input type="range" id="inat-filter-limit" min="10" max="150" step="10" value="50" class="styled-range">
-            </div>
-
-            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-              <button type="button" id="btn-inat-refresh-now" class="btn btn-primary" style="flex: 1; font-size: 12px; padding: 8px 10px; font-weight: 700;">
+            <!-- 6. КНОПКИ ДЕЙСТВИЙ -->
+            <div class="inat-action-buttons-wrap">
+              <button type="button" id="btn-inat-refresh-now" class="btn btn-primary inat-btn-action">
                 🔄 Обновить точки на карте
               </button>
-              <button type="button" id="btn-inat-export-json" class="btn btn-secondary" style="flex: 1; font-size: 12px; padding: 8px 10px; font-weight: 700;" title="Скачать сырой подробный JSON со всеми полями API для текущей видимой области">
-                💾 Скачать полный JSON
+              <button type="button" id="btn-inat-open-suggest" class="btn btn-secondary inat-btn-action" title="Умные рекомендации вероятных видов">
+                🔮 Радар видов
+              </button>
+              <button type="button" id="btn-inat-export-json" class="btn btn-secondary inat-btn-action" title="Скачать сырой JSON для видимой области">
+                💾 Экспорт JSON
               </button>
             </div>
 
-
+            <!-- 7. НЕЙРОСЕТЬ ОПРЕДЕЛЕНИЯ ПО ФОТО (COMPUTER VISION) -->
+ 
 
           </div>
         </details>
@@ -3236,6 +3305,74 @@
           <button type="button" id="btn-vc-cancel" class="btn btn-secondary vc-btn-action">✕ Отмена</button>
           <button type="button" id="btn-vc-apply" class="btn btn-primary vc-btn-action">✓ Готово</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+   <!-- ПЛАВАЮЩИЙ HUD НЕЙРОСЕТЕВОГО АРЕАЛА GEOMODEL (v2) -->
+  <div id="inat-geomodel-hud" class="inat-geomodel-hud" hidden>
+    <div class="inat-geomodel-hud-header">
+      <div class="inat-geomodel-hud-title-wrap">
+        <span class="inat-geomodel-hud-icon">🗺️</span>
+        <div id="inat-geomodel-hud-name" class="inat-geomodel-hud-name">Ареал вида</div>
+      </div>
+      <button type="button" id="btn-inat-geomodel-close" class="inat-geomodel-close-btn" title="Скрыть слой ареала">✕</button>
+    </div>
+    <div class="inat-geomodel-hud-body">
+      <div class="inat-geomodel-controls-row">
+        <select id="inat-geomodel-layer-select" class="styled-select inat-geomodel-layer-select" title="Сменить тип слоя ареала">
+          <option value="geomodel">🤖 Модель ИИ (Geomodel)</option>
+          <option value="taxon_ranges">📐 Научный ареал (Range Map)</option>
+          <option value="geomodel_taxon_range">🧬 ИИ + Научный ареал</option>
+          <option value="geomodel_comparison">📊 Сравнение с находками</option>
+        </select>
+        <button type="button" id="btn-inat-geomodel-find-obs" class="btn btn-primary inat-geomodel-mode-btn" title="Показать точки этого вида">
+          👁️ Находки
+        </button>
+      </div>
+      <div class="inat-geomodel-slider-row">
+        <label for="inat-geomodel-opacity-slider">Прозрачность: <b id="inat-geomodel-opacity-val">65%</b></label>
+        <input type="range" id="inat-geomodel-opacity-slider" min="15" max="95" step="5" value="65" class="styled-range">
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО УМНЫХ ПОДСКАЗОК И РАДАРА ВИДОВ (/v2/taxa/suggest) -->
+  <div id="modal-inat-suggest" class="modal-overlay">
+    <div class="modal-box modal-box-large inat-suggest-modal-box">
+      <div class="modal-header">
+        <div class="inat-suggest-header-title">
+          <h3>🔮 Что искать вокруг прямо сейчас?</h3>
+          <span id="inat-suggest-loc-sub" class="inat-suggest-subtitle">📍 Определение биома…</span>
+        </div>
+        <button class="modal-close-x" id="inat-suggest-close-x">✕</button>
+      </div>
+
+      <div class="inat-suggest-meta-bar">
+        <span id="inat-suggest-month-label" class="inat-suggest-month-tag">Сезон: Текущий месяц</span>
+        <button type="button" id="btn-inat-suggest-recenter" class="btn-link" style="font-size: 11px;">↺ Пересчитать для центра карты</button>
+      </div>
+
+      <!-- Категории организмов -->
+      <div class="inat-suggest-chips-row" id="inat-suggest-category-chips">
+        <button type="button" class="inat-suggest-chip active" data-taxa="all">Все</button>
+        <button type="button" class="inat-suggest-chip" data-taxa="Plantae">🌿 Растения</button>
+        <button type="button" class="inat-suggest-chip" data-taxa="Fungi">🍄 Грибы</button>
+        <button type="button" class="inat-suggest-chip" data-taxa="Aves">🦅 Птицы</button>
+        <button type="button" class="inat-suggest-chip" data-taxa="Insecta">🐞 Насекомые</button>
+        <button type="button" class="inat-suggest-chip" data-taxa="Animalia">🐾 Животные</button>
+      </div>
+
+      <div class="inat-suggest-results-wrap">
+        <div class="inat-suggest-count-row">
+          <span>Вероятные виды в этой местности: (<b id="inat-suggest-count">0</b>)</span>
+          <small class="hint-text">Оценка нейросети Geo-Prior и сезонности iNat v2</small>
+        </div>
+        <div id="inat-suggest-items-list" class="inat-suggest-list"></div>
+      </div>
+
+      <div class="modal-actions" style="margin-top: 10px; justify-content: flex-end;">
+        <button type="button" id="inat-suggest-close-btn" class="btn btn-secondary">Закрыть</button>
       </div>
     </div>
   </div>
