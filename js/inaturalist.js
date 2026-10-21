@@ -4,6 +4,8 @@
   const DEFAULT_CONFIG = {
     enabled: false,
     showBadge: true,
+    selectMode: 'both',
+    badgeDisplayMode: 'full', // 'full' | 'auto-hide' | 'center-bubble' | 'manual'
     zoomOutMode: 'grid',
     taxa: 'Plantae,Fungi',
     query: '',
@@ -93,6 +95,31 @@
     }
   }
 
+  let hoveredCluster = null;
+  let lastCardOpenTime = 0;
+
+  function openHovered() {
+    if (!hoveredCluster) return false;
+    const now = Date.now();
+    if (now - lastCardOpenTime < 400) return true;
+    lastCardOpenTime = now;
+
+    if (hoveredCluster.isSingle) {
+      openObservationCard(hoveredCluster.primaryObs);
+    } else {
+      highlightObservationZone(hoveredCluster.primaryObs);
+      openClusterModal(hoveredCluster.items);
+    }
+    return true;
+  }
+
+  function isCrosshairSelectable() {
+    if (!config.enabled) return false;
+    const mode = config.selectMode || 'crosshair';
+    if (mode === 'click') return false;
+    return !!hoveredCluster;
+  }
+
   const MIN_VIEW_ZOOM = 11; // <-- Сетка активна при зуме < 11, детальные метки — на зуме 11+
   const MIN_FILTER_ZOOM = 6;
 
@@ -105,6 +132,8 @@
   const FETCH_DEBOUNCE_MS = 400;
   const CACHE_MAX = 2000;
   const COVERAGE_TTL_MS = 5 * 60 * 1000;
+
+  const manualExpandedClusters = new Set();
 
   const obsCache = new Map();
   const fullDetailsCache = new Map(); // id -> full observation
@@ -609,6 +638,14 @@
     const isResearch = cluster.items.some(o => o.quality_grade === 'research');
 
     if (mode === 'bubble') {
+      const displayMode = config.badgeDisplayMode || 'full';
+      const isManualExpanded = manualExpandedClusters.has(cluster.id);
+      const isCollapsed = (displayMode === 'manual' && !isManualExpanded) ||
+                          (displayMode === 'auto-hide') ||
+                          (displayMode === 'center-bubble');
+
+      const arrowBtnHtml = `<button type="button" class="wm-inat-toggle-arrow-btn" title="${isManualExpanded ? 'Свернуть' : 'Развернуть'}">${isManualExpanded ? '‹' : '›'}</button>`;
+
       if (isSingle) {
         const ruName = taxon.preferred_common_name || obs.species_guess || taxon.name || meta.name;
         const latinName = taxon.name || '';
@@ -616,7 +653,7 @@
         const html = `
           <div class="wm-inat-pin-anchor" data-id="${cluster.id}" style="--inat-color: ${color};">
             <div class="wm-inat-bubble ${isResearch ? 'research' : ''}">
-              <div class="wm-inat-badge-card">
+              <div class="wm-inat-badge-card ${isCollapsed ? 'is-collapsed' : 'is-expanded'}">
                 <div class="wm-inat-thumb-wrap">
                   ${photoUrl ? `<img src="${photoUrl}" class="wm-inat-img" alt="" loading="lazy">` : `<span class="wm-inat-badge-icon">${icon}</span>`}
                   ${photoUrl ? `<span class="wm-inat-corner-emoji" title="${meta.name}">${icon}</span>` : ''}
@@ -625,6 +662,7 @@
                   <span class="wm-inat-badge-ru">${escapeHtml(ruName)}</span>
                   <span class="wm-inat-badge-la">${escapeHtml(latinName)}</span>
                 </div>
+                ${displayMode !== 'full' ? arrowBtnHtml : ''}
               </div>
               <svg class="wm-inat-badge-tail" width="12" height="7" viewBox="0 0 12 7"><path d="M 0 0 L 6 7 L 12 0 Z" /></svg>
             </div>
@@ -683,7 +721,7 @@
       const html = `
         <div class="wm-inat-pin-anchor is-cluster" data-id="${cluster.id}" style="--inat-color: ${color};">
           <div class="wm-inat-bubble ${isResearch ? 'research' : ''} is-cluster">
-            <div class="wm-inat-badge-card wm-inat-cluster-card">
+            <div class="wm-inat-badge-card wm-inat-cluster-card ${isCollapsed ? 'is-collapsed' : 'is-expanded'}">
               <div class="wm-inat-fan-wrapper">
                 ${fanHtml}
                 <span class="wm-inat-corner-emoji" title="${meta.name}">${icon}</span>
@@ -696,6 +734,7 @@
                 <span class="wm-inat-badge-cluster-sub">${escapeHtml(subText)}</span>
               </div>
               <div class="wm-inat-cluster-count-pill" title="${cluster.count} находок в этой зоне">${cluster.count}</div>
+              ${displayMode !== 'full' ? arrowBtnHtml : ''}
             </div>
             <svg class="wm-inat-badge-tail" width="12" height="7" viewBox="0 0 12 7"><path d="M 0 0 L 6 7 L 12 0 Z" /></svg>
           </div>
@@ -723,6 +762,8 @@
     return L.divIcon({ className: 'wm-inat-div-icon', html, iconSize: [0, 0], iconAnchor: [0, 0] });
   }
 
+
+
   function createClusterMarker(cluster, mode) {
     const marker = L.marker([cluster.lat, cluster.lng], {
       icon: buildClusterMarkerIcon(cluster, mode),
@@ -746,14 +787,46 @@
       }
     };
 
+    const toggleCollapseState = (forceExpand) => {
+      const el = marker.getElement();
+      if (!el) return;
+      const card = el.querySelector('.wm-inat-badge-card');
+      const arrowBtn = el.querySelector('.wm-inat-toggle-arrow-btn');
+      if (!card) return;
+
+      const shouldExpand = forceExpand !== undefined ? forceExpand : card.classList.contains('is-collapsed');
+      card.classList.toggle('is-collapsed', !shouldExpand);
+      card.classList.toggle('is-expanded', shouldExpand);
+      if (arrowBtn) {
+        arrowBtn.textContent = shouldExpand ? '‹' : '›';
+        arrowBtn.title = shouldExpand ? 'Свернуть' : 'Развернуть';
+      }
+      if (config.badgeDisplayMode === 'manual') {
+        if (shouldExpand) manualExpandedClusters.add(cluster.id);
+        else manualExpandedClusters.delete(cluster.id);
+      }
+    };
+
     const handler = (e) => {
-      // Если было перемещение мыши (навигация/перетаскивание карты) — отменяем клик
       if (hasMoved || (map && map.dragging && map.dragging.moving())) {
         downPos = null;
         hasMoved = false;
         return;
       }
       downPos = null;
+
+      // Клик по кнопке-стрелочке переключает состояние раскрытия
+      if (e && e.target && e.target.closest('.wm-inat-toggle-arrow-btn')) {
+        L.DomEvent.stopPropagation(e);
+        if (e.preventDefault) e.preventDefault();
+        toggleCollapseState();
+        return;
+      }
+
+      const selMode = config.selectMode || 'crosshair';
+      if (selMode === 'crosshair') {
+        if (!hoveredCluster || hoveredCluster.id !== cluster.id) return;
+      }
 
       if (e) {
         L.DomEvent.stopPropagation(e);
@@ -771,6 +844,34 @@
       }
     };
 
+    const onEnter = () => {
+      highlightObservationZone(cluster.primaryObs);
+      const el = marker.getElement();
+      if (el) el.classList.add('inat-crosshair-hovered');
+
+      // Для режима 'auto-hide' при наведении раскрываем метку
+      if (config.badgeDisplayMode === 'auto-hide') {
+        toggleCollapseState(true);
+      }
+    };
+
+    const onLeave = () => {
+      if (!hoveredCluster || hoveredCluster.id !== cluster.id) {
+        clearHoverHighlight();
+      }
+      // При уходе курсора сворачиваем обратно
+      if (config.badgeDisplayMode === 'auto-hide') {
+        const isCrossing = hoveredCluster && hoveredCluster.id === cluster.id;
+        if (!isCrossing) {
+          toggleCollapseState(false);
+        }
+      }
+    };
+
+
+    marker.on('mouseover', onEnter);
+    marker.on('mouseout', onLeave);
+
     marker._wmBind = () => {
       const el = marker.getElement();
       if (el) {
@@ -779,12 +880,16 @@
         el.removeEventListener('mousemove', onMove);
         el.removeEventListener('touchstart', onDown);
         el.removeEventListener('touchmove', onMove);
+        el.removeEventListener('mouseenter', onEnter);
+        el.removeEventListener('mouseleave', onLeave);
         el.onclick = null;
 
         el.addEventListener('mousedown', onDown, { passive: true });
         el.addEventListener('mousemove', onMove, { passive: true });
         el.addEventListener('touchstart', onDown, { passive: true });
         el.addEventListener('touchmove', onMove, { passive: true });
+        el.addEventListener('mouseenter', onEnter, { passive: true });
+        el.addEventListener('mouseleave', onLeave, { passive: true });
         el.onclick = handler;
       }
     };
@@ -953,7 +1058,7 @@
   }
 
   function highlightObservationZone(obs) {
-    if (hoveredObsId === obs.id) return;
+    if (hoveredObsId === obs.id && hoverZoneLayer && map && map.hasLayer(hoverZoneLayer)) return;
     hoveredObsId = obs.id;
     clearHoverHighlight(true);
 
@@ -962,6 +1067,7 @@
     const radius = Math.max(12, Math.min(2500, Math.round(obs.positional_accuracy || 25)));
 
     hoverZoneLayer = L.circle([obs._lat, obs._lng], {
+      pane: 'wm-inaturalist', // <-- гарантия видимости над полигонами и растром
       radius,
       color: meta.color,
       weight: 2.5,
@@ -983,30 +1089,121 @@
 
   function checkCrosshairProximity() {
     if (!config.enabled || !map || activeObservations.size === 0) {
+      hoveredCluster = null;
       clearHoverHighlight();
       return;
     }
 
+    const displayMode = config.badgeDisplayMode || 'full';
     const center = map.getCenter();
     const centerPt = map.latLngToContainerPoint(center);
-    let closestObs = null;
-    let minDistancePx = Infinity;
-    const HIT_RADIUS_PX = 34;
+    const mapSize = map.getSize();
+    // Радиус пузыря линзы (примерно 38% от меньшей стороны экрана)
+    const bubbleRadius = Math.min(mapSize.x, mapSize.y) * 0.38;
 
-    for (const obs of activeObservations.values()) {
-      if (obs._lat == null || obs._lng == null) continue;
-      const pt = map.latLngToContainerPoint([obs._lat, obs._lng]);
-      const d = centerPt.distanceTo(pt);
-      if (d < HIT_RADIUS_PX && d < minDistancePx) {
+    let bestCluster = null;
+    let minDistancePx = Infinity;
+
+    for (const marker of markerInstances.values()) {
+      const cluster = marker._wmCluster;
+      if (!cluster) continue;
+
+      const pt = map.latLngToContainerPoint([cluster.lat, cluster.lng]);
+      const isBubble = marker._wmMode === 'bubble';
+      
+      let d;
+      if (isBubble) {
+        const bubbleCenterY = pt.y - 20;
+        const dx = Math.abs(centerPt.x - pt.x);
+        const dy = Math.abs(centerPt.y - bubbleCenterY);
+        d = Math.hypot(dx * 0.7, dy * 1.2);
+      } else {
+        d = centerPt.distanceTo(pt);
+      }
+
+      // --- ЛОГИКА 3: АВТООБЛАСТЬ ПО ЦЕНТРУ (ПУЗЫРЬ/ЛИНЗА) ---
+      if (displayMode === 'center-bubble' && isBubble) {
+        const el = marker.getElement();
+        if (el) {
+          const card = el.querySelector('.wm-inat-badge-card');
+          const bubbleContainer = el.querySelector('.wm-inat-bubble');
+          if (card && bubbleContainer) {
+            const distToCenter = centerPt.distanceTo(pt);
+            if (distToCenter <= bubbleRadius) {
+              const factor = 1 - (distToCenter / bubbleRadius); // 1.0 в самом центре -> 0 на границе
+              card.classList.remove('is-collapsed');
+              card.classList.add('is-expanded');
+              // Плавный масштаб от 1.0 до 1.14 в самом центре
+              const scale = 1.0 + factor * 0.14;
+              bubbleContainer.style.transform = `translate3d(-50%, 0, 0) scale(${scale.toFixed(3)})`;
+              bubbleContainer.style.zIndex = Math.round(500 + factor * 500);
+            } else {
+              card.classList.add('is-collapsed');
+              card.classList.remove('is-expanded');
+              bubbleContainer.style.transform = '';
+              bubbleContainer.style.zIndex = '';
+            }
+          }
+        }
+      }
+
+      const threshold = isBubble ? 46 : 34;
+      if (d < threshold && d < minDistancePx) {
         minDistancePx = d;
-        closestObs = obs;
+        bestCluster = cluster;
       }
     }
 
-    if (closestObs) {
-      highlightObservationZone(closestObs);
+    const prevHoveredCluster = hoveredCluster;
+
+    if (bestCluster) {
+      hoveredCluster = bestCluster;
+      hoveredObsId = bestCluster.primaryObs.id;
+      highlightObservationZone(bestCluster.primaryObs);
+
+      // При наведении перекрестия в режиме auto-hide раскрываем карточку
+      if (displayMode === 'auto-hide') {
+        const marker = markerInstances.get(bestCluster.id);
+        const el = marker ? marker.getElement() : null;
+        const card = el ? el.querySelector('.wm-inat-badge-card') : null;
+        if (card) {
+          card.classList.remove('is-collapsed');
+          card.classList.add('is-expanded');
+        }
+      }
+
+      if (WM.picker && WM.picker.getMode() === 'cross' && WM.ui && WM.ui.setPill) {
+        const taxon = bestCluster.dominantTaxon || bestCluster.primaryObs.taxon || {};
+        const meta = getTaxonMeta(taxon);
+        const ruName = taxon.preferred_common_name || bestCluster.primaryObs.species_guess || taxon.name || meta.name;
+        const subtitle = bestCluster.isSingle
+          ? `${meta.icon} ${meta.name} (iNaturalist)`
+          : `🌿 ${bestCluster.count} находок в этой точке`;
+        
+        WM.ui.setPill({
+          title: `${meta.icon} ${ruName}`,
+          isInat: true
+        }, bestCluster.count, subtitle);
+      }
     } else {
+      hoveredCluster = null;
       clearHoverHighlight();
+      const p = document.getElementById('hover-pill');
+      if (p && p.dataset.source === 'inat') {
+        p.hidden = true;
+        delete p.dataset.source;
+      }
+    }
+
+    // Если перекрестие ушло с прежней карточки в режиме auto-hide — закрываем её
+    if (displayMode === 'auto-hide' && prevHoveredCluster && (!bestCluster || bestCluster.id !== prevHoveredCluster.id)) {
+      const prevMarker = markerInstances.get(prevHoveredCluster.id);
+      const el = prevMarker ? prevMarker.getElement() : null;
+      const card = el ? el.querySelector('.wm-inat-badge-card') : null;
+      if (card && !el.matches(':hover')) {
+        card.classList.add('is-collapsed');
+        card.classList.remove('is-expanded');
+      }
     }
   }
 
@@ -2717,6 +2914,17 @@
   let isSuggestionsLoading = false;
   let activeSuggestCategory = 'all';
 
+  const ICONIC_TAXON_IDS = {
+    Plantae: 47126,
+    Fungi: 47170,
+    Insecta: 47158,
+    Aves: 3,
+    Mammalia: 40151,
+    Animalia: 1,
+    Amphibia: 20978,
+    Reptilia: 26036
+  };
+
   async function fetchSmartSuggestions(coords = null, month = null, iconic = null) {
     const c = coords || (WM.gpsState && WM.gpsState.lat ? WM.gpsState : (map ? map.getCenter() : { lat: 55.75, lng: 37.62 }));
     const curMonth = month || (new Date().getMonth() + 1);
@@ -2724,19 +2932,23 @@
     const params = new URLSearchParams({
       lat: c.lat.toFixed(5),
       lng: c.lng.toFixed(5),
-      month: String(curMonth),
+      months: String(curMonth),
+      source: 'observations',
+      order_by: 'default',
       locale: 'ru',
-      fields: '(taxon:(id:!t,name:!t,preferred_common_name:!t,iconic_taxon_name:!t,rank:!t,default_photo:(square_url:!t,medium_url:!t),wikipedia_url:!t),score:!t,source:!t)'
+      // Запрашиваем ровно те поля таксона, которые нужны для карточки:
+      fields: '(score:!t,taxon:(id:!t,name:!t,preferred_common_name:!t,rank:!t,iconic_taxon_name:!t,default_photo:(square_url:!t)))'
     });
 
-    const targetTaxa = iconic || (config.taxa && config.taxa !== 'all' ? config.taxa : null);
-    if (targetTaxa) params.set('iconic_taxa', targetTaxa);
+    if (iconic && iconic !== 'all' && ICONIC_TAXON_IDS[iconic]) {
+      params.set('taxon_id', String(ICONIC_TAXON_IDS[iconic]));
+    }
 
     try {
       const data = await inatGet('taxa/suggest', params, null, 'v2');
       return data.results || [];
     } catch (e) {
-      // Резервный вызов через species_counts
+      console.warn('[iNat] Fallback to species_counts due to:', e);
       try {
         const fallbackParams = new URLSearchParams({
           lat: c.lat.toFixed(4),
@@ -2747,13 +2959,47 @@
           locale: 'ru',
           fields: '(taxon:(id:!t,name:!t,preferred_common_name:!t,iconic_taxon_name:!t,rank:!t,default_photo:(square_url:!t)),count:!t)'
         });
-        if (targetTaxa) fallbackParams.set('iconic_taxa', targetTaxa);
+        if (iconic && iconic !== 'all') fallbackParams.set('iconic_taxa', iconic);
         const fbData = await inatGet('observations/species_counts', fallbackParams, null, 'v2');
         return (fbData.results || []).map(r => ({ taxon: r.taxon, score: r.count }));
       } catch (err2) {
         return [];
       }
     }
+  }
+
+  // Обновляем слушатель переключения чипов в initSmartSuggestionsUI:
+  function initSmartSuggestionsUI() {
+    const modal = document.getElementById('modal-inat-suggest');
+    const closeX = document.getElementById('inat-suggest-close-x');
+    const closeBtn = document.getElementById('inat-suggest-close-btn');
+    const btnRecenter = document.getElementById('btn-inat-suggest-recenter');
+
+    if (closeX) closeX.onclick = closeSmartSuggestionsModal;
+    if (closeBtn) closeBtn.onclick = closeSmartSuggestionsModal;
+    if (modal) {
+      modal.onclick = (e) => { if (e.target === modal) closeSmartSuggestionsModal(); };
+    }
+
+    if (btnRecenter) {
+      btnRecenter.onclick = () => openSmartSuggestionsModal(activeSuggestCategory);
+    }
+
+    // При клике на категорию загружаем свежий топ именно для неё
+    document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(btn => {
+      btn.onclick = async () => {
+        document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeSuggestCategory = btn.dataset.taxa;
+
+        const listEl = document.getElementById('inat-suggest-items-list');
+        if (listEl) listEl.innerHTML = '<div class="muted" style="padding: 24px 0;">⏳ Поиск организмов категории…</div>';
+
+        const c = (WM.gpsState && WM.gpsState.lat) ? WM.gpsState : (map ? map.getCenter() : { lat: 55.75, lng: 37.62 });
+        const items = await fetchSmartSuggestions(c, null, activeSuggestCategory);
+        renderSuggestionsList(items);
+      };
+    });
   }
 
   function renderSuggestionsList(items) {
@@ -2780,12 +3026,15 @@
     filtered.forEach(it => {
       const t = it.taxon || it;
       const meta = getTaxonMeta(t);
-      const ruName = t.preferred_common_name || t.name;
-      const latinName = t.name || '';
+      const ruName = t.preferred_common_name || t.name || 'Неизвестный организм';
+      const latinName = (t.name && t.name !== ruName) ? t.name : '';
       const rank = RANKS_RU[t.rank] || t.rank || 'вид';
       const photoUrl = t.default_photo?.square_url || '';
       const score = it.score || it.combined_score || 0;
       const scorePct = typeof score === 'number' && score <= 1 ? Math.round(score * 100) : Math.min(100, Math.round(score));
+
+      // Формируем вторую строчку: если латинское имя есть, ставим разделитель, иначе только ранг
+      const subLine = latinName ? `${escapeHtml(latinName)} · ${escapeHtml(rank)}` : escapeHtml(rank);
 
       const card = document.createElement('div');
       card.className = 'inat-suggest-card';
@@ -2798,7 +3047,7 @@
             <span class="inat-suggest-ru">${escapeHtml(ruName)}</span>
             ${scorePct > 0 ? `<span class="inat-suggest-score-badge" title="Вероятность биоклиматической приуроченности">${scorePct}%</span>` : ''}
           </div>
-          <span class="inat-suggest-la">${escapeHtml(latinName)} · ${escapeHtml(rank)}</span>
+          <span class="inat-suggest-la">${subLine}</span>
           <div class="inat-suggest-actions">
             <button type="button" class="inat-suggest-btn btn-show-map">👁️ Искать на карте</button>
             <button type="button" class="inat-suggest-btn btn-show-geomodel" style="color:#0284c7; border-color:#0284c7;">🧠 Ареал (AI)</button>
@@ -2857,34 +3106,6 @@
     if (modal) modal.classList.remove('open');
   }
 
-  function initSmartSuggestionsUI() {
-    const modal = document.getElementById('modal-inat-suggest');
-    const closeX = document.getElementById('inat-suggest-close-x');
-    const closeBtn = document.getElementById('inat-suggest-close-btn');
-    const btnRecenter = document.getElementById('btn-inat-suggest-recenter');
-
-    if (closeX) closeX.onclick = closeSmartSuggestionsModal;
-    if (closeBtn) closeBtn.onclick = closeSmartSuggestionsModal;
-    if (modal) {
-      modal.onclick = (e) => { if (e.target === modal) closeSmartSuggestionsModal(); };
-    }
-
-    if (btnRecenter) {
-      btnRecenter.onclick = () => openSmartSuggestionsModal();
-    }
-
-    // Фильтрация категорий внутри модалки
-    document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(btn => {
-      btn.onclick = () => {
-        document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        activeSuggestCategory = btn.dataset.taxa;
-        if (modal?._lastSuggestions) {
-          renderSuggestionsList(modal._lastSuggestions);
-        }
-      };
-    });
-  }
 
   // =========================================================================
   // ФИЛЬТРАЦИЯ НА КАРТЕ
@@ -3004,6 +3225,12 @@
     if (!config.enabled) { disable(); return; }
     if (layer && map && !map.hasLayer(layer)) layer.addTo(map);
 
+    // При смене режима отображения карточек — сбрасываем раскрытые вручную и мгновенно перерисовываем
+    if (newCfg.badgeDisplayMode !== undefined) {
+      manualExpandedClusters.clear();
+      renderVisible();
+    }
+
     scheduleFetch(false, 250);
     updateTopBadge();
   }
@@ -3033,6 +3260,12 @@
     if (chkThreatened) chkThreatened.checked = !!config.threatenedOnly;
     const chkPhotos = document.getElementById('toggle-inat-photos');
     if (chkPhotos) chkPhotos.checked = config.photosOnly !== false;
+
+    const selBadgeMode = document.getElementById('inat-badge-display-mode');
+    if (selBadgeMode) selBadgeMode.value = config.badgeDisplayMode || 'full';
+
+    const selSelectMode = document.getElementById('inat-select-mode');
+    if (selSelectMode) selSelectMode.value = config.selectMode || 'crosshair';
 
     // Биологические стадии
     const selPheno = document.getElementById('inat-filter-phenology');
@@ -3381,6 +3614,9 @@
     highlightObservationZone,
     closeClusterModal,
     openClusterModal,
+    getSelectMode: () => config.selectMode || 'crosshair',
+    isCrosshairSelectable,
+    openHovered,
 
     // Новые возможности v2 API:
     showGeomodelForTaxon,
