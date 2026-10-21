@@ -284,9 +284,40 @@
 
   function getToken() { return localStorage.getItem('wm_inat_key') || ''; }
 
+  // 1. Умное извлечение JWT токена (включая JSON {"api_token":"..."})
+  function extractRawToken(input) {
+    if (!input || typeof input !== 'string') return '';
+    let str = input.trim();
+
+    // Если вставлен сырой JSON вида {"api_token":"..."}
+    if (str.startsWith('{') && str.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(str);
+        if (parsed.api_token && typeof parsed.api_token === 'string') {
+          str = parsed.api_token.trim();
+        }
+      } catch (e) {
+        // Резервный regex если JSON повреждён
+        const match = str.match(/"api_token"\s*:\s*"([^"]+)"/i);
+        if (match && match[1]) str = match[1].trim();
+      }
+    }
+
+    // Если скопировано с префиксом Bearer
+    if (str.startsWith('Bearer ')) {
+      str = str.replace(/^Bearer\s+/i, '').trim();
+    }
+
+    // Снятие внешних случайных кавычек
+    str = str.replace(/^["']|["']$/g, '');
+
+    return str;
+  }
+
   function setToken(token) {
-    if (token && token.trim()) {
-      localStorage.setItem('wm_inat_key', token.trim());
+    const cleanToken = extractRawToken(token);
+    if (cleanToken) {
+      localStorage.setItem('wm_inat_key', cleanToken);
     } else {
       localStorage.removeItem('wm_inat_key');
     }
@@ -2915,17 +2946,275 @@
   let activeSuggestCategory = 'all';
 
   const SUGGEST_PAGE_SIZE = 15;
-  const SUGGEST_MIN_AI_SCORE = 0.04; // Порог вероятности ИИ (4%)
+  const SUGGEST_MIN_AI_SCORE = 0.04;
 
-  let suggestAllPool = []; // Полный пул предсказаний ИИ
-  let suggestItems = [];   // Отображённые в DOM элементы
+  let isAiForecastEnabled = localStorage.getItem('wm_inat_suggest_ai_on') === 'true';
+  let suggestAiPool = [];        // Пул видов нейросети
+  let suggestItems = [];         // Отображённые в данный момент элементы
   let suggestHasMore = true;
   let suggestIsLoadingMore = false;
-  let suggestSourceType = 'ai';
   let suggestCoords = null;
   let suggestMonth = null;
-  let suggestFallbackPage = 1; // Страница для фоллбэк-находок
+  let suggestFallbackPage = 1;   // Страница пагинации реальных находок
   const suggestSeenTaxonIds = new Set();
+
+  function showSuggestNotice(text, isError = false, showAuthLink = false) {
+    const noticeEl = document.getElementById('inat-suggest-ai-notice');
+    if (!noticeEl) return;
+    noticeEl.hidden = false;
+    noticeEl.className = 'inat-suggest-ai-notice' + (isError ? ' is-error' : '');
+    noticeEl.innerHTML = `
+      <div class="inat-suggest-notice-text">${text}</div>
+      ${showAuthLink ? '<button type="button" class="btn-link inat-suggest-notice-btn" id="btn-suggest-goto-token">🔑 Ввести токен в настройках ›</button>' : ''}
+    `;
+
+    document.getElementById('btn-suggest-goto-token')?.addEventListener('click', () => {
+      closeSmartSuggestionsModal();
+      const modalSettings = document.getElementById('modal');
+      const spoilerInat = document.getElementById('spoiler-inaturalist');
+      const spoilerAuth = document.getElementById('spoiler-inat-auth');
+      const inp = document.getElementById('inat-token-input');
+
+      if (modalSettings) modalSettings.classList.add('open');
+      if (spoilerInat) spoilerInat.open = true;
+      if (spoilerAuth) {
+        spoilerAuth.open = true;
+        spoilerAuth.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      setTimeout(() => inp?.focus(), 250);
+    });
+  }
+
+  function hideSuggestNotice() {
+    const noticeEl = document.getElementById('inat-suggest-ai-notice');
+    if (noticeEl) {
+      noticeEl.hidden = true;
+      noticeEl.innerHTML = '';
+    }
+  }
+
+  function updateAiToggleButtonUI() {
+    const btn = document.getElementById('btn-inat-suggest-toggle-ai');
+    if (!btn) return;
+    btn.classList.toggle('active', isAiForecastEnabled);
+    btn.innerHTML = isAiForecastEnabled
+      ? '<span>🤖 Прогноз нейросети: <b>ВКЛЮЧЁН</b></span>'
+      : '<span>🤖 Включить прогноз от нейросети</span>';
+  }
+
+  async function fetchAiSuggestionsOnly(c, curMonth, iconic) {
+    const params = new URLSearchParams({
+      lat: c.lat.toFixed(5),
+      lng: c.lng.toFixed(5),
+      months: String(curMonth),
+      source: 'observations',
+      order_by: 'default',
+      limit: '50',
+      locale: 'ru',
+      fields: '(score:!t,taxon:(id:!t,name:!t,preferred_common_name:!t,rank:!t,iconic_taxon_name:!t,default_photo:(square_url:!t)))'
+    });
+
+    if (iconic && iconic !== 'all' && ICONIC_TAXON_IDS[iconic]) {
+      params.set('taxon_id', String(ICONIC_TAXON_IDS[iconic]));
+    }
+
+    const data = await inatGet('taxa/suggest', params, null, 'v2');
+    return (data.results || []).map(r => {
+      r._source = 'ai';
+      return r;
+    });
+  }
+
+  async function activateAiForecast() {
+    const tokenInfo = getTokenInfo();
+    if (!tokenInfo.exists || tokenInfo.isExpired) {
+      showSuggestNotice(
+        '⚠️ Для работы прогноза нейросети iNaturalist требуется действующий API-токен (24 ч).',
+        true,
+        true
+      );
+      return;
+    }
+
+    hideSuggestNotice();
+    const btn = document.getElementById('btn-inat-suggest-toggle-ai');
+    if (btn) btn.classList.add('is-loading');
+
+    try {
+      const results = await fetchAiSuggestionsOnly(suggestCoords, suggestMonth, activeSuggestCategory);
+      suggestAiPool = results.filter(r => (r.score || r.combined_score || 0) >= SUGGEST_MIN_AI_SCORE);
+
+      if (!suggestAiPool.length) {
+        showSuggestNotice('ℹ️ Нейросеть не сформировала прогнозов для этого биома и месяца.');
+        return;
+      }
+
+      prependAiSuggestions(suggestAiPool);
+      showSuggestNotice(`✅ Нейросеть добавила ${suggestAiPool.length} вероятных видов наверх выдачи`);
+    } catch (err) {
+      showSuggestNotice(
+        '❌ Ошибка запроса к нейросети. Возможно, срок действия токена истёк или превышен лимит.',
+        true,
+        true
+      );
+    } finally {
+      if (btn) btn.classList.remove('is-loading');
+    }
+  }
+
+  function prependAiSuggestions(aiList) {
+    const listEl = document.getElementById('inat-suggest-items-list');
+    const countEl = document.getElementById('inat-suggest-count');
+    if (!listEl) return;
+
+    const validToAdd = [];
+    for (const it of aiList) {
+      const t = it.taxon || it;
+      if (!t || !t.id || suggestSeenTaxonIds.has(t.id)) continue;
+      suggestSeenTaxonIds.add(t.id);
+      validToAdd.push(it);
+    }
+
+    if (!validToAdd.length) return;
+
+    suggestItems.unshift(...validToAdd);
+
+    const fragment = document.createDocumentFragment();
+    validToAdd.forEach(it => {
+      fragment.appendChild(createSuggestionCard(it));
+    });
+
+    listEl.insertBefore(fragment, listEl.firstChild);
+    if (countEl) countEl.textContent = `${suggestItems.length}`;
+  }
+
+  function initSmartSuggestionsUI() {
+    const modal = document.getElementById('modal-inat-suggest');
+    const closeX = document.getElementById('inat-suggest-close-x');
+    const closeBtn = document.getElementById('inat-suggest-close-btn');
+    const btnRecenter = document.getElementById('btn-inat-suggest-recenter');
+    const btnToggleAi = document.getElementById('btn-inat-suggest-toggle-ai');
+    const listEl = document.getElementById('inat-suggest-items-list');
+
+    if (closeX) closeX.onclick = closeSmartSuggestionsModal;
+    if (closeBtn) closeBtn.onclick = closeSmartSuggestionsModal;
+    if (modal) {
+      modal.onclick = (e) => { if (e.target === modal) closeSmartSuggestionsModal(); };
+    }
+
+    if (btnRecenter) {
+      btnRecenter.onclick = () => openSmartSuggestionsModal(activeSuggestCategory);
+    }
+
+    // Слушатель кнопки включения нейросети
+    if (btnToggleAi) {
+      btnToggleAi.onclick = async () => {
+        isAiForecastEnabled = !isAiForecastEnabled;
+        localStorage.setItem('wm_inat_suggest_ai_on', isAiForecastEnabled ? 'true' : 'false');
+        updateAiToggleButtonUI();
+
+        if (isAiForecastEnabled) {
+          await activateAiForecast();
+        } else {
+          hideSuggestNotice();
+          // Откатываемся к стандартной выдаче реальных находок
+          openSmartSuggestionsModal(activeSuggestCategory);
+        }
+      };
+    }
+
+    // Слушатель бесконечного скролла
+    if (listEl && !listEl._scrollBound) {
+      listEl._scrollBound = true;
+      listEl.addEventListener('scroll', () => {
+        if (suggestIsLoadingMore || !suggestHasMore) return;
+        if (listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 90) {
+          loadMoreSuggestions();
+        }
+      }, { passive: true });
+    }
+
+    // Переключение категорий организмов
+    document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(btn => {
+      btn.onclick = async () => {
+        document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeSuggestCategory = btn.dataset.taxa;
+
+        const list = document.getElementById('inat-suggest-items-list');
+        if (list) {
+          list.scrollTop = 0;
+          list.innerHTML = '<div class="muted" style="padding: 24px 0;">⏳ Загрузка находок вокруг…</div>';
+        }
+
+        hideSuggestNotice();
+        suggestFallbackPage = 1;
+        suggestHasMore = true;
+
+        const c = suggestCoords || ((WM.gpsState && WM.gpsState.lat) ? WM.gpsState : (map ? map.getCenter() : { lat: 55.75, lng: 37.62 }));
+        const res = await fetchFallbackSpeciesCounts(c, suggestMonth, activeSuggestCategory, 1);
+        suggestSourceType = 'fallback';
+        renderSuggestionsList(res.results);
+
+        if (isAiForecastEnabled) {
+          await activateAiForecast();
+        }
+      };
+    });
+  }
+
+  async function openSmartSuggestionsModal(category = 'all') {
+    const modal = document.getElementById('modal-inat-suggest');
+    if (!modal) return;
+
+    activeSuggestCategory = category;
+    document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(b => {
+      b.classList.toggle('active', b.dataset.taxa === category);
+    });
+
+    const listEl = document.getElementById('inat-suggest-items-list');
+    const subTitleEl = document.getElementById('inat-suggest-loc-sub');
+    const monthEl = document.getElementById('inat-suggest-month-label');
+
+    const c = (WM.gpsState && WM.gpsState.lat) ? WM.gpsState : (map ? map.getCenter() : { lat: 55.75, lng: 37.62 });
+    const monthsRu = ['', 'январе', 'феврале', 'марте', 'апреле', 'мае', 'июне', 'июле', 'августе', 'сентябре', 'октябре', 'ноябре', 'декабре'];
+    const curMonth = new Date().getMonth() + 1;
+
+    suggestCoords = c;
+    suggestMonth = curMonth;
+    suggestFallbackPage = 1;
+    suggestHasMore = true;
+
+    if (subTitleEl) subTitleEl.textContent = `📍 ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
+    if (monthEl) monthEl.textContent = `Сезон: в ${monthsRu[curMonth]}`;
+
+    updateAiToggleButtonUI();
+    hideSuggestNotice();
+
+    if (listEl) {
+      listEl.scrollTop = 0;
+      listEl.innerHTML = '<div class="muted" style="padding: 24px 0;">📊 Загрузка реальных находок вокруг…</div>';
+    }
+
+    modal.classList.add('open');
+    isSuggestionsLoading = true;
+
+    try {
+      // 1. ПО УМОЛЧАНИЮ ВСЕГДА ЗАГРУЖАЕМ РЕАЛЬНЫЕ НАХОДКИ ВОКРУГ
+      const res = await fetchFallbackSpeciesCounts(c, curMonth, activeSuggestCategory, 1);
+      suggestSourceType = 'fallback';
+      renderSuggestionsList(res.results);
+
+      // 2. ЕСЛИ ВКЛЮЧЕНА КНОПКА НЕЙРОСЕТИ — ПЛЮСУЕМ ЕЁ ВЫДАЧУ СВЕРХУ
+      if (isAiForecastEnabled) {
+        await activateAiForecast();
+      }
+    } catch (e) {
+      if (listEl) listEl.innerHTML = `<div class="muted" style="color:var(--danger); padding:20px 0;">Ошибка загрузки находок: ${escapeHtml(e.message)}</div>`;
+    } finally {
+      isSuggestionsLoading = false;
+    }
+  }
 
   const ICONIC_TAXON_IDS = {
     Plantae: 47126,
@@ -3199,102 +3488,9 @@
     }
   }
 
-  function initSmartSuggestionsUI() {
-    const modal = document.getElementById('modal-inat-suggest');
-    const closeX = document.getElementById('inat-suggest-close-x');
-    const closeBtn = document.getElementById('inat-suggest-close-btn');
-    const btnRecenter = document.getElementById('btn-inat-suggest-recenter');
-    const listEl = document.getElementById('inat-suggest-items-list');
+  
 
-    if (closeX) closeX.onclick = closeSmartSuggestionsModal;
-    if (closeBtn) closeBtn.onclick = closeSmartSuggestionsModal;
-    if (modal) {
-      modal.onclick = (e) => { if (e.target === modal) closeSmartSuggestionsModal(); };
-    }
-
-    if (btnRecenter) {
-      btnRecenter.onclick = () => openSmartSuggestionsModal(activeSuggestCategory);
-    }
-
-    // Слушатель бесконечного скролла
-    if (listEl && !listEl._scrollBound) {
-      listEl._scrollBound = true;
-      listEl.addEventListener('scroll', () => {
-        if (suggestIsLoadingMore || !suggestHasMore) return;
-        if (listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 90) {
-          loadMoreSuggestions();
-        }
-      }, { passive: true });
-    }
-
-    // Переключение категорий организмов
-    document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(btn => {
-      btn.onclick = async () => {
-        document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        activeSuggestCategory = btn.dataset.taxa;
-
-        const list = document.getElementById('inat-suggest-items-list');
-        if (list) {
-          list.scrollTop = 0;
-          list.innerHTML = '<div class="muted" style="padding: 24px 0;">⏳ Поиск организмов категории…</div>';
-        }
-
-        // Сброс пагинации
-        suggestCurrentPage = 1;
-        suggestHasMore = true;
-
-        const c = suggestCoords || ((WM.gpsState && WM.gpsState.lat) ? WM.gpsState : (map ? map.getCenter() : { lat: 55.75, lng: 37.62 }));
-        const res = await fetchSmartSuggestions(c, suggestMonth, activeSuggestCategory, 1, SUGGEST_PAGE_SIZE);
-        suggestSourceType = res.source;
-        renderSuggestionsList(res.results, false);
-      };
-    });
-  }
-
-  async function openSmartSuggestionsModal(category = 'all') {
-    let modal = document.getElementById('modal-inat-suggest');
-    if (!modal) return;
-
-    activeSuggestCategory = category;
-    document.querySelectorAll('#inat-suggest-category-chips .inat-suggest-chip').forEach(b => {
-      b.classList.toggle('active', b.dataset.taxa === category);
-    });
-
-    const listEl = document.getElementById('inat-suggest-items-list');
-    const subTitleEl = document.getElementById('inat-suggest-loc-sub');
-    const monthEl = document.getElementById('inat-suggest-month-label');
-
-    const c = (WM.gpsState && WM.gpsState.lat) ? WM.gpsState : (map ? map.getCenter() : { lat: 55.75, lng: 37.62 });
-    const monthsRu = ['', 'январе', 'феврале', 'марте', 'апреле', 'мае', 'июне', 'июле', 'августе', 'сентябре', 'октябре', 'ноябре', 'декабре'];
-    const curMonth = new Date().getMonth() + 1;
-
-    suggestCoords = c;
-    suggestMonth = curMonth;
-    suggestCurrentPage = 1;
-    suggestHasMore = true;
-
-    if (subTitleEl) subTitleEl.textContent = `📍 ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
-    if (monthEl) monthEl.textContent = `Сезон: в ${monthsRu[curMonth]}`;
-
-    if (listEl) {
-      listEl.scrollTop = 0;
-      listEl.innerHTML = '<div class="muted" style="padding: 24px 0;">🧠 Опрос нейросети Geo-Prior iNaturalist v2…</div>';
-    }
-
-    modal.classList.add('open');
-    isSuggestionsLoading = true;
-
-    try {
-      const res = await fetchSmartSuggestions(c, curMonth, activeSuggestCategory, 1, SUGGEST_PAGE_SIZE);
-      suggestSourceType = res.source;
-      renderSuggestionsList(res.results, false);
-    } catch (e) {
-      if (listEl) listEl.innerHTML = `<div class="muted" style="color:var(--danger); padding:20px 0;">Ошибка загрузки подсказок: ${escapeHtml(e.message)}</div>`;
-    } finally {
-      isSuggestionsLoading = false;
-    }
-  }
+  
 
   function closeSmartSuggestionsModal() {
     const modal = document.getElementById('modal-inat-suggest');
