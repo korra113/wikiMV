@@ -2760,17 +2760,98 @@ body.sheet-open .wm-mv-offscreen-pointer {
   transform: scale(0.9);
 }
 
-/* Компактный сжатый овал */
-.wm-inat-badge-card.is-collapsed {
-  max-width: 72px !important;
-  min-width: 0 !important;
-  padding: 2.5px 4px 2.5px 3px !important;
-  border-radius: 18px !important;
+
+
+/* Контейнер текста — выезжающая лента */
+.wm-inat-badge-texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  /* Анимация плавного выдвижения вбок */
+  max-width: calc(var(--lens-progress, 1) * 160px);
+  opacity: var(--lens-progress, 1);
+  transform: translateX(calc((1 - var(--lens-progress, 1)) * -12px));
+  transition: max-width 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.2s ease,
+              transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  padding: 0 calc(var(--lens-progress, 1) * 6px);
 }
 
-.wm-inat-badge-card.is-collapsed .wm-inat-badge-texts,
-.wm-inat-badge-card.is-collapsed .wm-inat-cluster-count-pill {
+/* Счётчик кластера плавно сжимается вместе с текстом */
+.wm-inat-cluster-count-pill {
+  max-width: calc(var(--lens-progress, 1) * 40px);
+  opacity: var(--lens-progress, 1);
+  overflow: hidden;
+  transition: max-width 0.24s ease, opacity 0.2s ease;
+  margin-left: calc(var(--lens-progress, 1) * 4px);
+}
+
+/* Кнопка стрелки плавно поворачивается при открытии */
+.wm-inat-toggle-arrow-btn {
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.15s ease;
+}
+
+/* В свернутом состоянии (по умолчанию вне линзы) */
+.wm-inat-badge-card.is-collapsed,
+.wm-inat-cluster-card.is-collapsed {
+  --lens-progress: 0;
+  min-width: 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  padding: 2.5px 5px !important;
+}
+
+.wm-inat-badge-card.is-collapsed .wm-inat-toggle-arrow-btn {
+  transform: rotate(0deg);
+}
+
+/* Скрываем только длинные строки названий */
+.wm-inat-badge-card.is-collapsed .wm-inat-badge-texts {
   display: none !important;
+}
+
+/* Число находок кластера (счётчик) ВСЕГДА видно в свёрнутом виде! */
+.wm-inat-cluster-card .wm-inat-cluster-count-pill,
+.wm-inat-cluster-card.is-collapsed .wm-inat-cluster-count-pill {
+  display: inline-flex !important;
+  opacity: 1 !important;
+  max-width: none !important;
+  margin-left: 3px !important;
+}
+
+/* В полностью развернутом состоянии */
+.wm-inat-badge-card.is-expanded {
+  --lens-progress: 1;
+  max-width: 250px !important;
+  padding: 3px 6px 3px 4px !important;
+}
+
+.wm-inat-badge-card.is-expanded .wm-inat-toggle-arrow-btn {
+  transform: rotate(180deg);
+}
+
+/* Тёмная тема */
+[data-theme="dark"] .wm-inat-badge-card {
+  background: var(--bg-glass-strong, #1f2937);
+  border-color: var(--inat-color, #10b981) !important;
+}
+
+/* Скрываем только текстовые названия, счётчик кластера оставляем видимым */
+.wm-inat-badge-card.is-collapsed .wm-inat-badge-texts {
+  display: none !important;
+}
+
+/* Гарантированное отображение числа находок в свёрнутом виде */
+.wm-inat-cluster-card.is-collapsed .wm-inat-cluster-count-pill,
+.wm-inat-cluster-card .wm-inat-cluster-count-pill {
+  display: inline-flex !important;
+  opacity: 1 !important;
+  max-width: none !important;
+  overflow: visible !important;
+  margin-left: 3px !important;
 }
 
 .wm-inat-badge-card.is-collapsed .wm-inat-fan-wrapper {
@@ -4714,11 +4795,14 @@ body.wm-ui-hidden .bottom-pill-stack {
   top: 0;
   left: 0;
   cursor: pointer;
-  pointer-events: auto;
+  pointer-events: auto !important;
   user-select: none;
   touch-action: manipulation;
   transform: translate3d(0, 0, 0);
+  contain: layout style; /* <-- ДОБАВЛЕНО: изолирует перерасчет геометрии */
 }
+
+
 
 .wm-inat-target-dot {
   position: absolute;
@@ -5892,14 +5976,31 @@ body.wm-ui-hidden .bottom-pill-stack {
   position: relative;
   background: #ffffff;
   border: 2px solid var(--inat-color, #10b981) !important;
-  box-shadow: 0 2px 0 -0.5px #ffffff,
-              0 2px 0 1.5px var(--inat-color, #10b981),
-              0 4px 0 -0.5px #ffffff,
-              0 4px 0 1.5px var(--inat-color, #10b981),
-              0 6px 14px rgba(0, 0, 0, 0.28) !important;
+  box-shadow: 0 3px 0 0 var(--inat-color, #10b981),
+              0 6px 14px rgba(0, 0, 0, 0.24) !important;
   padding: 3px 6px 3px 4px !important;
   max-width: 250px !important;
   min-width: 110px;
+}
+
+[data-theme="dark"] .wm-inat-cluster-card {
+  background: var(--bg-glass-strong, #1f2937);
+  box-shadow: 0 3px 0 0 var(--inat-color, #059669),
+              0 6px 16px rgba(0, 0, 0, 0.45) !important;
+}
+
+[data-theme="night-vision"] .wm-inat-cluster-card {
+  border-color: #ef4444 !important;
+  box-shadow: 0 3px 0 0 #ef4444,
+              0 6px 16px rgba(239, 68, 68, 0.4) !important;
+}
+
+/* Отключаем CSS-анимации на время зума и драга карты двумя пальцами */
+.leaflet-zoom-animating .wm-inat-badge-card,
+.leaflet-zoom-animating .wm-inat-bubble,
+.leaflet-zoom-animating .wm-inat-fan-photo,
+.leaflet-touching .wm-inat-badge-card {
+  transition: none !important;
 }
 
 /* Веер фотографий */
@@ -6057,15 +6158,7 @@ body.wm-ui-hidden .bottom-pill-stack {
   pointer-events: none;
 }
 
-/* Тёмная тема для кластеров */
-[data-theme="dark"] .wm-inat-cluster-card {
-  background: var(--bg-glass-strong, #1f2937);
-  box-shadow: 0 2px 0 -0.5px #111827,
-              0 2px 0 1.5px var(--inat-color, #059669),
-              0 4px 0 -0.5px #111827,
-              0 4px 0 1.5px var(--inat-color, #059669),
-              0 6px 16px rgba(0, 0, 0, 0.5) !important;
-}
+
 [data-theme="dark"] .wm-inat-fan-photo {
   border-color: #1f2937;
 }
@@ -6077,14 +6170,7 @@ body.wm-ui-hidden .bottom-pill-stack {
 }
 
 /* Ночной режим (красный монохром) */
-[data-theme="night-vision"] .wm-inat-cluster-card {
-  border-color: #ef4444 !important;
-  box-shadow: 0 2px 0 -0.5px #050101,
-              0 2px 0 1.5px #ef4444,
-              0 4px 0 -0.5px #050101,
-              0 4px 0 1.5px #ef4444,
-              0 6px 16px rgba(239, 68, 68, 0.4) !important;
-}
+
 [data-theme="night-vision"] .wm-inat-cluster-count-pill,
 [data-theme="night-vision"] .wm-inat-compact-cluster-badge {
   background: #ef4444 !important;
@@ -7597,18 +7683,24 @@ body.sheet-open .inat-geomodel-hud {
   border: 1.5px solid var(--inat-color, #10b981);
 }
 
-/* Рамка карточки-облачка */
+/* Контейнер карточки плашки */
 .wm-inat-badge-card {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
   background: #ffffff;
   border: 2px solid var(--inat-color, #10b981) !important;
-  border-radius: 14px;
-  padding: 3px 8px 3px 4px;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
-  max-width: 210px;
-  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  border-radius: 18px;
+  padding: 3px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
+  max-width: 260px;
+  overflow: hidden;
+  /* will-change: max-width УДАЛЕНО (вызывало утечку VRAM и дропы FPS) */
+  will-change: transform;
+  transition: max-width 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+              padding 0.2s ease,
+              transform 0.16s ease,
+              box-shadow 0.16s ease;
 }
 
 /* Острие-мишень точно под координатами */
