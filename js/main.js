@@ -1047,9 +1047,10 @@
       localStorage.setItem('wm_overlay_contours', 'true');
       syncOverlayMode();
     } else if (e.name === 'Полигоны Wikimapia (вектор)') {
-      isVectorsEnabled = true;
-      localStorage.setItem('wm_overlay_vectors', 'true');
-      WM.view.setVisible(true);
+      isVectorsEnabled = true; // БЫЛО: false
+      localStorage.setItem('wm_overlay_vectors', 'true'); // БЫЛО: 'false'
+      WM.view.setVisible(true); // БЫЛО: false
+      refreshStatus();
     } else if (e.name.includes('Тени (Esri)')) {
       localStorage.setItem('wm_overlay_hillshade', 'true');
     } else if (e.name.includes('Гипсометрия (Esri)')) {
@@ -1073,9 +1074,10 @@
       localStorage.setItem('wm_overlay_contours', 'false');
       syncOverlayMode();
     } else if (e.name === 'Полигоны Wikimapia (вектор)') {
-      isVectorsEnabled = false;
-      localStorage.setItem('wm_overlay_vectors', 'false');
-      WM.view.setVisible(false);
+      isVectorsEnabled = false; // БЫЛО: true
+      localStorage.setItem('wm_overlay_vectors', 'false'); // БЫЛО: 'true'
+      WM.view.setVisible(false); // БЫЛО: true
+      refreshStatus();
     } else if (e.name.includes('Тени (Esri)')) {
       localStorage.setItem('wm_overlay_hillshade', 'false');
     } else if (e.name.includes('Гипсометрия (Esri)')) {
@@ -1133,6 +1135,14 @@
   function refreshStatus() {
     if (!WM.ui || typeof WM.ui.setStatus !== 'function') return;
 
+    const isVectors = WM.view && WM.view.isVisible ? WM.view.isVisible() : true;
+
+    // --- ЕСЛИ ВЕКТОРНЫЙ СЛОЙ ВЫКЛЮЧЕН — ПОЛНОСТЬЮ СКРЫВАЕМ ПЛАШКУ СТАТУСА ---
+    if (!isVectors) {
+      WM.ui.setStatus(''); // скрываем элемент
+      return;
+    }
+
     const s = WM.loader.stats();
     const mode = WM.ui.getWorkMode ? WM.ui.getWorkMode() : 'manual';
     const autoHover = WM.ui.isAutoHoverEnabled ? WM.ui.isAutoHoverEnabled() : false;
@@ -1145,7 +1155,8 @@
     if (s.isRateWaiting) return WM.ui.setStatus(`⏳ Лимит ключей\nПауза: ${WM.ui.fmtTimer ? WM.ui.fmtTimer(s.waitMs) : ''}`, true);
 
     if (mode === 'manual') {
-      let t = `Ручной режим (только растр)\n${autoHover ? 'Наведите или кликните' : 'Кликните для загрузки'} · в памяти: ${WM.view.count()}`;
+      let t = `Ручной режим (только растр)\n${autoHover ? 'Наведите или кликните' : 'Кликните для загрузки'}`;
+      t += ` · в памяти: ${WM.view.count()}`;
       if (s.detailsQueueCount > 0) t += `\n📥 Карточки: в очереди ${s.detailsQueueCount}`;
       return WM.ui.setStatus(t);
     }
@@ -1153,7 +1164,8 @@
     if (map.getZoom() < C.MIN_ZOOM) return WM.ui.setStatus(`Масштаб < ${C.MIN_ZOOM}\n(приблизьте карту)`);
 
     if (mode === 'hybrid' && map.getZoom() < C.VECTOR_ZOOM) {
-      let t = `Гибридный режим (растр)\n${autoHover ? 'Наведите или кликните' : 'Кликните для загрузки'} · в памяти: ${WM.view.count()}`;
+      let t = `Гибридный режим (растр)\n${autoHover ? 'Наведите или кликните' : 'Кликните для загрузки'}`;
+      t += ` · в памяти: ${WM.view.count()}`;
       if (s.detailsQueueCount > 0) t += `\n📥 Карточки: в очереди ${s.detailsQueueCount}`;
       return WM.ui.setStatus(t);
     }
@@ -2667,6 +2679,9 @@
 
   function toggleNavTargetCollapse(e) {
     if (e) {
+      if (e.originalEvent && e.originalEvent.target && e.originalEvent.target.closest('.wm-nav-close-btn')) {
+        return;
+      }
       L.DomEvent.stopPropagation(e);
       L.DomEvent.preventDefault(e);
     }
@@ -2997,6 +3012,7 @@
     const targetTitle = activeNavTarget.title ? escapeHtml(activeNavTarget.title) : 'Цель';
     const moveActionLabel = speedKmh > 6 ? 'Ещё ехать:' : 'Ещё идти:';
 
+
     if (!navTargetBadgeMarker) {
       navTargetBadgeMarker = L.marker(badgeLL, {
         icon: L.divIcon({
@@ -3019,6 +3035,25 @@
     if (!containerEl) return;
     const root = containerEl.querySelector('.wm-nav-root') || containerEl;
 
+    // Перехват клика по крестику с отменой следования к цели:
+    if (!root._navCloseBound) {
+      root._navCloseBound = true;
+      L.DomEvent.on(root, 'click', (e) => {
+        const btn = e.target && e.target.closest && e.target.closest('.wm-nav-close-btn');
+        if (btn) {
+          L.DomEvent.stopPropagation(e);
+          L.DomEvent.preventDefault(e);
+          WM.navTarget.clear();
+        }
+      });
+      L.DomEvent.on(root, 'mousedown touchstart', (e) => {
+        const btn = e.target && e.target.closest && e.target.closest('.wm-nav-close-btn');
+        if (btn) {
+          L.DomEvent.stopPropagation(e);
+        }
+      });
+    }
+
     const currentMode = isNavTargetCollapsed ? 'compact' : 'full';
 
     if (navTargetBadgeMarker._renderedMode !== currentMode) {
@@ -3030,7 +3065,10 @@
               <span class="wm-gdb-compact-val js-dist">${distFormatted}</span>
               <span class="wm-gdb-compact-sub js-speed">${speedFormatted}</span>
             </div>
-            <button type="button" class="wm-gdb-toggle-btn" title="Развернуть подробности">▼</button>
+            <div class="wm-gdb-actions">
+              <button type="button" class="wm-gdb-toggle-btn" title="Развернуть подробности">▼</button>
+              <button type="button" class="wm-nav-close-btn" title="Отменить следование">✕</button>
+            </div>
           </div>
         `;
       } else {
@@ -3039,7 +3077,10 @@
             <div class="wm-gdb-head">
               <span class="wm-gdb-icon">🎯</span>
               <span class="wm-gdb-name" title="${targetTitle}">${targetTitle}</span>
-              <button type="button" class="wm-gdb-toggle-btn" title="Свернуть подробности">▲</button>
+              <div class="wm-gdb-actions">
+                <button type="button" class="wm-gdb-toggle-btn" title="Свернуть подробности">▲</button>
+                <button type="button" class="wm-nav-close-btn" title="Отменить следование">✕</button>
+              </div>
             </div>
             <div class="wm-gdb-grid">
               <div class="wm-gdb-row">
