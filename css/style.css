@@ -6198,9 +6198,25 @@ body.sheet-open .inat-geomodel-hud {
    ========================================================================= */
 
 .inat-suggest-modal-box {
-  max-width: 480px !important;
+  max-width: 490px !important;
   width: 95vw;
+  height: 85vh;             /* Фиксированная комфортная высота */
+  max-height: 680px;
+  min-height: 420px;
   padding: 16px 18px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important; /* Обрезает случайные вылеты за рамки скругления */
+}
+
+/* 1. Запрещаем шапке, тулбарам, чипам и подвалу сплющиваться по высоте */
+.inat-suggest-modal-box .modal-header,
+.inat-suggest-modal-box .inat-suggest-meta-bar,
+.inat-suggest-modal-box .inat-suggest-ai-control-box,
+.inat-suggest-modal-box .inat-suggest-chips-row,
+.inat-suggest-modal-box .inat-suggest-count-row,
+.inat-suggest-modal-box .modal-actions {
+  flex-shrink: 0 !important;
 }
 
 .inat-suggest-header-title h3 {
@@ -6220,7 +6236,7 @@ body.sheet-open .inat-geomodel-hud {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 6px 0 10px;
+  margin: 6px 0 8px;
 }
 
 .inat-suggest-month-tag {
@@ -6233,47 +6249,96 @@ body.sheet-open .inat-geomodel-hud {
   border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
+/* 2. Лента категорий организмов с фиксированной высотой */
 .inat-suggest-chips-row {
   display: flex;
   gap: 6px;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 2px 2px 8px 2px;
-  /* Плавный свайп на iOS и мобильном Chrome */
+  min-height: 40px; /* Гарантирует место под кнопки и тень */
+  align-items: center;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x;
-  scrollbar-width: none; /* Скрывает скроллбар в Firefox */
+  scrollbar-width: none;
 }
 
 .inat-suggest-chips-row::-webkit-scrollbar {
-  display: none; /* Скрывает скроллбар в Chrome/Safari/WebView */
+  display: none;
 }
 
 .inat-suggest-chip {
-  flex-shrink: 0; /* ГЛАВНОЕ: запрещает кнопкам сжиматься и обрезаться */
-  padding: 5px 12px;
+  flex-shrink: 0;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
   font-size: 11.5px;
   font-weight: 700;
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  color: var(--text-muted);
+  color: var(--text-main);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
   transition: all 0.12s ease;
 }
 /* Бейджи источника и вероятности в подсказках */
-.inat-suggest-score-badge {
-  font-size: 10px;
-  font-weight: 800;
-  padding: 2px 7px;
-  border-radius: 8px;
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-  white-space: nowrap;
-  letter-spacing: 0.2px;
+.inat-suggest-chip:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
 }
+
+.inat-suggest-chip.active {
+  background: #10b981;
+  color: #ffffff;
+  border-color: #10b981;
+}
+
+/* 3. Блок результатов занимает всё свободное пространство */
+.inat-suggest-results-wrap {
+  flex: 1 1 auto;
+  min-height: 0; /* Разрешает flex-блоку правильно сжиматься */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.inat-suggest-count-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+/* 4. Скроллится ТОЛЬКО сам список карточек */
+.inat-suggest-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none !important; /* Убираем жесткий 48vh, высоту рассчитывает flexbox */
+  overflow-y: auto;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* 5. Подвал с кнопкой «Закрыть» всегда внизу, изолирован от списка */
+.inat-suggest-modal-box .modal-actions {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+}
+
+
 
 /* 1. От нейросети Geo-Prior */
 .inat-suggest-score-badge.ai {
@@ -6320,7 +6385,82 @@ body.sheet-open .inat-geomodel-hud {
   user-select: none;
   animation: pulseTopBtn 1.4s infinite ease-in-out;
 }
+/* Кнопка включения прогнозирования нейросетью и панель статуса */
+.inat-suggest-ai-control-box {
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
 
+.inat-suggest-ai-toggle-btn {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed var(--accent);
+  color: var(--accent);
+  background: var(--bg-secondary);
+  transition: all 0.15s ease;
+}
+
+.inat-suggest-ai-toggle-btn.active {
+  background: rgba(16, 185, 129, 0.14);
+  border: 1.5px solid #10b981;
+  color: #10b981;
+}
+
+.inat-suggest-ai-toggle-btn.is-loading {
+  pointer-events: none;
+  opacity: 0.65;
+}
+
+.inat-suggest-ai-notice {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3.5px solid var(--accent);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-main);
+  animation: progressFadeIn 0.2s ease-out;
+}
+
+.inat-suggest-ai-notice.is-error {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+}
+
+.inat-suggest-notice-btn {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: underline;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+[data-theme="dark"] .inat-suggest-ai-toggle-btn.active {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #34d399;
+  color: #34d399;
+}
+
+[data-theme="night-vision"] .inat-suggest-ai-toggle-btn.active {
+  background: rgba(239, 68, 68, 0.2) !important;
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+}
 /* Отметка о завершении списка */
 .inat-suggest-end-notice {
   text-align: center;
@@ -6338,24 +6478,8 @@ body.sheet-open .inat-geomodel-hud {
   border-color: #10b981;
 }
 
-.inat-suggest-count-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
 
-.inat-suggest-list {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  max-height: 48vh;
-  overflow-y: auto;
-  padding-right: 2px;
-}
+
 
 .inat-suggest-card {
   display: flex;
