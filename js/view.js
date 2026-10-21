@@ -508,7 +508,9 @@
       } else {
         this.render();
       }
+      if (window.refreshAppStatus) window.refreshAppStatus();
     },
+    isVisible() { return isVectorVisible; },
 
     toggleTagFilter(tag) {
       if (WM.loader && WM.loader.resetTagBbox) WM.loader.resetTagBbox();
