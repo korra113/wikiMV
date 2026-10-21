@@ -2139,7 +2139,14 @@
 
 
   function applyUIVisibility() {
-    $('status').style.display = uiVis.status ? '' : 'none';
+    // ЗАМЕНИЛИ ПЕРВУЮ СТРОЧКУ НА ЭТОТ БЛОК:
+    const isVectors = WM.view && WM.view.isVisible ? WM.view.isVisible() : true;
+    const statusEl = $('status');
+    if (statusEl) {
+      statusEl.style.display = (uiVis.status && isVectors && statusEl.textContent) ? '' : 'none';
+    }
+
+    // ДАЛЬШЕ ВСЁ ОСТАЁТСЯ КАК БЫЛО:
     const limitRow = $('limit-row');
     if (limitRow) limitRow.style.display = uiVis.limit ? '' : 'none';
     if (!uiVis.pill) $('hover-pill').hidden = true;
@@ -2509,31 +2516,55 @@
 
   function updateLimitHUD() {
     const badge = $('limit-badge');
-    if (!badge || !uiVis.limit) return;
+    if (!badge) return;
+    if (!uiVis.limit) {
+      badge.hidden = true;
+      return;
+    }
 
     const pool = WM.api.getPoolStatus();
     let newText = '';
     let isDanger = false;
+    let hasProblem = false;
 
     if (pool.allBlocked) {
       newText = `⏳ Пауза API: ${Math.ceil(pool.waitMs / 1000)} сек.`;
       isDanger = true;
+      hasProblem = true;
       toggleTopGetKeyBtn(true);
     } else if (pool.isMaster) {
-      newText = '🔑 Безлимитный режим';
-      isDanger = false;
+      // Безлимитный режим — проблем нет, плашку скрываем
+      hasProblem = false;
+      newText = '';
       toggleTopGetKeyBtn(false);
     } else {
       const stats = WM.api.getKeyStats(pool.key);
-      newText = `🔑 ${stats.used}/${stats.limit}`;
-      isDanger = stats.remaining <= 10;
+      if (stats.isBlocked) {
+        newText = `⏳ Ключ заблокирован: ${Math.ceil(stats.waitMs / 1000)} с`;
+        isDanger = true;
+        hasProblem = true;
+      } else if (stats.remaining <= 10) {
+        newText = `⚠️ Лимит: ${stats.remaining}/${stats.limit}`;
+        isDanger = true;
+        hasProblem = true;
+      } else {
+        hasProblem = false;
+        newText = '';
+      }
       toggleTopGetKeyBtn(false);
     }
 
-    if (badge.textContent !== newText) {
-      badge.textContent = newText;
+    if (hasProblem && newText) {
+      badge.hidden = false;
+      if (badge.textContent !== newText) {
+        badge.textContent = newText;
+      }
+      badge.classList.toggle('danger', isDanger);
+    } else {
+      badge.hidden = true;
+      badge.textContent = '';
+      badge.classList.remove('danger');
     }
-    badge.classList.toggle('danger', isDanger);
   }
 
   function renderKeysUI() {
@@ -6353,6 +6384,64 @@
 
 
 
+    const selSelectMode = $('inat-select-mode');
+    const hintSelectMode = $('inat-select-mode-hint');
+    if (selSelectMode) {
+      const updateHint = (val) => {
+        if (!hintSelectMode) return;
+        if (val === 'crosshair') {
+          hintSelectMode.textContent = 'Перекрестием: наведите прицел в центре экрана на облачко и нажмите на экран для открытия карточки';
+        } else if (val === 'click') {
+          hintSelectMode.textContent = 'Кликом: нажимайте пальцем или мышью прямо на облачко/метку на карте';
+        } else {
+          hintSelectMode.textContent = 'Оба варианта: карточку можно открыть и перекрестием в центре, и прямым нажатием на облачко';
+        }
+      };
+
+      selSelectMode.addEventListener('change', (e) => {
+        const val = e.target.value;
+        WM.inat?.setConfig({ selectMode: val });
+        updateHint(val);
+        const titles = {
+          crosshair: '🎯 Выделение: Перекрестием (по умолчанию)',
+          click: '👆 Выделение: Кликом пальцем / мышью',
+          both: '🎯 + 👆 Выделение: Оба варианта разом'
+        };
+        if (WM.ui && WM.ui.showToast) WM.ui.showToast(titles[val] || 'Режим обновлён');
+      });
+    }
+
+    const selBadgeMode = $('inat-badge-display-mode');
+    const hintBadgeMode = $('inat-badge-display-mode-hint');
+    if (selBadgeMode) {
+      const updateBadgeHint = (val) => {
+        if (!hintBadgeMode) return;
+        const hints = {
+          'full': 'Полный вид: названия и бейджи всегда видны целиком.',
+          'auto-hide': 'Автоматически скрывать: метки сжаты в овалы и разворачиваются при наведении прицела или курсора.',
+          'center-bubble': 'Автообласть по центру: карточки около центра экрана раскрываются и увеличиваются линзой.',
+          'manual': 'Ручное: все плашки сжаты в овалы, открываются и закрываются кликом на стрелочку ›.'
+        };
+        hintBadgeMode.textContent = hints[val] || '';
+      };
+
+      selBadgeMode.addEventListener('change', (e) => {
+        const val = e.target.value;
+        WM.inat?.setConfig({ badgeDisplayMode: val });
+        updateBadgeHint(val);
+        const titles = {
+          'full': '🏷️ Вид карточек: Полный',
+          'auto-hide': '🏷️ Вид карточек: Авто-скрытие',
+          'center-bubble': '🏷️ Вид карточек: Линза по центру',
+          'manual': '🏷️ Вид карточек: Ручное'
+        };
+        if (WM.ui && WM.ui.showToast) WM.ui.showToast(titles[val] || 'Настройки обновлены');
+      });
+      updateBadgeHint(selBadgeMode.value);
+    }
+
+
+
     $('inat-zoom-out-mode')?.addEventListener('change', (e) => {
       WM.inat?.setConfig({ zoomOutMode: e.target.value });
     });
@@ -6557,10 +6646,23 @@
     },
     closeSheet,
     showToast,
-    setPill(obj, count) {
+    setPill(obj, count, customSubtitle) {
       const p = $('hover-pill');
-      if (!obj || !uiVis.pill) { p.hidden = true; return; }
+      if (!obj || !uiVis.pill) { 
+        p.hidden = true; 
+        delete p.dataset.source; 
+        return; 
+      }
       p.hidden = false;
+
+      if (obj.isInat) {
+        p.dataset.source = 'inat';
+        const rawTitle = obj.title || 'Наблюдение iNaturalist';
+        const safeTitle = escapeHtml(rawTitle) + (count > 1 ? ` (${count})` : '') + '  ›';
+        p.innerHTML = `<span class="pill-title">${safeTitle}</span><span class="pill-meta">${escapeHtml(customSubtitle || 'Нажмите для карточки')}</span>`;
+        return;
+      }
+      delete p.dataset.source;
 
       const rawTitle = obj.title || 'Безымянный объект';
       const safeTitle = escapeHtml(rawTitle) + (count > 1 ? ` (+${count - 1})` : '') + '  ›';
@@ -6589,6 +6691,17 @@
     setStatus(text, warn) {
       const s = $('status');
       if (s) {
+        // Если передан пустой текст — прячем плашку
+        if (!text) {
+          s.style.display = 'none';
+          s.textContent = '';
+          return;
+        }
+
+        // Если текст есть и плашка не выключена в настройках видимости — показываем
+        if (uiVis.status !== false) {
+          s.style.display = '';
+        }
         s.textContent = text;
         s.classList.toggle('warn', !!warn);
       }
