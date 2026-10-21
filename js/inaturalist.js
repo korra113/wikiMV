@@ -235,6 +235,37 @@
     DD: 'Недостаток данных (DD)'
   };
 
+  // Кэш для русских названий видов
+const ruTaxaNamesCache = new Map();
+
+async function resolveRussianTaxonName(latinName, onResolved) {
+  if (!latinName) return;
+  if (ruTaxaNamesCache.has(latinName)) {
+    const cached = ruTaxaNamesCache.get(latinName);
+    if (cached) onResolved(cached);
+    return;
+  }
+
+  try {
+    // Бесплатный запрос к API Википедии с автоматическим следованием по редиректам (redirects=1)
+    const url = `https://ru.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(latinName)}&redirects=1&format=json&origin=*`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const pages = data?.query?.pages;
+    if (pages) {
+      const page = Object.values(pages)[0];
+      if (page && page.title && !page.missing) {
+        // Если статья найдена на русском языке
+        const ruTitle = page.title;
+        ruTaxaNamesCache.set(latinName, ruTitle);
+        onResolved(ruTitle);
+        return;
+      }
+    }
+  } catch (e) {}
+  ruTaxaNamesCache.set(latinName, null);
+}
+
   function saveConfig() {
     try { localStorage.setItem('wm_inat_config', JSON.stringify(config)); } catch (e) {}
   }
@@ -611,9 +642,7 @@
     const radius = getClusterRadiusPx(zoom, mode);
     const radiusSq = radius * radius;
 
-    // СТАБИЛЬНАЯ СОРТИРОВКА:
-    // Точки обходятся не по удалению от центра экрана, а по постоянному рангу
-    // (качество -> наличие фото -> стабильный id). Ядра кластеров будут всегда одними и теми же!
+    // Быстрый отбор по качеству без тяжелых аллокаций
     const sortedObs = [...visibleObs].sort((a, b) => {
       const scoreA = (a.quality_grade === 'research' ? 4 : 0) + (a.photos?.length ? 2 : 0);
       const scoreB = (b.quality_grade === 'research' ? 4 : 0) + (b.photos?.length ? 2 : 0);
@@ -621,36 +650,43 @@
       return b.id - a.id;
     });
 
-    const points = sortedObs.map(obs => ({
-      obs,
-      pt: map.latLngToContainerPoint([obs._lat, obs._lng]),
-      clustered: false
-    }));
+    const len = sortedObs.length;
+    // Предрассчитываем пиксели один раз плоским типизированным массивом для ускорения CPU
+    const ptsX = new Float64Array(len);
+    const ptsY = new Float64Array(len);
+    const clustered = new Uint8Array(len);
+
+    for (let i = 0; i < len; i++) {
+      const pt = map.latLngToContainerPoint([sortedObs[i]._lat, sortedObs[i]._lng]);
+      ptsX[i] = pt.x;
+      ptsY[i] = pt.y;
+    }
 
     const clusters = [];
-    for (let i = 0; i < points.length; i++) {
-      const p1 = points[i];
-      if (p1.clustered) continue;
-      p1.clustered = true;
+    for (let i = 0; i < len; i++) {
+      if (clustered[i]) continue;
+      clustered[i] = 1;
 
-      const clusterItems = [p1.obs];
+      const clusterItems = [sortedObs[i]];
+      const p1x = ptsX[i];
+      const p1y = ptsY[i];
+      const t1Id = sortedObs[i].taxon?.id;
 
-      for (let j = i + 1; j < points.length; j++) {
-        const p2 = points[j];
-        if (p2.clustered) continue;
+      for (let j = i + 1; j < len; j++) {
+        if (clustered[j]) continue;
 
-        const dx = p1.pt.x - p2.pt.x;
-        // Мягкий вертикальный коэффициент (плашки шире, чем выше)
-        const dy = (p1.pt.y - p2.pt.y) * 1.15;
-        let distSq = dx * dx + dy * dy;
+        const dx = p1x - ptsX[j];
+        const dy = (p1y - ptsY[j]) * 1.15;
+        let dSq = dx * dx + dy * dy;
 
-        // Облегчаем объединение организмов одного вида
-        const sameTaxon = (p1.obs.taxon && p2.obs.taxon && p1.obs.taxon.id === p2.obs.taxon.id);
-        if (sameTaxon) distSq *= 0.82;
+        // Если один вид — объединяем охотнее
+        if (t1Id && sortedObs[j].taxon?.id === t1Id) {
+          dSq *= 0.82;
+        }
 
-        if (distSq <= radiusSq) {
-          p2.clustered = true;
-          clusterItems.push(p2.obs);
+        if (dSq <= radiusSq) {
+          clustered[j] = 1;
+          clusterItems.push(sortedObs[j]);
         }
       }
 
@@ -801,28 +837,9 @@
       zIndexOffset: 850
     });
 
-    let downPos = null;
-    let hasMoved = false;
-
-    const onDown = (e) => {
-      const pt = e.touches ? e.touches[0] : e;
-      downPos = { x: pt.clientX, y: pt.clientY };
-      hasMoved = false;
-    };
-
-    const onMove = (e) => {
-      if (!downPos) return;
-      const pt = e.touches ? e.touches[0] : e;
-      if (Math.hypot(pt.x - downPos.x, pt.y - downPos.y) > 7) {
-        hasMoved = true;
-      }
-    };
-
     const toggleCollapseState = (forceExpand) => {
-      const el = marker.getElement();
-      if (!el) return;
-      const card = el.querySelector('.wm-inat-badge-card');
-      const arrowBtn = el.querySelector('.wm-inat-toggle-arrow-btn');
+      const card = marker._cardEl;
+      const arrowBtn = marker._arrowBtn;
       if (!card) return;
 
       const shouldExpand = forceExpand !== undefined ? forceExpand : card.classList.contains('is-collapsed');
@@ -839,14 +856,8 @@
     };
 
     const handler = (e) => {
-      if (hasMoved || (map && map.dragging && map.dragging.moving())) {
-        downPos = null;
-        hasMoved = false;
-        return;
-      }
-      downPos = null;
+      if (map && map.dragging && map.dragging.moving()) return;
 
-      // Клик по кнопке-стрелочке переключает состояние раскрытия
       if (e && e.target && e.target.closest('.wm-inat-toggle-arrow-btn')) {
         L.DomEvent.stopPropagation(e);
         if (e.preventDefault) e.preventDefault();
@@ -855,16 +866,17 @@
       }
 
       const selMode = config.selectMode || 'crosshair';
-      if (selMode === 'crosshair') {
-        if (!hoveredCluster || hoveredCluster.id !== cluster.id) return;
+      if (selMode === 'crosshair' && (!hoveredCluster || hoveredCluster.id !== cluster.id)) {
+        return;
       }
 
       if (e) {
         L.DomEvent.stopPropagation(e);
         if (e.preventDefault) e.preventDefault();
       }
+
       const now = Date.now();
-      if (marker._lastClick && now - marker._lastClick < 400) return;
+      if (marker._lastClick && now - marker._lastClick < 350) return;
       marker._lastClick = now;
 
       if (cluster.isSingle) {
@@ -875,65 +887,43 @@
       }
     };
 
-    const onEnter = () => {
-      highlightObservationZone(cluster.primaryObs);
-      const el = marker.getElement();
-      if (el) el.classList.add('inat-crosshair-hovered');
-
-      // Для режима 'auto-hide' при наведении раскрываем метку
-      if (config.badgeDisplayMode === 'auto-hide') {
-        toggleCollapseState(true);
-      }
-    };
-
-    const onLeave = () => {
-      if (!hoveredCluster || hoveredCluster.id !== cluster.id) {
-        clearHoverHighlight();
-      }
-      // При уходе курсора сворачиваем обратно
-      if (config.badgeDisplayMode === 'auto-hide') {
-        const isCrossing = hoveredCluster && hoveredCluster.id === cluster.id;
-        if (!isCrossing) {
-          toggleCollapseState(false);
-        }
-      }
-    };
-
-
-    marker.on('mouseover', onEnter);
-    marker.on('mouseout', onLeave);
-
     marker._wmBind = () => {
       const el = marker.getElement();
       if (el) {
         el.style.pointerEvents = 'auto';
-        el.removeEventListener('mousedown', onDown);
-        el.removeEventListener('mousemove', onMove);
-        el.removeEventListener('touchstart', onDown);
-        el.removeEventListener('touchmove', onMove);
-        el.removeEventListener('mouseenter', onEnter);
-        el.removeEventListener('mouseleave', onLeave);
-        el.onclick = null;
+        // Кэшируем внутренние ноды прямо на маркере, чтобы избежать повторных querySelector
+        marker._rootEl = el;
+        marker._cardEl = el.querySelector('.wm-inat-badge-card');
+        marker._bubbleEl = el.querySelector('.wm-inat-bubble');
+        marker._arrowBtn = el.querySelector('.wm-inat-toggle-arrow-btn');
 
-        el.addEventListener('mousedown', onDown, { passive: true });
-        el.addEventListener('mousemove', onMove, { passive: true });
-        el.addEventListener('touchstart', onDown, { passive: true });
-        el.addEventListener('touchmove', onMove, { passive: true });
-        el.addEventListener('mouseenter', onEnter, { passive: true });
-        el.addEventListener('mouseleave', onLeave, { passive: true });
         el.onclick = handler;
+
+        // Легкий hover для десктопа
+        el.onmouseenter = () => {
+          highlightObservationZone(cluster.primaryObs);
+          el.classList.add('inat-crosshair-hovered');
+          if (config.badgeDisplayMode === 'auto-hide') toggleCollapseState(true);
+        };
+        el.onmouseleave = () => {
+          if (!hoveredCluster || hoveredCluster.id !== cluster.id) {
+            clearHoverHighlight();
+          }
+          if (config.badgeDisplayMode === 'auto-hide' && (!hoveredCluster || hoveredCluster.id !== cluster.id)) {
+            toggleCollapseState(false);
+          }
+        };
       }
     };
 
-    marker.on('click', handler);
     marker.addTo(layer);
     marker._wmMode = mode;
+    marker._wmDisplayMode = config.badgeDisplayMode || 'full'; // <-- ДОБАВИТЬ ЭТУ СТРОКУ
     marker._wmCount = cluster.count;
     marker._wmCluster = cluster;
     marker._wmBind();
     markerInstances.set(cluster.id, marker);
   }
-
   function buildTileLayerUrl(mode) {
     const p = new URLSearchParams();
     const f = activeMapFilter;
@@ -1072,9 +1062,11 @@
         if (m.getLatLng().lat !== cluster.lat || m.getLatLng().lng !== cluster.lng) {
           m.setLatLng([cluster.lat, cluster.lng]);
         }
-        if (m._wmMode !== mode || m._wmCount !== cluster.count) {
+        const curDisplayMode = config.badgeDisplayMode || 'full';
+        if (m._wmMode !== mode || m._wmCount !== cluster.count || m._wmDisplayMode !== curDisplayMode) {
           m.setIcon(buildClusterMarkerIcon(cluster, mode));
           m._wmMode = mode;
+          m._wmDisplayMode = curDisplayMode;
           m._wmCount = cluster.count;
           m._wmCluster = cluster;
           m._wmBind();
@@ -1129,8 +1121,10 @@
     const center = map.getCenter();
     const centerPt = map.latLngToContainerPoint(center);
     const mapSize = map.getSize();
-    // Радиус пузыря линзы (примерно 38% от меньшей стороны экрана)
     const bubbleRadius = Math.min(mapSize.x, mapSize.y) * 0.38;
+
+    // Быстрый фильтр по градусам: ~0.05 градуса вокруг центра
+    const degBound = 360 / (256 * Math.pow(2, map.getZoom())) * (bubbleRadius * 1.2);
 
     let bestCluster = null;
     let minDistancePx = Infinity;
@@ -1139,41 +1133,53 @@
       const cluster = marker._wmCluster;
       if (!cluster) continue;
 
+      // Быстрый отсев точек далеко за пределами радиуса без тригонометрии
+      if (Math.abs(cluster.lat - center.lat) > degBound || Math.abs(cluster.lng - center.lng) > degBound) {
+        // Если маркер был раскрыт через линзу, плавно сбрасываем
+        if (displayMode === 'center-bubble' && marker._cardEl && !marker._cardEl.classList.contains('is-collapsed')) {
+          marker._cardEl.classList.add('is-collapsed');
+          marker._cardEl.style.removeProperty('--lens-progress');
+          if (marker._bubbleEl) {
+            marker._bubbleEl.style.transform = '';
+            marker._bubbleEl.style.zIndex = '';
+          }
+        }
+        continue;
+      }
+
       const pt = map.latLngToContainerPoint([cluster.lat, cluster.lng]);
       const isBubble = marker._wmMode === 'bubble';
       
       let d;
       if (isBubble) {
-        const bubbleCenterY = pt.y - 20;
         const dx = Math.abs(centerPt.x - pt.x);
-        const dy = Math.abs(centerPt.y - bubbleCenterY);
+        const dy = Math.abs(centerPt.y - (pt.y - 20));
         d = Math.hypot(dx * 0.7, dy * 1.2);
       } else {
         d = centerPt.distanceTo(pt);
       }
 
-      // --- ЛОГИКА 3: АВТООБЛАСТЬ ПО ЦЕНТРУ (ПУЗЫРЬ/ЛИНЗА) ---
+      // Линза по центру (без querySelector, используем закэшированные ноды)
       if (displayMode === 'center-bubble' && isBubble) {
-        const el = marker.getElement();
-        if (el) {
-          const card = el.querySelector('.wm-inat-badge-card');
-          const bubbleContainer = el.querySelector('.wm-inat-bubble');
-          if (card && bubbleContainer) {
-            const distToCenter = centerPt.distanceTo(pt);
-            if (distToCenter <= bubbleRadius) {
-              const factor = 1 - (distToCenter / bubbleRadius); // 1.0 в самом центре -> 0 на границе
-              card.classList.remove('is-collapsed');
-              card.classList.add('is-expanded');
-              // Плавный масштаб от 1.0 до 1.14 в самом центре
-              const scale = 1.0 + factor * 0.14;
-              bubbleContainer.style.transform = `translate3d(-50%, 0, 0) scale(${scale.toFixed(3)})`;
-              bubbleContainer.style.zIndex = Math.round(500 + factor * 500);
-            } else {
-              card.classList.add('is-collapsed');
-              card.classList.remove('is-expanded');
-              bubbleContainer.style.transform = '';
-              bubbleContainer.style.zIndex = '';
-            }
+        const card = marker._cardEl;
+        const bubbleContainer = marker._bubbleEl;
+        
+        if (card && bubbleContainer) {
+          const distToCenter = centerPt.distanceTo(pt);
+          if (distToCenter <= bubbleRadius) {
+            const factor = Math.max(0, Math.min(1, 1 - (distToCenter / bubbleRadius)));
+            const easedProgress = Math.pow(factor, 0.85);
+
+            card.classList.remove('is-collapsed');
+            card.style.setProperty('--lens-progress', easedProgress.toFixed(2));
+            const scale = (1.0 + factor * 0.14).toFixed(2);
+            bubbleContainer.style.transform = `translate3d(-50%, 0, 0) scale(${scale})`;
+            bubbleContainer.style.zIndex = Math.round(500 + factor * 500);
+          } else if (!card.classList.contains('is-collapsed')) {
+            card.classList.add('is-collapsed');
+            card.style.removeProperty('--lens-progress');
+            bubbleContainer.style.transform = '';
+            bubbleContainer.style.zIndex = '';
           }
         }
       }
@@ -1192,14 +1198,11 @@
       hoveredObsId = bestCluster.primaryObs.id;
       highlightObservationZone(bestCluster.primaryObs);
 
-      // При наведении перекрестия в режиме auto-hide раскрываем карточку
       if (displayMode === 'auto-hide') {
         const marker = markerInstances.get(bestCluster.id);
-        const el = marker ? marker.getElement() : null;
-        const card = el ? el.querySelector('.wm-inat-badge-card') : null;
-        if (card) {
-          card.classList.remove('is-collapsed');
-          card.classList.add('is-expanded');
+        if (marker && marker._cardEl) {
+          marker._cardEl.classList.remove('is-collapsed');
+          marker._cardEl.classList.add('is-expanded');
         }
       }
 
@@ -1226,14 +1229,11 @@
       }
     }
 
-    // Если перекрестие ушло с прежней карточки в режиме auto-hide — закрываем её
     if (displayMode === 'auto-hide' && prevHoveredCluster && (!bestCluster || bestCluster.id !== prevHoveredCluster.id)) {
       const prevMarker = markerInstances.get(prevHoveredCluster.id);
-      const el = prevMarker ? prevMarker.getElement() : null;
-      const card = el ? el.querySelector('.wm-inat-badge-card') : null;
-      if (card && !el.matches(':hover')) {
-        card.classList.add('is-collapsed');
-        card.classList.remove('is-expanded');
+      if (prevMarker && prevMarker._cardEl && prevMarker._rootEl && !prevMarker._rootEl.matches(':hover')) {
+        prevMarker._cardEl.classList.add('is-collapsed');
+        prevMarker._cardEl.classList.remove('is-expanded');
       }
     }
   }
@@ -1613,15 +1613,7 @@
     updateVisionLimitUI();
     updateVisionTokenNotice();
 
-    btnGotoAuth?.addEventListener('click', () => {
-      const spoilerAuth = document.getElementById('spoiler-inat-auth');
-      const inputToken = document.getElementById('inat-token-input');
-      if (spoilerAuth) {
-        spoilerAuth.open = true;
-        spoilerAuth.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-      setTimeout(() => inputToken?.focus(), 250);
-    });
+    btnGotoAuth?.addEventListener('click', openAndFocusTokenInput);
 
     btnPick?.addEventListener('click', () => {
       const tokenInfo = getTokenInfo();
@@ -2680,9 +2672,21 @@
     scheduleFetch(false);
   }
 
+  let lastCrosshairCheckTime = 0;
+
   function scheduleCrosshairCheck() {
+    // Если палец прямо сейчас тянет карту — не пересчитываем стили и не грузим CPU
+    if (map && map.dragging && map.dragging.moving()) return;
+
     if (crossRaf) return;
-    crossRaf = requestAnimationFrame(() => { crossRaf = 0; checkCrosshairProximity(); });
+    crossRaf = requestAnimationFrame(() => {
+      crossRaf = 0;
+      const now = performance.now();
+      // Троттлинг не чаще раза в 60 мс
+      if (now - lastCrosshairCheckTime < 60) return;
+      lastCrosshairCheckTime = now;
+      checkCrosshairProximity();
+    });
   }
 
   function closeModal() {
@@ -2958,6 +2962,42 @@
   let suggestFallbackPage = 1;   // Страница пагинации реальных находок
   const suggestSeenTaxonIds = new Set();
 
+  function openAndFocusTokenInput() {
+    // 1. Закрываем модалку подсказок, если она была открыта
+    if (typeof closeSmartSuggestionsModal === 'function') {
+      closeSmartSuggestionsModal();
+    }
+
+    // 2. Открываем модальное окно основных настроек
+    const modalSettings = document.getElementById('modal');
+    if (modalSettings) modalSettings.classList.add('open');
+
+    const tokenInput = document.getElementById('inat-token-input');
+    if (!tokenInput) return;
+
+    // 3. Рекурсивно раскрываем ВСЕ спойлеры <details>, в которые вложено поле ввода
+    let parent = tokenInput.closest('details');
+    while (parent) {
+      parent.open = true;
+      parent = parent.parentElement ? parent.parentElement.closest('details') : null;
+    }
+
+    // 4. Плавно прокручиваем к центру экрана и ставим курсор в инпут
+    setTimeout(() => {
+      tokenInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      tokenInput.focus();
+
+      // Подсветка поля ввода зеленым импульсом на 1.5 секунды
+      tokenInput.style.transition = 'box-shadow 0.3s ease, border-color 0.3s ease';
+      tokenInput.style.borderColor = '#10b981';
+      tokenInput.style.boxShadow = '0 0 0 4px rgba(16, 185, 129, 0.35)';
+      setTimeout(() => {
+        tokenInput.style.borderColor = '';
+        tokenInput.style.boxShadow = '';
+      }, 1500);
+    }, 220);
+  }
+
   function showSuggestNotice(text, isError = false, showAuthLink = false) {
     const noticeEl = document.getElementById('inat-suggest-ai-notice');
     if (!noticeEl) return;
@@ -2968,21 +3008,7 @@
       ${showAuthLink ? '<button type="button" class="btn-link inat-suggest-notice-btn" id="btn-suggest-goto-token">🔑 Ввести токен в настройках ›</button>' : ''}
     `;
 
-    document.getElementById('btn-suggest-goto-token')?.addEventListener('click', () => {
-      closeSmartSuggestionsModal();
-      const modalSettings = document.getElementById('modal');
-      const spoilerInat = document.getElementById('spoiler-inaturalist');
-      const spoilerAuth = document.getElementById('spoiler-inat-auth');
-      const inp = document.getElementById('inat-token-input');
-
-      if (modalSettings) modalSettings.classList.add('open');
-      if (spoilerInat) spoilerInat.open = true;
-      if (spoilerAuth) {
-        spoilerAuth.open = true;
-        spoilerAuth.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-      setTimeout(() => inp?.focus(), 250);
-    });
+    document.getElementById('btn-suggest-goto-token')?.addEventListener('click', openAndFocusTokenInput);
   }
 
   function hideSuggestNotice() {
@@ -3262,8 +3288,16 @@
   function createSuggestionCard(it) {
     const t = it.taxon || it;
     const meta = getTaxonMeta(t);
-    const ruName = t.preferred_common_name || t.name || 'Неизвестный организм';
-    const latinName = (t.name && t.name !== ruName) ? t.name : '';
+
+    // 1. Проверяем, есть ли уже полноценное русское имя (содержит кириллицу)
+    const rawCommon = t.preferred_common_name;
+    const isAlreadyRussian = rawCommon && /[а-яё]/i.test(rawCommon);
+
+    let ruName = isAlreadyRussian 
+      ? rawCommon 
+      : (t.preferred_common_name || t.name || 'Неизвестный организм');
+
+    const latinName = (t.name && t.name !== ruName) ? t.name : (t.name || '');
     const rank = RANKS_RU[t.rank] || t.rank || 'вид';
     const photoUrl = t.default_photo?.square_url || '';
 
@@ -3315,13 +3349,25 @@
 
     card.querySelector('.btn-show-map')?.addEventListener('click', () => {
       closeSmartSuggestionsModal();
-      applyFilterToMap(ruName, t);
+      applyFilterToMap(card.querySelector('.inat-suggest-ru')?.textContent || ruName, t);
     });
 
     card.querySelector('.btn-show-geomodel')?.addEventListener('click', () => {
       closeSmartSuggestionsModal();
       showGeomodelForTaxon(t);
     });
+
+    // 2. Если заголовок остался на латыни — асинхронно запрашиваем русский перевод из Википедии
+    if (!isAlreadyRussian && t.name) {
+      const ruEl = card.querySelector('.inat-suggest-ru');
+      const laEl = card.querySelector('.inat-suggest-la');
+      resolveRussianTaxonName(t.name, (resolvedRu) => {
+        if (ruEl && resolvedRu) {
+          ruEl.textContent = resolvedRu;
+          if (laEl) laEl.textContent = `${t.name} · ${escapeHtml(rank)}`;
+        }
+      });
+    }
 
     return card;
   }
@@ -3619,6 +3665,14 @@
     // При смене режима отображения карточек — сбрасываем раскрытые вручную и мгновенно перерисовываем
     if (newCfg.badgeDisplayMode !== undefined) {
       manualExpandedClusters.clear();
+      const newDisplayMode = newCfg.badgeDisplayMode;
+      for (const m of markerInstances.values()) {
+        if (m._wmCluster && m._wmMode) {
+          m._wmDisplayMode = newDisplayMode;
+          m.setIcon(buildClusterMarkerIcon(m._wmCluster, m._wmMode));
+          m._wmBind();
+        }
+      }
       renderVisible();
     }
 
