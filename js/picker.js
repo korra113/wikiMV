@@ -35,17 +35,25 @@
   let touchMoved = false;
 
   function isInteractiveMarker(target) {
-    return !!(target && target.closest && target.closest(
-      '.wm-ruler-vertex-icon, .wm-ruler-vertex-wrap, .wm-ruler-midpoint-icon, ' +
-      '.wm-ruler-track-badge, .wm-custom-marker-icon, .leaflet-popup, .leaflet-control, ' +
-      '.wm-qm-marker, .quick-measure-hud, .wm-sh-marker, .shadow-height-hud, ' +
-      '.wm-gc-pin-anchor, .wm-gc-bubble, .wm-gc-div-icon, ' +
-      '.wm-overlay-handle-wrap, .wm-overlay-handle-dot, .wm-overlay-frame-poly, ' +
-      '.wm-overlay-select-pin-wrap, .wm-overlay-select-pin, ' +
-      '.wm-gps-badge-wrap, .wm-gps-dist-badge, ' +
-      '.wm-inat-pin-anchor, .wm-inat-bubble, .wm-inat-div-icon, .wm-inat-pin-compact, ' +
-      '.inat-geomodel-hud, .modal-overlay'
-    ));
+    if (target && target.closest) {
+      if (target.closest('.wm-inat-pin-anchor, .wm-inat-bubble, .wm-inat-div-icon, .wm-inat-pin-compact')) {
+        const inatMode = (WM.inat && WM.inat.getSelectMode) ? WM.inat.getSelectMode() : 'crosshair';
+        if (inatMode === 'click' || inatMode === 'both') return true;
+        // В режиме перекрестия касания передаются в обработчик перекрестия
+        return false;
+      }
+      return !!target.closest(
+        '.wm-ruler-vertex-icon, .wm-ruler-vertex-wrap, .wm-ruler-midpoint-icon, ' +
+        '.wm-ruler-track-badge, .wm-custom-marker-icon, .leaflet-popup, .leaflet-control, ' +
+        '.wm-qm-marker, .quick-measure-hud, .wm-sh-marker, .shadow-height-hud, ' +
+        '.wm-gc-pin-anchor, .wm-gc-bubble, .wm-gc-div-icon, ' +
+        '.wm-overlay-handle-wrap, .wm-overlay-handle-dot, .wm-overlay-frame-poly, ' +
+        '.wm-overlay-select-pin-wrap, .wm-overlay-select-pin, ' +
+        '.wm-gps-badge-wrap, .wm-gps-dist-badge, ' +
+        '.inat-geomodel-hud, .modal-overlay'
+      );
+    }
+    return false;
   }
   function isScaleAppropriate(o, zoom, mapSize, strictScreenFit = false) {
     const p1 = map.project([o.bbox.n, o.bbox.w], zoom);
@@ -153,16 +161,28 @@
 
   function updateCross() {
     raf = 0;
-    if (mode !== 'cross') {
-      return;
+    if (mode !== 'cross') return;
+
+    // Всегда проверяем объекты iNaturalist под перекрестием
+    if (WM.inat && WM.inat.checkCrosshairProximity) {
+      WM.inat.checkCrosshairProximity();
     }
+
+    const isCrossingInat = WM.inat && WM.inat.isCrosshairSelectable && WM.inat.isCrosshairSelectable();
+
     const center = map.getCenter();
     hoverAlts = hitTest(center, { strictScreenFit: true });
     hoverObj = hoverAlts[0] || null;
     if (WM.view) WM.view.setHover(hoverObj);
-    if (WM.ui && WM.ui.setPill) WM.ui.setPill(hoverObj, hoverAlts.length);
 
-    checkHoverDetailLoad(hoverObj);
+    if (isCrossingInat) {
+      // Подсказка iNaturalist установлена в checkCrosshairProximity
+    } else if (hoverObj) {
+      if (WM.ui && WM.ui.setPill) WM.ui.setPill(hoverObj, hoverAlts.length);
+      checkHoverDetailLoad(hoverObj);
+    } else {
+      if (WM.ui && WM.ui.setPill) WM.ui.setPill(null);
+    }
   }
 
   function scheduleCross() {
@@ -257,6 +277,25 @@
     if (WM.quickMeasure && WM.quickMeasure.isActive()) {
       const targetLatLng = (mode === 'cross') ? map.getCenter() : clickedLatLng;
       WM.quickMeasure.onMapClick(targetLatLng);
+      return;
+    }
+
+    if (mode === 'cross') {
+      // 1. Проверяем объект iNaturalist под перекрестием
+      if (WM.inat && WM.inat.isCrosshairSelectable && WM.inat.isCrosshairSelectable()) {
+        const inatHandled = WM.inat.openHovered();
+        if (inatHandled) return;
+      }
+
+      // 2. Стандартный поиск полигонов Wikimapia
+      const center = map.getCenter();
+      const hits = hitTest(center, { strictScreenFit: true });
+
+      if (hits.length) {
+        select(hits[0], hits.slice(0, 8));
+      } else {
+        await ensurePointLoaded(center, false, true);
+      }
       return;
     }
     // Второй идентичный блок удалён
@@ -686,6 +725,10 @@
       scheduleCross();
     },
     openHover() {
+      if (WM.inat && WM.inat.isCrosshairSelectable && WM.inat.isCrosshairSelectable()) {
+        const inatHandled = WM.inat.openHovered();
+        if (inatHandled) return;
+      }
       if (hoverObj) {
         select(hoverObj, hoverAlts.slice(0, 8));
       } else if (mode === 'cross') {
