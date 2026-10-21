@@ -35,6 +35,13 @@
       return true;
     }
 
+    const modalInatSuggest = $('modal-inat-suggest');
+    if (modalInatSuggest && modalInatSuggest.classList.contains('open')) {
+      if (WM.inat && WM.inat.closeSmartSuggestionsModal) WM.inat.closeSmartSuggestionsModal();
+      else modalInatSuggest.classList.remove('open');
+      return true;
+    }
+
     const modalInatList = $('modal-inat-list');
     if (modalInatList && modalInatList.classList.contains('open')) {
       if (WM.inat && WM.inat.closeListModal) WM.inat.closeListModal();
@@ -48,6 +55,13 @@
         window.cancelVisualCompassAdjust();
         return true;
       }
+    }
+
+    const modalInatCluster = $('modal-inat-cluster');
+    if (modalInatCluster && modalInatCluster.classList.contains('open')) {
+      if (WM.inat && WM.inat.closeClusterModal) WM.inat.closeClusterModal();
+      else modalInatCluster.classList.remove('open');
+      return true;
     }
 
     const modalInat = $('modal-inat-details');
@@ -351,6 +365,7 @@
           openObjectsListModal(false);
         }
       },
+
       {
         id: 'customOverlay',
         icon: '🗺️',
@@ -468,6 +483,19 @@
           if (subRR) subRR.hidden = !next;
           applyUIVisibility();
           showToast(next ? '🎯 Круг дальности включён' : '🎯 Круг дальности скрыт');
+        }
+      },
+      {
+        id: 'inatSuggest',
+        icon: '🔮',
+        title: 'Что искать вокруг?',
+        sub: 'Умный радар вероятных видов в этом месте (iNat v2)',
+        show: true,
+        action: () => {
+          closeQuickMenu();
+          if (WM.inat && WM.inat.openSmartSuggestionsModal) {
+            WM.inat.openSmartSuggestionsModal();
+          }
         }
       },
       {
@@ -3888,7 +3916,8 @@
       searchInatSelectedTaxon = null;
     }
 
-    if (searchSource !== 'inat' || q.trim().length < 2 || !WM.inat) {
+    // Разрешаем автодополнение как на вкладке "inat", так и на общей вкладке "all" ("Все")
+    if ((searchSource !== 'inat' && searchSource !== 'all') || q.trim().length < 2 || !WM.inat) {
       if (wrap) wrap.hidden = true;
       return;
     }
@@ -4102,10 +4131,11 @@
     }
 
     // Если активна вкладка «Все», ищем также живые организмы в iNaturalist
-    if (searchSource === 'all' && WM.inat) {
+   if (searchSource === 'all' && WM.inat) {
+      // Ищем глобально (не только на видимом экране) с учётом выбранного таксона из подсказок
       promises.push(
-        WM.inat.searchObservations(q, 'screen')
-          .then(res => (res && res.results ? res.results.slice(0, 5) : []))
+        WM.inat.searchObservations(q, 'global', searchInatSelectedTaxon)
+          .then(res => (res && res.results ? res.results.slice(0, 7) : []))
           .catch(() => [])
       );
     } else {
@@ -6314,6 +6344,19 @@
       else WM.inat?.disable();
     });
 
+    $('inat-zoom-out-mode')?.addEventListener('change', (e) => {
+      WM.inat?.setConfig({ zoomOutMode: e.target.value });
+    });
+    $('inat-filter-phenology')?.addEventListener('change', (e) => {
+      WM.inat?.setConfig({ phenology: e.target.value });
+    });
+
+
+
+    $('inat-zoom-out-mode')?.addEventListener('change', (e) => {
+      WM.inat?.setConfig({ zoomOutMode: e.target.value });
+    });
+
     // 2. Тумблер плашки вверху экрана
     $('toggle-inat-show-badge')?.addEventListener('change', (e) => {
       WM.inat?.setConfig({ showBadge: e.target.checked });
@@ -6332,6 +6375,16 @@
     const queryInput = $('inat-filter-query');
     const clearBtn = $('inat-filter-query-clear');
     const autoWrap = $('inat-autocomplete-wrap');
+
+    if (queryInput) {
+      queryInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (autoWrap) autoWrap.hidden = true;
+          executeSettingsSearch();
+        }
+      });
+    }
 
     if (queryInput) {
       queryInput.addEventListener('input', (e) => {
@@ -6373,11 +6426,40 @@
     });
 
     // 6. Селекторы фильтров
-    $('inat-filter-taxa')?.addEventListener('change', (e) => WM.inat?.setConfig({ taxa: e.target.value }));
-    $('inat-filter-season')?.addEventListener('change', (e) => WM.inat?.setConfig({ season: e.target.value }));
-    $('inat-filter-month')?.addEventListener('change', (e) => WM.inat?.setConfig({ month: e.target.value }));
-    $('inat-filter-quality')?.addEventListener('change', (e) => WM.inat?.setConfig({ quality: e.target.value }));
-    $('inat-filter-sort')?.addEventListener('change', (e) => WM.inat?.setConfig({ sort: e.target.value }));
+    $('inat-filter-taxa')?.addEventListener('change', (e) => {
+      const val = e.target.value;
+      WM.inat?.setConfig({ taxa: val });
+    });
+
+    // Слушатель фенофаз растений
+    
+
+    // Слушатели стадий развития
+    $('inat-filter-lifestage-insects')?.addEventListener('change', (e) => {
+      WM.inat?.setConfig({ lifestageInsects: e.target.value });
+    });
+
+    $('inat-filter-lifestage-animals')?.addEventListener('change', (e) => {
+      WM.inat?.setConfig({ lifestageAnimals: e.target.value });
+    });
+
+    // Кнопка открытия радара видов прямо из раздела
+    $('btn-inat-open-suggest')?.addEventListener('click', () => {
+      $('modal')?.classList.remove('open');
+      WM.inat?.openSmartSuggestionsModal();
+    });
+    $('inat-filter-sort')?.addEventListener('change', (e) => {
+      WM.inat?.setConfig({ sort: e.target.value });
+    });
+    $('inat-filter-season')?.addEventListener('change', (e) => {
+      WM.inat?.setConfig({ season: e.target.value });
+    });
+    $('inat-filter-month')?.addEventListener('change', (e) => {
+      WM.inat?.setConfig({ month: e.target.value });
+    });
+    $('inat-filter-quality')?.addEventListener('change', (e) => {
+      WM.inat?.setConfig({ quality: e.target.value });
+    });
 
     // 7. Чекбоксы параметров
     $('toggle-inat-wild')?.addEventListener('change', (e) => WM.inat?.setConfig({ wildOnly: e.target.checked }));
