@@ -6263,7 +6263,75 @@ body.sheet-open .inat-geomodel-hud {
   user-select: none;
   transition: all 0.12s ease;
 }
+/* Бейджи источника и вероятности в подсказках */
+.inat-suggest-score-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
 
+/* 1. От нейросети Geo-Prior */
+.inat-suggest-score-badge.ai {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+/* 2. От базы реальных находок (фоллбэк) */
+.inat-suggest-score-badge.fallback {
+  color: #0284c7;
+  background: rgba(2, 132, 199, 0.14);
+  border: 1px solid rgba(2, 132, 199, 0.35);
+}
+
+/* Тёмная тема */
+[data-theme="dark"] .inat-suggest-score-badge.ai {
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(52, 211, 153, 0.4);
+}
+
+[data-theme="dark"] .inat-suggest-score-badge.fallback {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.2);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+/* Ночной монохром */
+[data-theme="night-vision"] .inat-suggest-score-badge.ai,
+[data-theme="night-vision"] .inat-suggest-score-badge.fallback {
+  color: #ef4444 !important;
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.22) !important;
+}
+
+/* Индикатор фоновой подгрузки при скролле */
+.inat-suggest-loading-more {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  padding: 10px 0 6px;
+  user-select: none;
+  animation: pulseTopBtn 1.4s infinite ease-in-out;
+}
+
+/* Отметка о завершении списка */
+.inat-suggest-end-notice {
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 10px 0 6px;
+  user-select: none;
+  border-top: 1px dashed var(--border);
+  margin-top: 6px;
+}
 .inat-suggest-chip.active {
   background: #10b981;
   color: #ffffff;
