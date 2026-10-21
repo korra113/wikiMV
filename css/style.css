@@ -152,7 +152,8 @@ html, body {
 .limit-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: 8px;
   pointer-events: auto;
 }
 
@@ -167,6 +168,7 @@ html, body {
   border: 1px solid var(--border);
   letter-spacing: 0.2px;
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 .limit-badge.danger {
   background: var(--danger-bg);
@@ -2636,13 +2638,13 @@ body.sheet-open .wm-mv-offscreen-pointer {
   border-top-color: #4a0d0d !important;
 }
 .limit-reset-btn {
-  width: 27px;
-  height: 27px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: var(--bg-glass);
   border: 1px solid var(--border);
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 15px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2651,6 +2653,153 @@ body.sheet-open .wm-mv-offscreen-pointer {
   padding: 0;
   line-height: 1;
   transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
+  flex-shrink: 0;
+}
+
+
+.wm-gdb-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.wm-gdb-actions .wm-gdb-toggle-btn {
+  margin-left: 0;
+}
+
+/* Кнопка отмены следования (крестик) */
+.wm-nav-close-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 3px 6px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.wm-nav-close-btn:hover {
+  color: #ffffff;
+  background: var(--danger, #ef4444);
+  border-color: var(--danger, #ef4444);
+}
+
+.wm-nav-close-btn:active {
+  transform: scale(0.9);
+}
+
+.wm-gps-dist-badge.col-badge.compact .wm-nav-close-btn {
+  padding: 3px 5px;
+  font-size: 9px;
+  border-radius: 6px;
+}
+
+[data-theme="night-vision"] .wm-nav-close-btn {
+  background: rgba(18, 3, 3, 0.94);
+  border-color: #3b0707;
+  color: #ef4444;
+}
+
+[data-theme="night-vision"] .wm-nav-close-btn:hover {
+  background: #ef4444;
+  color: #050101;
+}
+
+/* Анимация плавного изменения ширины и содержимого */
+.wm-inat-badge-card {
+  transition: max-width 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              padding 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.18s ease,
+              border-color 0.18s ease;
+  overflow: hidden;
+}
+
+/* Кнопка-стрелочка раскрытия/сворачивания */
+.wm-inat-toggle-arrow-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border-radius: 50%;
+  background: var(--bg-secondary, #f1f5f9);
+  border: 1px solid var(--border-strong, #cbd5e1);
+  color: var(--text-muted, #64748b);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  margin-left: 3px;
+  padding: 0;
+  flex-shrink: 0;
+  touch-action: manipulation;
+  pointer-events: auto !important;
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.wm-inat-toggle-arrow-btn:hover {
+  background: var(--accent-bg, #e0f2fe);
+  color: var(--accent, #0284c7);
+  transform: scale(1.15);
+}
+
+.wm-inat-toggle-arrow-btn:active {
+  transform: scale(0.9);
+}
+
+/* Компактный сжатый овал */
+.wm-inat-badge-card.is-collapsed {
+  max-width: 72px !important;
+  min-width: 0 !important;
+  padding: 2.5px 4px 2.5px 3px !important;
+  border-radius: 18px !important;
+}
+
+.wm-inat-badge-card.is-collapsed .wm-inat-badge-texts,
+.wm-inat-badge-card.is-collapsed .wm-inat-cluster-count-pill {
+  display: none !important;
+}
+
+.wm-inat-badge-card.is-collapsed .wm-inat-fan-wrapper {
+  margin-right: 0;
+}
+
+/* Состояние при раскрытии карточки */
+.wm-inat-badge-card.is-expanded {
+  max-width: 250px !important;
+}
+
+.wm-inat-badge-card.is-expanded .wm-inat-toggle-arrow-btn {
+  background: var(--accent, #0284c7);
+  color: #ffffff;
+  border-color: var(--accent, #0284c7);
+}
+
+/* Тёмная тема для стрелочки */
+[data-theme="dark"] .wm-inat-toggle-arrow-btn {
+  background: #111827;
+  border-color: #374151;
+  color: #9ca3af;
+}
+
+/* Ночной режим (красный монохром) */
+[data-theme="night-vision"] .wm-inat-toggle-arrow-btn {
+  background: #120303;
+  border-color: #ef4444;
+  color: #ef4444;
 }
 .limit-reset-btn:hover {
   background: var(--accent-bg);
@@ -3168,6 +3317,55 @@ body.sheet-open .hover-pill {
   overflow-y: auto;
 }
 
+/* Подъём и увеличение облачка и маркеров при наведении перекрестия */
+.leaflet-marker-icon.inat-crosshair-hovered {
+  z-index: 1500 !important;
+}
+
+.inat-crosshair-hovered .wm-inat-bubble {
+  transform: translate3d(-50%, -3px, 0) scale(1.08) !important;
+  z-index: 1200 !important;
+}
+
+.inat-crosshair-hovered .wm-inat-badge-card {
+  border-color: #047857 !important;
+  box-shadow: 0 0 14px var(--inat-color, rgba(16, 185, 129, 0.65)) !important;
+}
+
+.inat-crosshair-hovered .wm-inat-target-dot {
+  transform: translate(-50%, -50%) scale(1.35) !important;
+  background: #22c55e !important;
+}
+
+/* Раскрытие веера фото кластера при наведении перекрестия */
+.inat-crosshair-hovered .fan-3-left {
+  transform: translate(-3px, 1px) rotate(-22deg) scale(1.08) !important;
+}
+.inat-crosshair-hovered .fan-3-right {
+  transform: translate(3px, 1px) rotate(22deg) scale(1.08) !important;
+}
+.inat-crosshair-hovered .fan-3-center {
+  transform: translateY(-2px) scale(1.15) !important;
+}
+.inat-crosshair-hovered .fan-2-back {
+  transform: translate(-3px, 0) rotate(-16deg) scale(1.08) !important;
+}
+.inat-crosshair-hovered .fan-2-front {
+  transform: translate(3px, 0) rotate(12deg) scale(1.12) !important;
+}
+
+/* Компактная точка */
+.inat-crosshair-hovered .wm-inat-pin-compact {
+  transform: translate(-50%, -50%) scale(1.25) !important;
+  box-shadow: 0 0 12px var(--inat-color, rgba(16, 185, 129, 0.65)) !important;
+  z-index: 1200 !important;
+}
+
+/* Зона произрастания (пульсирующий круг) */
+.wm-inat-hover-zone {
+  animation: inatZonePulse 1.8s infinite ease-in-out;
+  pointer-events: none !important;
+}
 
 .modal-header {
   display: flex;
@@ -6039,13 +6237,21 @@ body.sheet-open .inat-geomodel-hud {
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  padding-bottom: 6px;
-  scrollbar-width: none;
+  overflow-y: hidden;
+  padding: 2px 2px 8px 2px;
+  /* Плавный свайп на iOS и мобильном Chrome */
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  scrollbar-width: none; /* Скрывает скроллбар в Firefox */
 }
-.inat-suggest-chips-row::-webkit-scrollbar { display: none; }
+
+.inat-suggest-chips-row::-webkit-scrollbar {
+  display: none; /* Скрывает скроллбар в Chrome/Safari/WebView */
+}
 
 .inat-suggest-chip {
-  padding: 4px 10px;
+  flex-shrink: 0; /* ГЛАВНОЕ: запрещает кнопкам сжиматься и обрезаться */
+  padding: 5px 12px;
   font-size: 11.5px;
   font-weight: 700;
   border-radius: 12px;
@@ -6054,6 +6260,7 @@ body.sheet-open .inat-geomodel-hud {
   color: var(--text-muted);
   cursor: pointer;
   white-space: nowrap;
+  user-select: none;
   transition: all 0.12s ease;
 }
 
@@ -10667,96 +10874,247 @@ body.wm-ui-hidden .visual-compass-hud {
    СТРУКТУРИРОВАННЫЙ РАЗДЕЛ НАСТРОЕК INATURALIST
    ========================================================================= */
 
+/* =========================================================================
+   НОВЫЙ ПРЕМИАЛЬНЫЙ ДИЗАЙН НАСТРОЕК INATURALIST
+   ========================================================================= */
+
 .inat-settings-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 12px;
+  padding: 12px 14px;
 }
 
-.inat-settings-card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 12px);
-  padding: 10px 12px;
+/* 1. HERO КАРТОЧКА ГЛАВНОГО ВЫКЛЮЧАТЕЛЯ */
+.inat-hero-card {
+  background: linear-gradient(145deg, var(--bg-secondary) 0%, rgba(16, 185, 129, 0.08) 100%);
+  border: 1.5px solid rgba(16, 185, 129, 0.4);
+  border-radius: var(--radius-md, 14px);
+  padding: 12px 14px;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.08);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .inat-main-toggle {
-  background: var(--bg-primary);
-  border: 1.5px solid var(--border-strong);
-  border-radius: var(--radius-sm, 8px);
-  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
   margin: 0;
 }
 
+.inat-toggle-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inat-hero-badge {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.15);
+  padding: 2px 7px;
+  border-radius: 10px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
 .inat-toggle-title {
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: 800;
+  font-size: 13.5px;
   color: var(--text-main);
   display: block;
+  line-height: 1.25;
 }
 
-.inat-card-section-label {
-  font-size: 11.5px;
-  font-weight: 800;
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-.inat-card-grid-row {
+/* Быстрый тулбар кнопок в Hero */
+.inat-quick-actions-bar {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  align-items: center;
-}
-
-@media (max-width: 440px) {
-  .inat-card-grid-row {
-    grid-template-columns: 1fr;
-  }
-}
-
-.inat-taxa-select {
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.inat-trait-section {
-  animation: progressFadeIn 0.2s ease-out;
-}
-
-.inat-action-buttons-wrap {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr;
+  grid-template-columns: 1.6fr 1.2fr 0.8fr;
   gap: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
 }
 
 @media (max-width: 440px) {
-  .inat-action-buttons-wrap {
-    grid-template-columns: 1fr;
+  .inat-quick-actions-bar {
+    grid-template-columns: 1fr 1fr;
+  }
+  .inat-quick-actions-bar .inat-btn-refresh {
+    grid-column: 1 / -1;
   }
 }
 
-.inat-btn-action {
+.inat-quick-btn {
   font-size: 11.5px;
   font-weight: 700;
-  padding: 8px 6px;
-  text-align: center;
+  padding: 7px 8px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   white-space: nowrap;
 }
 
-[data-theme="night-vision"] .inat-settings-card {
+.inat-btn-refresh {
+  background: #10b981;
+  border-color: #10b981;
+}
+.inat-btn-refresh:hover {
+  background: #059669;
+  border-color: #059669;
+}
+
+.inat-btn-suggest {
+  color: #8b5cf6;
+  border-color: rgba(139, 92, 246, 0.4);
+  background: rgba(139, 92, 246, 0.08);
+}
+.inat-btn-suggest:hover {
+  background: #8b5cf6;
+  color: #ffffff;
+}
+
+/* 2. КАРТОЧКА ГРУППЫ И ПОИСКА */
+.inat-card-taxa-search {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md, 14px);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inat-card-section-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: #10b981;
+  text-transform: uppercase;
+  letter-spacing: 0.35px;
+}
+
+.inat-label-accent {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.inat-taxa-select {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  border-color: rgba(16, 185, 129, 0.45);
+  background: var(--bg-primary);
+}
+
+.inat-search-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.inat-search-input:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+}
+
+/* 3. ВЛОЖЕННЫЕ СПОЙЛЕРЫ КАТЕГОРИЙ */
+.inat-sub-spoiler {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  overflow: hidden;
+  margin-top: 2px;
+  margin-bottom: 4px;
+}
+
+.inat-sub-spoiler .sub-spoiler-title {
+  padding: 11px 13px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  background: var(--bg-secondary);
+  transition: background 0.15s ease;
+}
+
+.inat-sub-spoiler .sub-spoiler-title:hover {
+  background: var(--accent-bg);
+}
+
+.inat-sub-body {
+  padding: 12px 14px;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.inat-mini-header {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+
+/* ТЁМНАЯ ТЕМА */
+[data-theme="dark"] .inat-hero-card {
+  background: linear-gradient(145deg, #1f2937 0%, rgba(16, 185, 129, 0.12) 100%);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+[data-theme="dark"] .inat-card-taxa-search,
+[data-theme="dark"] .inat-sub-spoiler {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .inat-sub-body {
+  background: #111827;
+}
+
+/* НОЧНОЙ РЕЖИМ (КРАСНЫЙ МОНОХРОМ) */
+[data-theme="night-vision"] .inat-hero-card {
+  background: rgba(26, 4, 4, 0.95);
+  border-color: #ef4444;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.3);
+}
+
+[data-theme="night-vision"] .inat-hero-badge {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+}
+
+[data-theme="night-vision"] .inat-card-taxa-search,
+[data-theme="night-vision"] .inat-sub-spoiler {
   background: #120303;
   border-color: #3b0707;
 }
 
-[data-theme="night-vision"] .inat-main-toggle {
-  background: #190505;
+[data-theme="night-vision"] .inat-sub-body {
+  background: #050101;
+}
+
+[data-theme="night-vision"] .inat-btn-refresh {
+  background: #ef4444;
   border-color: #ef4444;
+  color: #050101;
+}
+
+[data-theme="night-vision"] .inat-card-section-label {
+  color: #ef4444;
 }
 
 .vc-hud-btn-step:active {
