@@ -367,6 +367,18 @@
     </div>
   </div>
 
+  <div id="quick-pie-overlay" class="quick-pie-overlay" hidden>
+    <div id="quick-pie-hud" class="quick-pie-hud">
+      <svg id="quick-pie-svg" class="quick-pie-svg"></svg>
+      <div id="quick-pie-tip" class="quick-pie-tip">
+        <span id="quick-pie-tip-icon" class="quick-pie-tip-icon">⚡</span>
+        <div class="quick-pie-tip-text">
+          <b id="quick-pie-tip-title">Быстрое меню</b>
+          <span id="quick-pie-tip-sub">Проведите к кнопке и отпустите</span>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Карточка объекта (шторка снизу / сайдбар на ПК) -->
   <section id="sheet" class="sheet" aria-modal="true" role="dialog">
@@ -1853,6 +1865,28 @@
                     <span class="toggle-switch"></span>
                   </label>
 
+                  <label class="toggle-item">
+                    <span>🌿 Флора и фауна (iNaturalist Hub)</span>
+                    <input type="checkbox" id="toggle-qm-item-inathub" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item">
+                    <span>🔮 Радар видов (вероятные виды iNat)</span>
+                    <input type="checkbox" id="toggle-qm-item-inatsuggest" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item">
+                    <span>🧪 Почва и биотоп (SoilGrids)</span>
+                    <input type="checkbox" id="toggle-qm-item-soil" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>🌊 Паводки и заболоченность (GloFAS / Вода)</span>
+                    <input type="checkbox" id="toggle-qm-item-water" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
                   <!-- Чекбокс включения в быстром меню (по умолчанию выключен) -->
                   <label class="toggle-item">
                     <span>🧲 Поместить точку GPS сюда</span>
@@ -1869,6 +1903,24 @@
                   <label class="toggle-item">
                     <span>🌐 Открыть координаты (внешние карты / копирование)</span>
                     <input type="checkbox" id="toggle-qm-item-coords" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>🧭 Юстировка компаса</span>
+                    <input type="checkbox" id="toggle-qm-item-compass-adjust">
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>👣 Настройки шагомера (PDR)</span>
+                    <input type="checkbox" id="toggle-qm-item-pdr-quick">
+                    <span class="toggle-switch"></span>
+                  </label>
+
+                  <label class="toggle-item">
+                    <span>🔴 Ночной режим (красный монохром)</span>
+                    <input type="checkbox" id="toggle-qm-item-night-vision">
                     <span class="toggle-switch"></span>
                   </label>
                 </div>
@@ -2748,10 +2800,51 @@
   <div id="quick-menu-overlay" class="quick-menu-overlay" hidden>
     <div id="quick-menu-box" class="quick-menu-box" role="menu">
       <div class="quick-menu-header">
-        <span class="quick-menu-title">⚡ Быстрое меню</span>
-        <button id="quick-menu-close" class="quick-menu-close-btn" title="Закрыть">✕</button>
+        <div class="quick-menu-header-left">
+          <span class="quick-menu-title">⚡ Быстрое меню</span>
+        </div>
+        <div class="quick-menu-header-actions">
+          <button id="quick-menu-btn-lock" class="quick-menu-hbtn" type="button" title="Заблокировать / Редактировать кнопки">🔒</button>
+          <button id="quick-menu-btn-settings" class="quick-menu-hbtn" type="button" title="Настройки размера кнопок">⚙️</button>
+          <button id="quick-menu-close" class="quick-menu-close-btn" type="button" title="Закрыть">✕</button>
+        </div>
       </div>
-      <div id="quick-menu-items" class="quick-menu-list"></div>
+
+
+      <!-- Всплывающая панель настроек размера и сброса -->
+      <div id="quick-menu-settings-bar" class="quick-menu-settings-bar" hidden>
+        <div class="qm-settings-row">
+          <span class="qm-settings-label">Размер карточек:</span>
+          <div class="qm-size-segmented" id="quick-menu-size-segmented">
+            <button type="button" class="qm-size-btn" data-size="small">Мелкий</button>
+            <button type="button" class="qm-size-btn active" data-size="medium">Обычный</button>
+            <button type="button" class="qm-size-btn" data-size="large">Крупный</button>
+          </div>
+        </div>
+        <div class="qm-settings-actions">
+          <button type="button" id="quick-menu-btn-reset-order" class="btn-link" style="font-size:11.5px;">↺ Сбросить порядок</button>
+        </div>
+      </div>
+
+      <!-- Сетка карточек -->
+      <div class="quick-menu-grid-scroll">
+        <div id="quick-menu-items" class="quick-menu-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно добавления скрытых кнопок -->
+  <div id="modal-quick-menu-add" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>➕ Добавить в быстрое меню</h3>
+        <button class="modal-close-x" id="qm-add-modal-close">✕</button>
+      </div>
+      <p class="modal-desc">Выберите пункт, который хотите вернуть на панель:</p>
+      <div id="qm-available-items-list" class="qm-available-list"></div>
+      <div class="modal-actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button type="button" id="qm-add-modal-cancel" class="btn btn-secondary">Отмена</button>
+      </div>
     </div>
   </div>
 
@@ -3449,6 +3542,220 @@
     </div>
   </div>
 
+  <!-- БЫСТРЫЙ ХАБ INATURALIST (ФЛОРА И ФАУНА) -->
+  <div id="modal-inat-quick" class="modal-overlay">
+    <div class="modal-box modal-box-large inat-qhub-modal-box">
+      <!-- Шапка -->
+      <div class="modal-header">
+        <div class="inat-qhub-title-row">
+          <span class="inat-qhub-icon">🌿</span>
+          <div>
+            <h3>Флора и фауна (iNaturalist)</h3>
+            <span class="inat-qhub-sub">Быстрый поиск, фото-ИИ и фильтры</span>
+          </div>
+        </div>
+        <button class="modal-close-x" id="inat-qhub-close-x">✕</button>
+      </div>
+
+      <div class="modal-content-scroll" style="max-height: 65vh; padding-right: 4px;">
+        
+        <!-- Уведомление о токене (если стух или не задан) -->
+        <div id="inat-qhub-token-notice" class="inat-qhub-token-notice warn" hidden></div>
+
+        <!-- 1. Главный тумблер и быстрые действия -->
+        <div class="inat-qhub-hero">
+          <label class="toggle-item" style="margin: 0; padding: 0;">
+            <div>
+              <span style="font-weight: 800; font-size: 13.5px; display: block;">Слой наблюдений на карте</span>
+              <small class="hint-text" style="margin-top: 1px;">Загрузка реальных находок при перемещении (зум 10+)</small>
+            </div>
+            <input type="checkbox" id="inat-qhub-toggle-layer" checked>
+            <span class="toggle-switch"></span>
+          </label>
+
+          <div class="inat-qhub-action-btns">
+            <button type="button" id="btn-inat-qhub-vision" class="btn btn-primary inat-qhub-action-btn">
+              <span>📸 Определить по фото</span>
+            </button>
+            <input type="file" id="inat-qhub-vision-file" accept="image/*" style="display: none;">
+
+            <button type="button" id="btn-inat-qhub-open-suggest" class="btn btn-secondary inat-qhub-action-btn" title="Что можно встретить в этой местности прямо сейчас?">
+              <span>🔮 Радар видов</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Выбор группы/царства в 1 клик -->
+        <div class="inat-qhub-section-label">Выберите царство / группу:</div>
+        <div class="inat-qhub-chips-grid" id="inat-qhub-taxa-chips">
+          <button type="button" class="inat-qhub-chip active" data-taxa="Plantae,Fungi">🌿 Растения и Грибы</button>
+          <button type="button" class="inat-qhub-chip" data-taxa="Plantae">🌱 Растения</button>
+          <button type="button" class="inat-qhub-chip" data-taxa="Fungi">🍄 Грибы</button>
+          <button type="button" class="inat-qhub-chip" data-taxa="Aves">🦅 Птицы</button>
+          <button type="button" class="inat-qhub-chip" data-taxa="Insecta">🐞 Насекомые</button>
+          <button type="button" class="inat-qhub-chip" data-taxa="Mammalia">🦊 Животные</button>
+          <button type="button" class="inat-qhub-chip" data-taxa="all">🌍 Все группы</button>
+        </div>
+
+        <!-- 3. Поиск конкретного вида -->
+        <div class="inat-qhub-search-wrap">
+          <div class="input-with-action">
+            <input type="text" id="inat-qhub-search-input" class="styled-input inat-qhub-search-inp" placeholder="Поиск вида (русское или латинское название)..." autocomplete="off">
+            <button type="button" id="inat-qhub-search-clear" class="input-action-btn" title="Очистить" hidden>✕</button>
+          </div>
+
+          <div id="inat-qhub-autocomplete-wrap" class="inat-autocomplete-wrap" hidden>
+            <div id="inat-qhub-autocomplete-list" class="inat-autocomplete-list"></div>
+          </div>
+
+          <button type="button" id="btn-inat-qhub-apply-map" class="btn btn-secondary inat-qhub-btn-apply">
+            <span>👁️ Показать вид на карте</span>
+          </button>
+        </div>
+
+        <!-- 4. Вложенные аккуратные спойлеры тонкой настройки -->
+        <details class="spoiler sub-spoiler inat-qhub-sub-spoiler">
+          <summary class="spoiler-title sub-spoiler-title">
+            <span>🌸 Фенология, цветение и сезон</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body">
+            <div class="form-group" style="margin-bottom: 8px;">
+              <label for="inat-qhub-select-phenology">Стадия развития растения:</label>
+              <select id="inat-qhub-select-phenology" class="styled-select">
+                <option value="any" selected>Любая стадия (все)</option>
+                <option value="flowering">🌸 Только цветущие (Flowering)</option>
+                <option value="fruiting">🍓 Только с плодами/ягодами (Fruiting)</option>
+                <option value="budding">🌿 Бутонизация</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="inat-qhub-select-season">Сезонность находок:</label>
+              <select id="inat-qhub-select-season" class="styled-select">
+                <option value="any" selected>Все сезоны года</option>
+                <option value="current">⚡ Сейчас (текущий сезон)</option>
+                <option value="spring">🌸 Весна</option>
+                <option value="summer">☀️ Лето</option>
+                <option value="autumn">🍂 Осень</option>
+                <option value="winter">❄️ Зима</option>
+              </select>
+            </div>
+          </div>
+        </details>
+
+        <details class="spoiler sub-spoiler inat-qhub-sub-spoiler">
+          <summary class="spoiler-title sub-spoiler-title">
+            <span>🛡️ Редкость и качество данных</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body toggles-list">
+            <label class="toggle-item">
+              <div>
+                <span style="font-weight: 600; display: block;">Дикая природа</span>
+                <small class="hint-text">Исключить клумбы, питомники и вольеры</small>
+              </div>
+              <input type="checkbox" id="inat-qhub-toggle-wild" checked>
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <div>
+                <span style="font-weight: 600; display: block;">Научная достоверность</span>
+                <small class="hint-text">Только подтверждённые сообществом (Research Grade)</small>
+              </div>
+              <input type="checkbox" id="inat-qhub-toggle-research">
+              <span class="toggle-switch"></span>
+            </label>
+            <label class="toggle-item">
+              <div>
+                <span style="font-weight: 600; display: block;">⚠️ Только Красная книга</span>
+                <small class="hint-text">Особо охраняемые и уязвимые виды</small>
+              </div>
+              <input type="checkbox" id="inat-qhub-toggle-threatened">
+              <span class="toggle-switch"></span>
+            </label>
+          </div>
+        </details>
+
+        <details class="spoiler sub-spoiler inat-qhub-sub-spoiler">
+          <summary class="spoiler-title sub-spoiler-title">
+            <span>🏷️ Вид карточек на карте</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body">
+            <div class="form-group" style="margin-bottom: 8px;">
+              <label for="inat-qhub-select-badge-mode">Карточки вблизи (зум 13+):</label>
+              <select id="inat-qhub-select-badge-mode" class="styled-select">
+                <option value="full" selected>Полный вид (название и фото всегда)</option>
+                <option value="auto-hide">Авто-скрытие (раскрывать при наведении)</option>
+                <option value="center-bubble">Линза в центре экрана</option>
+                <option value="manual">Компактный (кликом на стрелку)</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="inat-qhub-select-zoomout">Обзор при отдалении:</label>
+              <select id="inat-qhub-select-zoomout" class="styled-select">
+                <option value="grid" selected>⬡ Сетка плотности</option>
+                <option value="heatmap">🔥 Тепловая карта</option>
+                <option value="points">🟣 Точки</option>
+              </select>
+            </div>
+          </div>
+        </details>
+
+      </div>
+
+      <div class="modal-actions" style="justify-content: flex-end; margin-top: 10px;">
+        <button type="button" id="btn-inat-qhub-close" class="btn btn-primary" style="padding: 8px 18px;">Готово</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО АНАЛИЗА ПОЧВЫ И БИОТОПА (SOILGRIDS) -->
+<div id="modal-soil-diagnosis" class="modal-overlay">
+  <div class="modal-box modal-box-large soil-modal-box">
+    <div class="modal-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 24px; line-height: 1;">🧪</span>
+        <div>
+          <h3 style="margin: 0; font-size: 16px; font-weight: 800;">Кислотность и почва (SoilGrids)</h3>
+          <span id="soil-diagnosis-coords" style="font-size: 11px; color: var(--text-muted); font-family: ui-monospace, monospace;">📍 Определение координат…</span>
+        </div>
+      </div>
+      <button class="modal-close-x" id="soil-diagnosis-close-x">✕</button>
+    </div>
+
+    <div class="modal-content-scroll" id="soil-diagnosis-content" style="max-height: 68vh; padding-right: 4px;"></div>
+
+    <div class="modal-actions" style="margin-top: 10px; justify-content: flex-end;">
+      <button type="button" id="btn-soil-diagnosis-close" class="btn btn-secondary">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО АНАЛИЗА РАЗЛИВА РЕК, ПАВОДКОВ И ЗАБОЛОЧЕННОСТИ -->
+<div id="modal-water-diagnosis" class="modal-overlay">
+  <div class="modal-box modal-box-large soil-modal-box">
+    <div class="modal-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 24px; line-height: 1;">🌊</span>
+        <div>
+          <h3 style="margin: 0; font-size: 16px; font-weight: 800;">Паводки и заболоченность</h3>
+          <span id="water-diagnosis-coords" style="font-size: 11px; color: var(--text-muted); font-family: ui-monospace, monospace;">📍 Определение координат…</span>
+        </div>
+      </div>
+      <button class="modal-close-x" id="water-diagnosis-close-x">✕</button>
+    </div>
+
+    <div class="modal-content-scroll" id="water-diagnosis-content" style="max-height: 68vh; padding-right: 4px;"></div>
+
+    <div class="modal-actions" style="margin-top: 10px; justify-content: flex-end;">
+      <button type="button" id="btn-water-diagnosis-close" class="btn btn-secondary">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+
+
 
 
   <script src="js/leaflet.js"></script>
@@ -3476,6 +3783,8 @@
   <script src="js/pdrEngine.js"></script>
   <script src="js/imuLogger.js"></script>
   <script src="js/inaturalist.js"></script>
+  <script src="js/soil.js"></script>
+  <script src="js/water.js"></script>
   <script src="js/main.js"></script>
 
 
