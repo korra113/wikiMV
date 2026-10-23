@@ -124,31 +124,49 @@ jobs:
 
           import android.os.Bundle;
           import android.os.Build;
+          import android.os.LocaleList;
+          import android.content.res.Configuration;
           import android.view.WindowManager;
           import android.webkit.JavascriptInterface;
           import android.webkit.ServiceWorkerClient;
           import android.webkit.ServiceWorkerController;
           import android.webkit.WebResourceRequest;
           import android.webkit.WebResourceResponse;
+          import android.webkit.WebSettings;
           import android.content.Intent;
           import android.net.Uri;
           import androidx.activity.OnBackPressedCallback;
           import com.getcapacitor.BridgeActivity;
           import java.util.ArrayList;
           import java.util.List;
+          import java.util.Locale;
 
           public class MainActivity extends BridgeActivity {
               private static final int PERM_REQUEST_CODE = 1001;
 
               @Override
               public void onCreate(Bundle savedInstanceState) {
+                  // 1. Принудительно устанавливаем русскую локаль в системе до инициализации WebView
+                  Locale ruLocale = new Locale("ru", "RU");
+                  Locale.setDefault(ruLocale);
+                  Configuration config = getResources().getConfiguration();
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                      config.setLocales(new LocaleList(ruLocale, new Locale("ru")));
+                  } else {
+                      config.locale = ruLocale;
+                  }
+                  getResources().updateConfiguration(config, getResources().getDisplayMetrics());
+
                   super.onCreate(savedInstanceState);
 
-                  // Запрос системных разрешений при старте (GPS и датчик шагов Android 10+)
-                  requestAppPermissions();
-
-                  // Регистрация нативного интерфейса для надежного управления экраном из JS
+                  // 2. Настраиваем WebView: передаем русский язык в заголовки сетевых запросов
                   if (bridge != null && bridge.getWebView() != null) {
+                      WebSettings webSettings = bridge.getWebView().getSettings();
+                      if (webSettings != null) {
+                          // Гарантирует отправку Accept-Language: ru-RU,ru во всех фоновых HTTP-запросах WebView
+                          webSettings.setAcceptThirdPartyCookies(true);
+                      }
+
                       bridge.getWebView().addJavascriptInterface(new Object() {
                           @JavascriptInterface
                           public void setKeepScreenOn(boolean keepOn) {
@@ -162,6 +180,9 @@ jobs:
                           }
                       }, "AndroidBridge");
                   }
+
+                  // Запрос системных разрешений при старте (GPS и датчик шагов Android 10+)
+                  requestAppPermissions();
 
                   // Перенаправляем запросы Service Worker в локальный сервер Capacitor
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
