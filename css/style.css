@@ -11154,6 +11154,1433 @@ body.wm-ui-hidden .visual-compass-hud {
   user-select: none;
 }
 
+
+
+
+
+
+
+
+
+
+/* =========================================================================
+   ЭНЦИКЛОПЕДИЧЕСКИЕ ДАННЫЕ WIKIPEDIA И БЕЙДЖИ WIKIDATA
+   ========================================================================= */
+
+/* Контейнер выжимки Википедии */
+.inat-wiki-summary-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3.5px solid #0284c7;
+  border-radius: var(--radius-sm, 8px);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: progressFadeIn 0.22s ease-out;
+}
+
+.inat-wiki-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inat-wiki-summary-title {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #0284c7;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.inat-wiki-desc-badge {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 210px;
+}
+
+.inat-wiki-summary-body {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.inat-wiki-thumb {
+  width: 52px;
+  height: 52px;
+  min-width: 52px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--border-strong);
+  flex-shrink: 0;
+}
+
+.inat-wiki-extract-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-main);
+  word-break: break-word;
+}
+
+/* Бейджи съедобности и токсичности Wikidata (P199, P3489, P2176) */
+.inat-pill-edible {
+  background: #dcfce7 !important;
+  color: #15803d !important;
+  border-color: #86efac !important;
+  font-weight: 800;
+}
+
+.inat-pill-cond-edible {
+  background: #fef3c7 !important;
+  color: #b45309 !important;
+  border-color: #fde68a !important;
+  font-weight: 800;
+}
+
+.inat-pill-inedible {
+  background: var(--bg-secondary) !important;
+  color: var(--text-muted) !important;
+  border-color: var(--border-strong) !important;
+}
+
+.inat-pill-poisonous {
+  background: #fee2e2 !important;
+  color: #dc2626 !important;
+  border-color: #fca5a5 !important;
+  font-weight: 800;
+}
+
+.inat-pill-deadly {
+  background: #450a0a !important;
+  color: #fecaca !important;
+  border-color: #ef4444 !important;
+  font-weight: 900;
+  animation: pulseTopWarnBtn 1.8s infinite ease-in-out;
+}
+
+.inat-pill-medicinal {
+  background: #e0f2fe !important;
+  color: #0369a1 !important;
+  border-color: #7dd3fc !important;
+  font-weight: 700;
+}
+
+/* Стили в тёмной теме */
+[data-theme="dark"] .inat-wiki-summary-box {
+  background: var(--bg-secondary, #1f2937);
+  border-color: var(--border, #374151);
+  border-left-color: #38bdf8;
+}
+
+[data-theme="dark"] .inat-wiki-summary-title {
+  color: #38bdf8;
+}
+
+[data-theme="dark"] .inat-pill-edible {
+  background: #052e16 !important;
+  color: #86efac !important;
+  border-color: #16a34a !important;
+}
+
+[data-theme="dark"] .inat-pill-cond-edible {
+  background: #451a03 !important;
+  color: #fde68a !important;
+  border-color: #b45309 !important;
+}
+
+[data-theme="dark"] .inat-pill-poisonous {
+  background: #450a0a !important;
+  color: #fca5a5 !important;
+  border-color: #991b1b !important;
+}
+
+[data-theme="dark"] .inat-pill-medicinal {
+  background: #082f49 !important;
+  color: #7dd3fc !important;
+  border-color: #0369a1 !important;
+}
+
+/* Стили в теме ночного зрения */
+[data-theme="night-vision"] .inat-wiki-summary-box {
+  background: #120303 !important;
+  border-color: #3b0707 !important;
+  border-left-color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .inat-wiki-summary-title {
+  color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .inat-pill-edible,
+[data-theme="night-vision"] .inat-pill-cond-edible,
+[data-theme="night-vision"] .inat-pill-inedible,
+[data-theme="night-vision"] .inat-pill-poisonous,
+[data-theme="night-vision"] .inat-pill-deadly,
+[data-theme="night-vision"] .inat-pill-medicinal {
+  background: rgba(239, 68, 68, 0.16) !important;
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+}
+
+
+/* =========================================================================
+   ИНТЕГРАЦИЯ ЗВУКОВ ПТИЦ (XENO-CANTO & INATURALIST)
+   ========================================================================= */
+
+.inat-sounds-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inat-sound-item-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inat-sound-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.inat-sound-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.inat-sound-badge-type {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-main);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.inat-sound-badge-quality {
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.inat-sound-badge-quality.q-a {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.inat-sound-badge-quality.q-b {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.inat-sound-badge-source {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.inat-sound-badge-source.xc {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.inat-sound-badge-source.inat {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.inat-sound-ext-link {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.inat-sound-ext-link:hover {
+  text-decoration: underline;
+}
+
+.inat-sound-player {
+  width: 100%;
+  height: 34px;
+  border-radius: 6px;
+  outline: none;
+}
+
+.inat-sound-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.inat-sound-loc,
+.inat-sound-author {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* =========================================================================
+   КАРТОЧКА ПОВАДОК, РАЦИОНА И БИОМЕТРИИ (EOL TRAITBANK & WIKIDATA)
+   ========================================================================= */
+
+.inat-traits-grid {
+  display: grid;
+  /* minmax(0, 1fr) запрещает колонкам распирать родительский контейнер */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* На экранах смартфонов и узких окнах карточки выстраиваются в 1 столбец */
+@media (max-width: 520px) {
+  .inat-traits-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.inat-trait-card {
+  display: flex;
+  align-items: flex-start; /* Выравнивание по верхнему краю для многострочного текста */
+  gap: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 8px 10px;
+  box-sizing: border-box;
+  min-width: 0; /* Гарантирует сжатие внутри flexbox */
+}
+
+/* Длинные блоки поведения (например, "Территориальное животное...") растягиваем на 2 колонки */
+.inat-trait-card.span-2 {
+  grid-column: 1 / -1;
+}
+
+.inat-trait-icon {
+  font-size: 18px;
+  line-height: 1.2;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.inat-trait-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+  line-height: 1.25;
+}
+
+.inat-trait-lbl {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inat-trait-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  /* Разрешаем перенос строк: больше ничего не обрезается */
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Скелетоны и фиксация высоты для предотвращения Layout Shift */
+.inat-skeleton-placeholder {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+#inat-seasonality-container {
+  min-height: 140px; /* Высота готового графика с барами */
+  box-sizing: border-box;
+}
+
+#inat-wiki-summary-slot:empty,
+#inat-traits-slot:empty,
+#inat-sounds-slot:empty {
+  display: none;
+}
+
+.inat-meta-pills-row {
+  min-height: 28px; /* Резерв места под пилюли */
+  align-items: center;
+}
+
+/* =========================================================================
+   БЫСТРОЕ РАДИАЛЬНОЕ / ПЛИТОЧНОЕ МЕНЮ (CSS GRID + РЕДАКТИРОВАНИЕ)
+   ========================================================================= */
+
+.quick-menu-fab {
+  position: absolute;
+  left: calc(14px + env(safe-area-inset-left, 0px));
+  bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  z-index: 1000;
+}
+body.sheet-open .quick-menu-fab {
+  display: none !important;
+}
+
+#crosshair.clickable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+#crosshair.clickable:hover::before,
+#crosshair.clickable:hover::after {
+  background: var(--accent);
+}
+
+.quick-menu-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  z-index: 3500;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  cursor: pointer;
+}
+.quick-menu-overlay.open {
+  display: flex !important;
+  animation: qmOverlayFade 0.15s ease-out;
+}
+.quick-menu-overlay.desktop-context {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.quick-menu-box {
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg, 18px);
+  box-shadow: var(--shadow-float);
+  width: 100%;
+  max-width: 460px; /* Увеличено для красивой 3-4 колоночной сетки */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: qmBoxPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: default;
+}
+
+.quick-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.quick-menu-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quick-menu-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.quick-menu-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.quick-menu-hbtn {
+  background: transparent;
+  border: none;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  line-height: 1;
+  color: var(--text-muted);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.quick-menu-hbtn:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.quick-menu-hbtn.unlocked {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.quick-menu-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 17px;
+  cursor: pointer;
+  padding: 4px 6px;
+  line-height: 1;
+  border-radius: 6px;
+}
+.quick-menu-close-btn:hover {
+  color: var(--danger);
+}
+
+/* Панель настроек размера кнопок */
+.quick-menu-settings-bar {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: progressFadeIn 0.15s ease-out;
+}
+
+.qm-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.qm-settings-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.qm-size-segmented {
+  display: flex;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 1.5px;
+  gap: 2px;
+}
+
+.qm-size-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.12s ease;
+}
+.qm-size-btn.active {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.qm-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Контейнер прокрутки сетки */
+.quick-menu-grid-scroll {
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* CSS Grid карточек */
+.quick-menu-grid {
+  display: grid;
+  gap: 10px;
+  /* Значение колонки по умолчанию (размер medium) */
+  grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+}
+
+/* Режимы размера карточек */
+.quick-menu-box[data-size="small"] .quick-menu-grid {
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+}
+.quick-menu-box[data-size="large"] .quick-menu-grid {
+  grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+  gap: 12px;
+}
+
+/* Сама плитка/карточка */
+.qm-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: center;
+  padding: 12px 8px 10px;
+  min-height: 104px;
+  background: var(--bg-primary);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+  touch-action: manipulation;
+  overflow: hidden;
+}
+
+.quick-menu-box[data-size="small"] .qm-tile {
+  min-height: 88px;
+  padding: 9px 6px 8px;
+}
+.quick-menu-box[data-size="large"] .qm-tile {
+  min-height: 122px;
+  padding: 14px 10px 12px;
+}
+
+.qm-tile:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.18);
+}
+.qm-tile:active {
+  transform: scale(0.96);
+}
+
+/* Анимация лёгкого покачивания в разблокированном режиме (Wiggle) */
+.quick-menu-box.unlocked .qm-tile:not(.qm-tile-add) {
+  animation: qmWiggle 1.8s infinite ease-in-out;
+}
+.quick-menu-box.unlocked .qm-tile:nth-child(even):not(.qm-tile-add) {
+  animation-delay: 0.15s;
+}
+@keyframes qmWiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-0.7deg); }
+  75% { transform: rotate(0.7deg); }
+}
+
+/* Состояние перетаскивания */
+.qm-tile.dragging {
+  opacity: 0.4;
+  border-style: dashed;
+  border-color: var(--accent);
+  transform: scale(0.92);
+}
+.qm-tile.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* Иконка / эмодзи */
+.qm-tile-icon {
+  font-size: 26px;
+  line-height: 1;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.quick-menu-box[data-size="small"] .qm-tile-icon { font-size: 22px; margin-bottom: 4px; }
+.quick-menu-box[data-size="large"] .qm-tile-icon { font-size: 32px; margin-bottom: 8px; }
+
+.qm-tile:hover .qm-tile-icon {
+  transform: scale(1.15);
+}
+
+/* Заголовок: 1 строка + троеточие */
+.qm-tile-title {
+  width: 100%;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 3px;
+}
+.quick-menu-box[data-size="small"] .qm-tile-title { font-size: 11px; }
+.quick-menu-box[data-size="large"] .qm-tile-title { font-size: 13.5px; }
+
+/* Подзаголовок: мелкий серый текст, переносится в несколько строк */
+.qm-tile-sub {
+  width: 100%;
+  font-size: 10px;
+  line-height: 1.25;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+.quick-menu-box[data-size="small"] .qm-tile-sub { font-size: 9px; -webkit-line-clamp: 2; }
+.quick-menu-box[data-size="large"] .qm-tile-sub { font-size: 10.5px; -webkit-line-clamp: 3; }
+
+/* Крестик удаления на плитке */
+.qm-tile-del-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  z-index: 10;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.qm-tile-del-btn:hover {
+  background: var(--danger);
+  color: #ffffff;
+  border-color: var(--danger);
+  transform: scale(1.15);
+}
+.qm-tile-del-btn:active {
+  transform: scale(0.9);
+}
+
+/* Кнопка с плюсом для добавления новых карточек */
+.qm-tile.qm-tile-add {
+  border: 2px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+  justify-content: center;
+}
+.qm-tile.qm-tile-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.qm-tile-add-icon {
+  font-size: 26px;
+  font-weight: 300;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+/* Диалог выбора скрытых пунктов */
+.qm-available-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 48vh;
+  overflow-y: auto;
+}
+.qm-available-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.qm-available-item:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+.qm-available-item-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.qm-available-item-text {
+  flex: 1;
+  min-width: 0;
+}
+.qm-available-item-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  display: block;
+}
+.qm-available-item-sub {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  display: block;
+}
+
+/* Тёмная тема */
+[data-theme="dark"] .qm-tile {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+}
+[data-theme="dark"] .qm-tile-del-btn {
+  background: #111827;
+  border-color: #374151;
+}
+
+/* Ночной режим (красный монохром) */
+[data-theme="night-vision"] .quick-menu-box {
+  background: rgba(18, 3, 3, 0.96);
+  border-color: #ef4444;
+}
+[data-theme="night-vision"] .qm-tile {
+  background: #120303;
+  border-color: #3b0707;
+  color: #f87171;
+}
+[data-theme="night-vision"] .qm-tile-title {
+  color: #f87171;
+}
+[data-theme="night-vision"] .qm-tile:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+}
+[data-theme="night-vision"] .qm-tile-del-btn {
+  border-color: #ef4444;
+  color: #ef4444;
+  background: #050101;
+}
+
+#modal-quick-menu-add {
+  z-index: 3600 !important;
+}
+
+/* =========================================================================
+   БЫСТРЫЙ ХАБ INATURALIST (MODAL QUICK HUB)
+   ========================================================================= */
+
+#modal-inat-quick {
+  z-index: 3200 !important;
+}
+
+.inat-qhub-modal-box {
+  max-width: 440px !important;
+  width: 95vw;
+  padding: 16px 18px !important;
+}
+
+.inat-qhub-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inat-qhub-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.inat-qhub-title-row h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+
+.inat-qhub-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Плашка предупреждения о токене */
+.inat-qhub-token-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm, 8px);
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  line-height: 1.35;
+  animation: progressFadeIn 0.2s ease-out;
+}
+
+.inat-qhub-token-notice.warn {
+  background: var(--warning-bg, #fef3c7);
+  border: 1px solid var(--warning-text, #d97706);
+  color: var(--warning-text, #92400e);
+}
+
+.inat-qhub-token-notice.danger {
+  background: var(--danger-bg, #fee2e2);
+  border: 1px solid var(--danger, #ef4444);
+  color: var(--danger, #dc2626);
+}
+
+.inat-qhub-token-notice .btn-link {
+  font-weight: 800;
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Hero-блок со слоем и фото-ИИ */
+.inat-qhub-hero {
+  background: var(--bg-secondary);
+  border: 1.5px solid rgba(16, 185, 129, 0.4);
+  border-radius: var(--radius-md, 12px);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inat-qhub-action-btns {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 8px;
+}
+
+.inat-qhub-action-btn {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 10px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+#btn-inat-qhub-vision {
+  background: #10b981;
+  border-color: #10b981;
+}
+
+#btn-inat-qhub-vision:hover {
+  background: #059669;
+  border-color: #059669;
+}
+
+/* Сетка чипов выбора царства */
+.inat-qhub-section-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.inat-qhub-chips-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.inat-qhub-chip {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: all 0.12s ease;
+}
+
+.inat-qhub-chip:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+
+.inat-qhub-chip.active {
+  background: #10b981;
+  color: #ffffff;
+  border-color: #10b981;
+  box-shadow: 0 1px 4px rgba(16, 185, 129, 0.3);
+}
+
+/* Поиск */
+.inat-qhub-search-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.inat-qhub-search-inp:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+}
+
+.inat-qhub-btn-apply {
+  width: 100%;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 7px;
+}
+
+.inat-qhub-sub-spoiler {
+  margin-bottom: 6px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm, 8px);
+}
+
+/* Тема ночного зрения (красный монохром) */
+[data-theme="night-vision"] .inat-qhub-modal-box {
+  background: #050101 !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] .inat-qhub-hero {
+  background: rgba(26, 4, 4, 0.95);
+  border-color: #ef4444;
+}
+
+[data-theme="night-vision"] #btn-inat-qhub-vision {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #050101;
+}
+
+[data-theme="night-vision"] .inat-qhub-chip.active {
+  background: #ef4444 !important;
+  color: #050101 !important;
+  border-color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .inat-qhub-token-notice {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+}
+
+
+
+/* =========================================================================
+   МОДУЛЬ АНАЛИЗА ПОЧВЫ И БИОТОПА (SOILGRIDS)
+   ========================================================================= */
+
+.soil-modal-box {
+  max-width: 500px !important;
+  width: 95vw;
+  padding: 16px 18px !important;
+}
+
+.soil-loading-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 16px;
+}
+
+.soil-loading-text {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-align: center;
+}
+
+.soil-hero-card {
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-md, 12px);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.soil-hero-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.soil-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2.5px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-main);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.soil-pill.moist-wet {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+
+.soil-pill.moist-dry {
+  background: #fef3c7;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+.soil-pill.moist-moderate {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #86efac;
+}
+
+.soil-biotope-title {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1.25;
+}
+
+.soil-type-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.soil-biotope-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.soil-tip-box {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-main);
+  margin-top: 4px;
+}
+
+.soil-section-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.soil-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.soil-season-tag {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--accent);
+  background: var(--accent-bg);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.soil-tags-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.soil-item-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-primary);
+  color: var(--text-main);
+}
+
+.soil-item-chip.mushroom {
+  border-left: 3px solid #d97706;
+}
+
+.soil-item-chip.plant {
+  border-left: 3px solid #10b981;
+}
+
+.soil-item-chip.tree {
+  border-left: 3px solid #0284c7;
+}
+
+.soil-metric-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.soil-metric-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Градиентная шкала pH */
+.soil-ph-track {
+  position: relative;
+  width: 100%;
+  height: 12px;
+  border-radius: 6px;
+  margin: 6px 0 2px;
+}
+
+.soil-ph-gradient {
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #ef4444 0%, #f97316 25%, #eab308 50%, #10b981 70%, #0284c7 88%, #8b5cf6 100%);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.soil-ph-pointer {
+  position: absolute;
+  top: -4px;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 20px;
+  background: #ffffff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+.soil-ph-pointer-badge {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.9);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.soil-ph-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 8.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Механический состав (песок/ил/глина) */
+.soil-texture-bar-wrap {
+  width: 100%;
+  height: 22px;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  margin-top: 4px;
+  border: 1px solid var(--border-strong);
+}
+
+.soil-tex-seg {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+.soil-tex-seg.sand { background: #f59e0b; }
+.soil-tex-seg.silt { background: #06b6d4; }
+.soil-tex-seg.clay { background: #8b5cf6; }
+
+/* Тёмная тема */
+[data-theme="dark"] .soil-item-chip {
+  background: var(--bg-secondary);
+}
+
+/* Ночной режим (красный монохром) */
+[data-theme="night-vision"] .soil-modal-box {
+  background: #050101 !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] .soil-hero-card,
+[data-theme="night-vision"] .soil-section-card {
+  background: #120303 !important;
+  border-color: #3b0707 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] .soil-tip-box {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .soil-pill {
+  background: #120303 !important;
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+}
+
+.inat-traits-source-note {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+}
+
+.inat-pill-trait {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border-strong) !important;
+  color: var(--text-main) !important;
+  font-weight: 700;
+}
+
+/* Тёмная тема */
+[data-theme="dark"] .inat-sound-item-card,
+[data-theme="dark"] .inat-trait-card {
+  background: var(--bg-secondary, #1f2937);
+  border-color: var(--border, #374151);
+}
+
+[data-theme="dark"] .inat-sound-badge-type {
+  background: var(--bg-primary, #111827);
+  color: var(--text-main, #f9fafb);
+}
+
+/* Ночная тема (красный монохром) */
+[data-theme="night-vision"] .inat-sound-item-card,
+[data-theme="night-vision"] .inat-trait-card {
+  background: #120303 !important;
+  border-color: #3b0707 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] .inat-sound-badge-type,
+[data-theme="night-vision"] .inat-sound-badge-quality,
+[data-theme="night-vision"] .inat-sound-badge-source {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .inat-pill-trait {
+  background: rgba(239, 68, 68, 0.16) !important;
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+}
+
+/* Вложенные спойлеры для следов, звуков и кормовой базы */
+.inat-sub-spoiler {
+  background: var(--bg-surface, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.inat-sub-spoiler-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  background: rgba(0, 0, 0, 0.02);
+}
+.inat-sub-spoiler-summary::-webkit-details-marker {
+  display: none;
+}
+.inat-sub-spoiler-summary .chevron {
+  font-size: 9px;
+  transition: transform 0.2s ease;
+}
+.inat-sub-spoiler[open] .inat-sub-spoiler-summary .chevron {
+  transform: rotate(180deg);
+}
+.inat-sub-spoiler-body {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+}
 /* =========================================================================
    СТРУКТУРИРОВАННЫЙ РАЗДЕЛ НАСТРОЕК INATURALIST
    ========================================================================= */
@@ -12716,6 +14143,502 @@ body.sheet-open .shadow-height-hud {
   background: var(--accent);
   color: #ffffff;
   border-color: var(--accent);
+}
+
+/* =========================================================================
+   ГИДРОЛОГИЧЕСКИЙ МОДУЛЬ (WATER & FLOOD DIAGNOSIS)
+   ========================================================================= */
+
+.water-hero-card {
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-md, 12px);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.water-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.water-status-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.water-status-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.water-score-pill {
+  font-size: 12px;
+  font-weight: 900;
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1.5px solid currentColor;
+  background: var(--bg-primary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.water-gauge-track {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.water-gauge-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.water-gear-box {
+  background: rgba(2, 132, 199, 0.08);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.water-triggers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.water-trigger-item {
+  font-size: 11px;
+  color: var(--text-main);
+  line-height: 1.35;
+}
+
+.water-section-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.water-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.water-alert-pill {
+  font-size: 10px;
+  font-weight: 800;
+  color: #ef4444;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+
+/* График GloFAS */
+.water-hydrograph-wrap {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.water-hydrograph-svg {
+  width: 100%;
+  height: 100px;
+  display: block;
+  overflow: visible;
+}
+
+.water-hydrograph-legend {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Послойные колонки почвенной влажности */
+.water-soil-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 6px;
+}
+
+.water-soil-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.water-soil-depth {
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.15;
+  height: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.water-soil-bar-wrap {
+  width: 18px;
+  height: 52px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.water-soil-bar {
+  width: 100%;
+  background: #38bdf8;
+  border-radius: 3px;
+  transition: height 0.4s ease;
+}
+
+.water-soil-bar.saturated {
+  background: #0284c7;
+  box-shadow: 0 0 6px rgba(2, 132, 199, 0.6);
+}
+
+.water-soil-val {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Чипы объектов OSM */
+.water-osm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.water-osm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+}
+
+/* Тёмная тема */
+[data-theme="dark"] .water-alert-pill {
+  background: #450a0a;
+  color: #fca5a5;
+  border-color: #991b1b;
+}
+
+[data-theme="dark"] .water-gear-box {
+  background: rgba(2, 132, 199, 0.12);
+  border-color: rgba(2, 132, 199, 0.35);
+}
+
+/* Ночной режим (красный монохром) */
+[data-theme="night-vision"] .water-hero-card,
+[data-theme="night-vision"] .water-section-card {
+  background: #120303 !important;
+  border-color: #3b0707 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] .water-gear-box,
+[data-theme="night-vision"] .water-triggers-list {
+  background: #050101 !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] .water-soil-profile-grid {
+  background: #050101 !important;
+  border-color: #3b0707 !important;
+}
+
+[data-theme="night-vision"] .water-soil-bar {
+  background: #ef4444 !important;
+}
+
+
+
+/* =========================================================================
+   ВЕЕРНОЕ РАДИАЛЬНОЕ МЕНЮ (ЧЕТВЕРТЬ КРУГА ИЗ УГЛА)
+   ========================================================================= */
+/* =========================================================================
+   ВЕЕРНОЕ РАДИАЛЬНОЕ МЕНЮ (ЧЕТВЕРТЬ КРУГА ИЗ УГЛА)
+   ========================================================================= */
+
+.quick-pie-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3600;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  pointer-events: auto;
+  animation: qmOverlayFade 0.16s ease-out;
+}
+
+.quick-pie-hud {
+  position: absolute;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.quick-pie-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* Точка привязки пальца в центре */
+.pie-center-pivot {
+  fill: var(--bg-glass-strong);
+  stroke: var(--accent);
+  stroke-width: 2;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+  opacity: 0.85;
+}
+
+/* Сектора дуг */
+.pie-sector {
+  fill: var(--bg-glass-strong);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  transition: fill 0.14s ease, stroke 0.14s ease, filter 0.14s ease;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.14));
+}
+
+.pie-sector.ring-inner {
+  fill: var(--bg-glass-strong);
+}
+
+.pie-sector.ring-outer {
+  fill: var(--bg-secondary);
+  opacity: 0.96;
+}
+
+/* Активный выбранный сектор */
+.pie-sector.is-active {
+  fill: var(--accent) !important;
+  stroke: #ffffff !important;
+  stroke-width: 2.5;
+  opacity: 1 !important;
+  filter: drop-shadow(0 0 14px var(--accent)) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.35));
+}
+
+/* Круглая подложка иконки */
+.pie-icon-circle {
+  fill: var(--bg-primary);
+  stroke: var(--border);
+  stroke-width: 1.5;
+  r: 21px; /* Базовый радиус */
+  transition: r 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+              fill 0.14s ease,
+              stroke 0.14s ease,
+              stroke-width 0.14s ease;
+}
+
+/* Для меню с 2 кольцами базовый радиус меньше */
+.pie-icon-circle.ring-two {
+  r: 18px;
+}
+
+/* Активное состояние кружка: радиус плавно растёт ровно на месте */
+.pie-item-group.is-active .pie-icon-circle {
+  r: 25px;
+  fill: #ffffff;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.35));
+}
+
+.pie-item-group.is-active .pie-icon-circle.ring-two {
+  r: 22px;
+}
+
+/* Эмодзи-иконка */
+.pie-icon-text {
+  font-size: 20px;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  transition: font-size 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Активное состояние эмодзи: размер шрифта плавно увеличивается */
+.pie-item-group.is-active .pie-icon-text {
+  font-size: 25px;
+}
+
+/* Плавающая панель-подсказка вынесена за пределы колеса */
+.quick-pie-tip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1.5px solid var(--border-strong);
+  color: var(--text-main);
+  padding: 8px 14px;
+  border-radius: var(--radius-md, 14px);
+  box-shadow: var(--shadow-float), 0 0 20px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: qmBoxPop 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  z-index: 10;
+}
+
+.quick-pie-tip.has-selection {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-float), 0 0 16px var(--accent-bg);
+}
+
+.quick-pie-tip-icon {
+  font-size: 24px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.quick-pie-tip-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+#quick-pie-tip-title {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+#quick-pie-tip-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Тёмная тема */
+[data-theme="dark"] .pie-center-pivot {
+  fill: #1f2937;
+  stroke: var(--accent);
+}
+
+[data-theme="dark"] .pie-sector {
+  fill: rgba(31, 41, 55, 0.94);
+  stroke: #374151;
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.45));
+}
+
+[data-theme="dark"] .pie-sector.ring-outer {
+  fill: rgba(17, 24, 39, 0.92);
+}
+
+[data-theme="dark"] .pie-icon-circle {
+  fill: #111827;
+  border-color: #374151;
+}
+
+[data-theme="dark"] .pie-item-group.is-active .pie-icon-circle {
+  fill: #ffffff;
+  stroke: var(--accent);
+}
+
+/* Ночной режим (красный монохром) */
+[data-theme="night-vision"] .quick-pie-overlay {
+  background: rgba(8, 1, 1, 0.65);
+}
+
+[data-theme="night-vision"] .pie-center-pivot {
+  fill: #120303;
+  stroke: #ef4444;
+}
+
+[data-theme="night-vision"] .pie-sector {
+  fill: rgba(18, 3, 3, 0.96) !important;
+  stroke: #3b0707 !important;
+}
+
+[data-theme="night-vision"] .pie-sector.ring-outer {
+  fill: rgba(10, 1, 1, 0.94) !important;
+}
+
+[data-theme="night-vision"] .pie-sector.is-active {
+  fill: #ef4444 !important;
+  stroke: #ff9999 !important;
+  filter: drop-shadow(0 0 16px rgba(239, 68, 68, 0.8)) !important;
+}
+
+[data-theme="night-vision"] .pie-icon-circle {
+  fill: #050101;
+  stroke: #3b0707;
+}
+
+[data-theme="night-vision"] .pie-item-group.is-active .pie-icon-circle {
+  fill: #ffffff;
+  stroke: #ef4444;
+}
+
+[data-theme="night-vision"] .quick-pie-tip {
+  background: rgba(18, 3, 3, 0.96);
+  border-color: #3b0707;
+  color: #f87171;
+}
+
+[data-theme="night-vision"] .quick-pie-tip.has-selection {
+  border-color: #ef4444;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.45);
+}
+
+[data-theme="night-vision"] #quick-pie-tip-title {
+  color: #ef4444;
 }
 
 /* Сегментированные переключатели */
