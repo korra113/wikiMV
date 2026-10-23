@@ -1169,13 +1169,16 @@
         const count = pieItems.length;
         const twoRings = count > 5;
 
+        const PIE_OUTER_BUFFER = 95; // Та самая «зелёная зона»: запас ~65px за пределами кнопок
+
         for (let i = 0; i < pieItems.length; i++) {
           const item = pieItems[i];
           const isOuter = !twoRings || item.ring === 'outer';
 
-          // Для внешней дуги нет ограничения сверху — дальность не срывается при быстром свайпе
+          // Внешняя дуга активна на самой кнопке и в пределах запаса (зелёной зоны).
+          // Если палец уведён дальше (r > item.rOut + PIE_OUTER_BUFFER) — выбор сбрасывается.
           const rMatch = isOuter
-            ? (r >= item.rIn - 10)
+            ? (r >= item.rIn - 10 && r <= item.rOut + PIE_OUTER_BUFFER)
             : (r >= item.rIn - 10 && r < item.rOut + 10);
 
           if (rMatch && angle >= item.a1 - 0.001 && angle <= item.a2 + 0.001) {
