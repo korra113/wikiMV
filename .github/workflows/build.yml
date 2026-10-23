@@ -41,7 +41,7 @@ jobs:
       # 2. Инициализация Capacitor и сборка
       - name: Setup Project and Capacitor
         run: |
-          echo '{"name": "wikimapia-app", "version": "1.0.81"}' > package.json
+          echo '{"name": "wikimapia-app", "version": "1.0.9"}' > package.json
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets @capacitor/app
 
           mkdir -p assets
@@ -65,14 +65,14 @@ jobs:
           npx cap add android
           npx capacitor-assets generate --android --iconBackgroundColor "#111827"
 
-          # Прописываем версию 1.0.81 и versionCode 81 в build.gradle
+          # Прописываем версию 1.0.9 и versionCode 90 (выше чем предыдущий 81) в build.gradle
           python3 - << 'EOF'
           path = "android/app/build.gradle"
           with open(path, "r", encoding="utf-8") as f:
               content = f.read()
 
-          content = content.replace('versionCode 1', 'versionCode 81')
-          content = content.replace('versionName "1.0"', 'versionName "1.0.81"')
+          content = content.replace('versionCode 1', 'versionCode 90')
+          content = content.replace('versionName "1.0"', 'versionName "1.0.9"')
 
           with open(path, "w", encoding="utf-8") as f:
               f.write(content)
@@ -117,10 +117,7 @@ jobs:
               f.write(content)
           EOF
 
-          # Настройка MainActivity.java:
-          # 1. Авто-запрос runtime-разрешений (GPS + шагомер ACTIVITY_RECOGNITION)
-          # 2. Нативный мост window.AndroidBridge.setKeepScreenOn для 100% удержания экрана
-          # 3. Кнопка "Назад" и перехват скачивания файлов
+          # Настройка MainActivity.java
           python3 - << 'EOF'
           path = "android/app/src/main/java/com/wikimapia/viewer/MainActivity.java"
           code = """package com.wikimapia.viewer;
@@ -275,7 +272,7 @@ jobs:
             --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
             --key-pass pass:${{ secrets.KEY_PASSWORD }} \
             --ks-key-alias ${{ secrets.KEY_ALIAS }} \
-            --out app/build/outputs/apk/release/wikiMV_1.0.81.apk \
+            --out app/build/outputs/apk/release/wikiMV_1.0.9.apk \
             app/build/outputs/apk/release/aligned.apk
 
       # 5. Проверка манифеста и версии прямо в логах GitHub
@@ -283,11 +280,11 @@ jobs:
         run: |
           cd android
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
-          $BUILD_TOOLS/aapt dump badging app/build/outputs/apk/release/wikiMV_1.0.81.apk | grep -E "package: name|sdkVersion"
+          $BUILD_TOOLS/aapt dump badging app/build/outputs/apk/release/wikiMV_1.0.9.apk | grep -E "package: name|sdkVersion"
 
       # 6. Выгрузка готового APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: WikiMV_1.0.81
-          path: android/app/build/outputs/apk/release/wikiMV_1.0.81.apk
+          name: WikiMV_1.0.9
+          path: android/app/build/outputs/apk/release/wikiMV_1.0.9.apk
