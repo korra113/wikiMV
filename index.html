@@ -211,6 +211,7 @@
     <button id="btn-add-marker" class="floating-btn" title="Добавить метку">📍</button>
     <button id="btn-download-area" class="floating-btn" title="Скачать область">📥</button>
     <button id="btn-location" class="floating-btn" title="Моя геопозиция">🛰️</button>
+    <button id="btn-track-record" class="floating-btn" title="Запись трека (GPS Logger)">⏺️</button>
     <button id="btn-manual-pdr" class="floating-btn" title="Поместить точку GPS сюда">🧲</button>
     <button id="btn-motion-toggle" class="floating-btn" title="Хвост и траектория движения">🐾</button>
     <button id="btn-gps-dist" class="floating-btn" title="Расстояние от центра до GPS">🧭</button>
@@ -770,9 +771,266 @@
           </div>
         </details>
 
+        <!-- РАЗДЕЛ: НАСТРОЙКИ ЗАПИСИ ТРЕКОВ -->
+        <!-- РАЗДЕЛ: НАСТРОЙКИ ЗАПИСИ ТРЕКОВ (GPS LOGGER) -->
+        <details class="spoiler" id="spoiler-track-recorder">
+          <summary class="spoiler-title">
+            <span>⏺️ Запись треков (GPS Logger)</span>
+            <span class="chevron">▼</span>
+          </summary>
+          <div class="spoiler-body pdr-spoiler-container">
+
+            <!-- Компактная понятная памятка -->
+            <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 8px;">
+              <div class="guide-tip-title">⏺️ Автономный GPS-логгер</div>
+              <p style="margin: 0; font-size: 11.5px; line-height: 1.45;">
+                Запись маршрутов в фоновом режиме, фильтрация скачков координат (Anti-Spike), учёт перепада высот и синхронизация треков через облако Firebase.
+              </p>
+            </div>
+
+            <!-- 1. КАРТОЧКА: ФОНОВАЯ РАБОТА И БАТАРЕЯ -->
+            <div class="pdr-card-box" style="border-color: #f59e0b; background: rgba(245, 158, 11, 0.05);">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-weight: 800; font-size: 13px; color: var(--text-main);">🔋 Фоновая работа без ограничений</div>
+                <span id="badge-battery-opt-status" class="badge-apk-only" style="background:#eab308; color:#000;">Проверка…</span>
+              </div>
+              <p class="hint-text" style="margin: 0; line-height: 1.4;">
+                Разрешает приложению вести непрерывную запись по спутникам при заблокированном экране телефона без усыпления системой (Doze Mode).
+              </p>
+              <div style="display: flex; gap: 8px; margin-top: 2px;">
+                <button type="button" id="btn-request-battery-opt" class="btn btn-primary" style="flex: 1; font-size: 11.5px; padding: 7px 10px;">
+                  ⚡ Отключить оптимизацию батареи
+                </button>
+                <button type="button" id="btn-open-app-settings" class="btn btn-secondary" style="font-size: 12px; padding: 7px 11px;" title="Системные настройки приложения">
+                  ⚙️
+                </button>
+              </div>
+            </div>
+
+            <!-- 2. КАРТОЧКА: БАЗА ТРЕКОВ И ОБЛАКО -->
+            <div class="pdr-card-box">
+              <div class="track-settings-header-row" style="margin-bottom: 2px;">
+                <span class="pdr-card-header" style="margin: 0;">📁 Сохранённые треки:</span>
+                <div style="display: flex; gap: 6px;">
+                  <button type="button" id="btn-track-import-file" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;">📂 Импорт GPX</button>
+                  <input type="file" id="track-import-input" accept=".gpx,.json,.geojson" style="display: none;">
+                </div>
+              </div>
+
+              <!-- Список сохранённых треков -->
+              <div id="track-settings-list" class="track-settings-list"></div>
+
+              <hr class="style-divider" style="margin: 4px 0;">
+
+              <!-- Облачные треки Firebase -->
+              <label class="toggle-item" style="margin: 0;">
+                <div>
+                  <span style="font-weight: 600; display: block;">🌐 Показывать общие треки</span>
+                  <small class="hint-text">Отображать общедоступные треки других пользователей пунктиром</small>
+                </div>
+                <input type="checkbox" id="toggle-track-show-shared">
+                <span class="toggle-switch"></span>
+              </label>
+
+              <button type="button" id="btn-track-download-by-pass" class="btn btn-secondary" style="width: 100%; font-size: 11.5px; padding: 7px 10px; margin-top: 4px;">
+                🔑 Загрузить треки по паролю комнаты
+              </button>
+            </div>
+
+            <!-- 3. ВЛОЖЕННЫЙ СПОЙЛЕР: ЭНЕРГОПОТРЕБЛЕНИЕ И ЗАЩИТА ОТ АНОМАЛИЙ -->
+            <details class="spoiler sub-spoiler">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🛡️ Фильтры телепортаций и энергосбережение</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body pdr-sub-body toggles-list">
+                
+                <div class="form-group" style="margin-bottom: 4px;">
+                  <label for="track-power-profile-select" style="font-weight: 700; color: var(--text-main); margin-bottom: 4px;">
+                    Профиль энергопотребления (режим опроса GPS):
+                  </label>
+                  <select id="track-power-profile-select" class="styled-select">
+                    <option value="high">🚀 Максимальная точность (непрерывно, спорт / авто)</option>
+                    <option value="balanced" selected>🚶 Сбалансированный (оптимально для пеших походов)</option>
+                    <option value="eco">🔋 Экстремальный эконом (раз в 1–2 мин, длинный выход)</option>
+                  </select>
+                </div>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight: 600; display: block;">🔆 Экран всегда включён при записи</span>
+                    <small class="hint-text" style="color: var(--warning-text);">Предотвращает засыпание браузера и прерывание записи</small>
+                  </div>
+                  <input type="checkbox" id="toggle-track-wakelock">
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <hr class="style-divider" style="margin: 2px 0;">
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight: 600; display: block;">Фильтр аномалий и скачков (Anti-Spike)</span>
+                    <small class="hint-text">Ставит паузу при скачке координаты &gt; 2 км или сверхзвуковой скорости</small>
+                  </div>
+                  <input type="checkbox" id="toggle-track-anomaly-filter" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <div style="padding-left: 14px;">
+                  <label class="toggle-item">
+                    <div>
+                      <span style="font-weight: 600; display: block;">📳 10 вибросигналов при аномалии</span>
+                      <small class="hint-text">Тактильное предупреждение в кармане при сбое спутников</small>
+                    </div>
+                    <input type="checkbox" id="toggle-track-anomaly-vibro" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                </div>
+
+                <hr class="style-divider" style="margin: 2px 0;">
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight: 600; display: block;">Автопауза при остановке</span>
+                    <small class="hint-text">Приостанавливает запись на привалах для устранения "звёздного клубка"</small>
+                  </div>
+                  <input type="checkbox" id="toggle-track-autopause">
+                  <span class="toggle-switch"></span>
+                </label>
+
+                <div style="padding-left: 14px;">
+                  <label class="toggle-item">
+                    <div>
+                      <span style="font-weight: 600; display: block;">Будить GPS по акселерометру</span>
+                      <small class="hint-text">Глубокий сон GPS-чипа на стоянке до первого шага</small>
+                    </div>
+                    <input type="checkbox" id="toggle-track-step-wake" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                </div>
+
+                <label class="toggle-item">
+                  <div>
+                    <span style="font-weight: 600; display: block;">Защита от разряда аккумулятора (≤ 20%)</span>
+                    <small class="hint-text">Авто-переход на редкий опрос при низком заряде батареи</small>
+                  </div>
+                  <input type="checkbox" id="toggle-track-battery-guard" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+              </div>
+            </details>
+
+            <!-- 4. ВЛОЖЕННЫЙ СПОЙЛЕР: ШАГ ТОЧЕК, КАМЕРА И ВЫСОТА -->
+            <details class="spoiler sub-spoiler">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🎯 Частота точек, камера и высотометрия</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body pdr-sub-body">
+                
+                <div style="font-weight: 700; font-size: 12px; color: var(--text-muted); margin-bottom: 2px;">Шаг фиксации точек по умолчанию:</div>
+                <div class="track-config-row" style="display: flex; gap: 8px; margin-bottom: 8px;">
+                  <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label for="track-default-interval-select">Интервал времени:</label>
+                    <select id="track-default-interval-select" class="styled-select">
+                      <option value="1">1 сек</option>
+                      <option value="2">2 сек</option>
+                      <option value="3" selected>3 сек</option>
+                      <option value="5">5 сек</option>
+                      <option value="10">10 сек</option>
+                      <option value="15">15 сек</option>
+                      <option value="30">30 сек</option>
+                      <option value="60">1 мин</option>
+                      <option value="120">2 мин</option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label for="track-default-dist-select">Смещение в метрах:</label>
+                    <select id="track-default-dist-select" class="styled-select">
+                      <option value="2">2 метра</option>
+                      <option value="5" selected>5 метров</option>
+                      <option value="10">10 метров</option>
+                      <option value="25">25 метров</option>
+                      <option value="50">50 метров</option>
+                      <option value="100">100 метров</option>
+                      <option value="200">200 метров</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 8px;">
+                  <label for="track-camera-mode-select">Поведение камеры во время записи:</label>
+                  <select id="track-camera-mode-select" class="styled-select">
+                    <option value="auto" selected>🎯 Авторежим (привязка после 30 с покоя)</option>
+                    <option value="soft_auto">🍃 Мягкий авторежим (за 5 с, если GPS в кадре)</option>
+                    <option value="locked">🔒 Всегда привязана (намертво к GPS)</option>
+                    <option value="free">🔓 Свободная (без автосмещения)</option>
+                  </select>
+                  <small class="hint-text" id="track-camera-mode-hint" style="margin-top: 3px;">Камера центрируется на точке через 30 сек бездействия. Сдвиг отвязывает камеру.</small>
+                </div>
+
+                <hr class="style-divider" style="margin: 4px 0;">
+
+                <div class="form-group" style="margin-bottom: 8px;">
+                  <label for="track-altitude-source-select">Источник данных о высоте:</label>
+                  <select id="track-altitude-source-select" class="styled-select">
+                    <option value="gps" selected>🛰️ Высота спутников GPS</option>
+                    <option value="barometer">🌡️ Барометрический альтиметр (при наличии сенсора)</option>
+                  </select>
+                </div>
+
+                <label class="toggle-item" style="margin-bottom: 2px;">
+                  <div>
+                    <span style="font-weight: 600; display: block;">Сглаживание перепада высот</span>
+                    <small class="hint-text">Фильтрует шум и выбросы для точного подсчёта набора и сброса высоты</small>
+                  </div>
+                  <input type="checkbox" id="toggle-track-elevation-smoothing" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+              </div>
+            </details>
+
+            <!-- 5. ВЛОЖЕННЫЙ СПОЙЛЕР: ОТОБРАЖЕНИЕ НА КАРТЕ -->
+            <details class="spoiler sub-spoiler">
+              <summary class="spoiler-title sub-spoiler-title">
+                <span>🎨 Отображение линии трека на карте</span>
+                <span class="chevron">▼</span>
+              </summary>
+              <div class="spoiler-body pdr-sub-body">
+                
+                <div class="style-row" style="margin-bottom: 8px;">
+                  <label for="track-line-width-slider" style="display: flex; justify-content: space-between; font-weight: 600;">
+                    <span>Толщина линии трека:</span>
+                    <b id="track-line-width-val" style="color: var(--accent);">4 px</b>
+                  </label>
+                  <input type="range" id="track-line-width-slider" min="1.5" max="8" step="0.5" value="4" class="styled-range">
+                </div>
+
+                <div class="style-row" style="margin-bottom: 8px;">
+                  <label for="track-line-opacity-slider" style="display: flex; justify-content: space-between; font-weight: 600;">
+                    <span>Прозрачность линии:</span>
+                    <b id="track-line-opacity-val" style="color: var(--accent);">85%</b>
+                  </label>
+                  <input type="range" id="track-line-opacity-slider" min="20" max="100" step="5" value="85" class="styled-range">
+                </div>
+
+                <label class="toggle-item" style="margin-top: 4px;">
+                  <div>
+                    <span style="font-weight: 600; display: block;">Стрелочки направления (▶)</span>
+                    <small class="hint-text">Индикаторы направления движения вдоль трека</small>
+                  </div>
+                  <input type="checkbox" id="toggle-track-arrows" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+              </div>
+            </details>
+
+          </div>
+        </details>
+
         <!-- НОВЫЙ ВЛОЖЕННЫЙ СПОЙЛЕР: НАВИГАЦИЯ ПРИ ГЛУШЕНИИ И PDR -->
         <!-- ОБНОВЛЁННЫЙ СПОЙЛЕР: НАВИГАЦИЯ БЕЗ GPS И ШАГОМЕР (PDR) -->
-        <details class="spoiler sub-spoiler" id="spoiler-pdr-settings">
+        <details class="spoiler" id="spoiler-pdr-settings">
           <summary class="spoiler-title sub-spoiler-title">
             <span>🛡️ Навигация без GPS и шагомер (PDR)</span>
             <span class="chevron">▼</span>
@@ -1783,7 +2041,7 @@
                 <label class="toggle-item">
                   <div>
                     <span style="font-weight:600; display:block;">Включить быстрое меню</span>
-                    <small class="hint-text">Быстрый доступ к инструментам без переключения панелей</small>
+                    <small class="hint-text">Быстрый доступ к инструментам без переключения панелей. Долгое нажатие на эту кнопку вызывает pie-menu для ещё более быстрого вызова функций</small>
                   </div>
                   <input type="checkbox" id="toggle-qm-enabled" checked>
                   <span class="toggle-switch"></span>
@@ -1873,6 +2131,11 @@
                   <label class="toggle-item">
                     <span>🔮 Радар видов (вероятные виды iNat)</span>
                     <input type="checkbox" id="toggle-qm-item-inatsuggest" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item">
+                    <span>🏕️ Информация об этом месте (Экспресс-сводка)</span>
+                    <input type="checkbox" id="toggle-qm-item-placeinsight" checked>
                     <span class="toggle-switch"></span>
                   </label>
                   <label class="toggle-item">
@@ -3754,9 +4017,190 @@
   </div>
 </div>
 
+<div id="modal-place-insight" class="modal-overlay">
+  <div class="modal-box modal-box-large place-insight-modal-box">
+    <div class="modal-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 24px; line-height: 1;">🏕️</span>
+        <div>
+          <h3 style="margin: 0; font-size: 16px; font-weight: 800;">Информация об этом месте</h3>
+          <span id="place-insight-coords" style="font-size: 11px; color: var(--text-muted); font-family: ui-monospace, monospace;">📍 Определение координат…</span>
+        </div>
+      </div>
+      <button class="modal-close-x" id="place-insight-close-x">✕</button>
+    </div>
 
+    <div class="modal-content-scroll" id="place-insight-content" style="max-height: 68vh; padding-right: 4px;"></div>
 
+    <div class="modal-actions" style="margin-top: 10px; justify-content: flex-end;">
+      <button type="button" id="btn-place-insight-close" class="btn btn-secondary">Закрыть</button>
+    </div>
+  </div>
+</div>
 
+<!-- HUD НАСТРОЙКИ СТАРТА НОВОГО ТРЕКА -->
+<div id="track-config-hud" class="track-config-hud" hidden>
+  <div class="track-hud-head">
+    <div class="track-hud-title">⏺️ Новый GPS трек</div>
+    <button type="button" id="btn-track-config-close" class="track-hud-close">✕</button>
+  </div>
+  <div class="form-group" style="margin-bottom: 6px;">
+    <label for="track-config-name">Название трека:</label>
+    <input type="text" id="track-config-name" class="styled-input" placeholder="Трек 1">
+  </div>
+  <div class="form-group" style="flex: 1; margin-bottom: 6px;">
+      <label for="track-config-interval">Интервал:</label>
+      <select id="track-config-interval" class="styled-select">
+        <option value="1">1 сек</option>
+        <option value="2">2 сек</option>
+        <option value="3" selected>3 сек</option>
+        <option value="5">5 сек</option>
+        <option value="10">10 сек</option>
+        <option value="15">15 сек</option>
+        <option value="30">30 сек</option>
+        <option value="60">1 мин</option>
+        <option value="120">2 мин</option>
+      </select>
+    </div>
+    <div class="form-group" style="flex: 1; margin-bottom: 6px;">
+      <label for="track-config-dist">Смещение:</label>
+      <select id="track-config-dist" class="styled-select">
+        <option value="2">2 метра</option>
+        <option value="5" selected>5 метров</option>
+        <option value="10">10 метров</option>
+        <option value="25">25 метров</option>
+        <option value="50">50 метров</option>
+        <option value="100">100 метров</option>
+        <option value="200">200 метров</option>
+      </select>
+    </div>
+  <div class="form-group" style="margin-bottom: 10px;">
+    <label>Цвет линии на карте:</label>
+    <div id="track-config-colors" class="track-colors-row"></div>
+  </div>
+  <button type="button" id="btn-track-config-start" class="btn btn-primary" style="width: 100%; padding: 8px;">
+    ▶️ Начать запись
+  </button>
+  <button type="button" id="btn-track-config-test" class="btn btn-secondary" style="width: 100%; padding: 7px; margin-top: 6px; font-size: 11.5px;" title="Эмуляция реалистичной ходьбы со скоростью 5-15 км/ч от центра экрана">
+    🚶 Тестовый трек (5–15 км/ч)
+  </button>
+</div>
+
+<!-- LIVE HUD ВО ВРЕМЯ ЗАПИСИ ТРЕКА (2 КНОПКИ: ПАУЗА И СТОП) -->
+<div id="track-live-hud" class="track-live-hud" hidden>
+  <div class="track-live-top">
+    <div class="track-live-meta">
+      <span id="track-live-pulse-dot" class="track-live-dot"></span>
+      <b id="track-live-time" class="track-live-val">00:00</b>
+      <span class="track-live-sep">·</span>
+      <b id="track-live-dist" class="track-live-val">0 м</b>
+      <span class="track-live-sep">·</span>
+      <span id="track-live-speed" class="track-live-sub">0.0 км/ч</span>
+    </div>
+    <div class="track-live-actions">
+      <button type="button" id="btn-track-live-cancel" class="track-live-btn cancel" title="Отменить запись (без сохранения)">✕</button>
+      <button type="button" id="btn-track-live-pause" class="track-live-btn pause" title="Пауза">⏸️</button>
+      <button type="button" id="btn-track-live-stop" class="track-live-btn stop" title="Сохранить и завершить">💾</button>
+    </div>
+  </div>
+  <div id="track-live-ele" class="track-live-ele-row">▲+0 м ▼-0 м</div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО ДЕТАЛЬНОЙ СТАТИСТИКИ ТРЕКА И ГРАФИКА ВЫСОТ -->
+<div id="modal-track-details" class="modal-overlay">
+  <div class="modal-box modal-box-large track-details-modal-box">
+    <div class="modal-header">
+      <div class="track-details-head-left">
+        <span class="track-details-badge-dot" id="track-details-badge-dot"></span>
+        <h3 id="track-details-title" class="track-details-title">Статистика трека</h3>
+      </div>
+      <button type="button" class="modal-close-x" id="track-details-close-x">✕</button>
+    </div>
+
+    <div class="modal-content-scroll" style="max-height: 70vh; padding-right: 4px;">
+      <!-- Сетка ключевых метрик трека -->
+      <div class="track-metrics-grid" id="track-details-metrics-grid"></div>
+
+      <!-- Контейнер интерактивного графика высоты -->
+      <div class="track-chart-card">
+        <div class="track-chart-header">
+          <span class="track-chart-title">📈 Профиль высоты</span>
+          <span class="track-chart-cur-probe" id="track-chart-probe-val">Нажмите или проведите по графику</span>
+        </div>
+        <div class="track-chart-svg-wrap" id="track-chart-svg-wrap">
+          <svg id="track-elevation-svg" class="track-elevation-svg"></svg>
+        </div>
+        <div class="track-chart-footer">
+          <span id="track-chart-min-alt">Мин: 0 м</span>
+          <span id="track-chart-total-dist">0 км</span>
+          <span id="track-chart-max-alt">Макс: 0 м</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top: 10px; justify-content: space-between;">
+      <div style="display: flex; gap: 6px;">
+        <button type="button" id="btn-track-details-export" class="btn btn-secondary">💾 GPX</button>
+        <button type="button" id="btn-track-details-share" class="btn btn-secondary">🌐 Поделиться</button>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button type="button" id="btn-track-details-zoom" class="btn btn-primary">🎯 На карте</button>
+        <button type="button" id="btn-track-details-close" class="btn btn-secondary">Закрыть</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- МОДАЛЬНОЕ ОКНО: ПОДЕЛИТЬСЯ ТРЕКОМ (FIREBASE) -->
+<div id="modal-track-share" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="track-share-title">🌐 Поделиться треком</h3>
+      <button type="button" class="modal-close-x" id="track-share-close-x">✕</button>
+    </div>
+    <p class="modal-desc" id="track-share-desc">Опубликовать трек в облаке Firebase, чтобы другие пользователи могли увидеть его на карте.</p>
+
+    <div class="form-group" style="margin-bottom: 10px;">
+      <label for="track-share-password">Пароль комнаты (необязательно):</label>
+      <input type="text" id="track-share-password" class="styled-input" placeholder="Оставьте пустым для общего доступа..." autocomplete="off">
+      <small class="hint-text" style="margin-top: 4px;">
+        Если пароль не введён — трек будет общим для всех. Если указан пароль — трек смогут загрузить только знающие его.
+      </small>
+    </div>
+
+    <div id="track-share-status" class="hint-text" style="margin-bottom: 10px; font-weight: 600;" hidden></div>
+
+    <div class="modal-actions" style="justify-content: space-between;">
+      <button type="button" id="btn-track-share-unpublish" class="btn btn-danger-outline" hidden>Удалить из облака</button>
+      <div style="display: flex; gap: 8px; margin-left: auto;">
+        <button type="button" id="btn-track-share-cancel" class="btn btn-secondary">Отмена</button>
+        <button type="button" id="btn-track-share-submit" class="btn btn-primary">Опубликовать</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: ЗАГРУЗКА ТРЕКОВ ПО ПАРОЛЮ (FIREBASE) -->
+<div id="modal-track-download-pass" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>🔑 Загрузка треков по паролю</h3>
+      <button type="button" class="modal-close-x" id="track-dl-pass-close-x">✕</button>
+    </div>
+    <p class="modal-desc">Введите пароль комнаты, чтобы загрузить сохранённые в ней треки.</p>
+
+    <div class="form-group" style="margin-bottom: 10px;">
+      <label for="track-dl-password-input">Пароль комнаты:</label>
+      <input type="text" id="track-dl-password-input" class="styled-input" placeholder="Введите пароль..." autocomplete="off">
+    </div>
+
+    <div id="track-dl-pass-status" class="hint-text" style="margin-bottom: 10px; font-weight: 600;" hidden></div>
+
+    <div class="modal-actions" style="justify-content: flex-end;">
+      <button type="button" id="btn-track-dl-pass-cancel" class="btn btn-secondary">Отмена</button>
+      <button type="button" id="btn-track-dl-pass-submit" class="btn btn-primary">📥 Загрузить</button>
+    </div>
+  </div>
+</div>
 
   <script src="js/leaflet.js"></script>
   <script src="js/tile-retry.js"></script>
@@ -3785,6 +4229,8 @@
   <script src="js/inaturalist.js"></script>
   <script src="js/soil.js"></script>
   <script src="js/water.js"></script>
+  <script src="js/placeInsight.js"></script>
+  <script src="js/tracker.js"></script>
   <script src="js/main.js"></script>
 
 
