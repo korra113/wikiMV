@@ -14395,7 +14395,187 @@ body.sheet-open .shadow-height-hud {
   background: #ef4444 !important;
 }
 
+/* =========================================================================
+   ИЕРАРХИЯ СПОЙЛЕРОВ В НАСТРОЙКАХ (ГЛОБАЛЬНЫЕ И ВЛОЖЕННЫЕ)
+   ========================================================================= */
 
+/* --- 1. ГЛОБАЛЬНЫЕ РАЗДЕЛЫ ВЕРХНЕГО УРОВНЯ --- */
+/* Превращаем каждый главный раздел в выразительную карточку */
+.modal-content-scroll > details.spoiler {
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-md, 14px);
+  margin-bottom: 12px;
+  background: var(--bg-secondary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* При раскрытии карточка красиво подсвечивается акцентной рамкой */
+.modal-content-scroll > details.spoiler[open] {
+  border-color: var(--accent);
+  box-shadow: 0 4px 16px rgba(2, 132, 199, 0.12), var(--shadow);
+}
+
+/* Шапка главного раздела: крупная, с цветным индикатором слева */
+.modal-content-scroll > details.spoiler > summary.spoiler-title {
+  padding: 13px 15px;
+  font-size: 14.5px;
+  font-weight: 800;
+  color: var(--text-main);
+  background: var(--bg-secondary);
+  border-left: 4px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, border-left-color 0.2s ease, color 0.15s ease;
+}
+
+.modal-content-scroll > details.spoiler > summary.spoiler-title:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.modal-content-scroll > details.spoiler[open] > summary.spoiler-title {
+  border-left-color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+  background: var(--bg-secondary);
+}
+
+/* Тело главного раздела */
+.modal-content-scroll > details.spoiler > .spoiler-body {
+  padding: 12px;
+  background: var(--bg-primary);
+  border-top: none;
+}
+
+/* --- 2. ВЛОЖЕННЫЕ ПОДРАЗДЕЛЫ (SUB-SPOILERS) --- */
+/* Убираем гигантские внешние отступы и делаем вложенные блоки компактными */
+.sub-spoiler,
+.inat-sub-spoiler {
+  margin: 0 0 6px 0 !important; /* Вместо margin-top: 10px */
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm, 8px) !important;
+  background: var(--bg-secondary) !important;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.sub-spoiler:last-child,
+.inat-sub-spoiler:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* Компактный заголовок вложенного спойлера */
+.sub-spoiler-title,
+.inat-sub-spoiler .sub-spoiler-title {
+  padding: 8px 10px !important; /* Уменьшено с 12px */
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  color: var(--text-main) !important;
+  background: var(--bg-secondary) !important;
+  border-left: 3px solid var(--border-strong);
+  transition: background 0.15s ease, color 0.15s ease, border-left-color 0.15s ease;
+}
+
+.sub-spoiler:hover .sub-spoiler-title,
+.inat-sub-spoiler:hover .sub-spoiler-title {
+  background: var(--accent-bg) !important;
+  color: var(--accent) !important;
+  border-left-color: var(--accent);
+}
+
+.sub-spoiler[open] > .sub-spoiler-title,
+.inat-sub-spoiler[open] > .sub-spoiler-title {
+  border-left-color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  color: var(--accent) !important;
+}
+
+/* Компактное содержимое внутри вложенного спойлера */
+.sub-spoiler > .spoiler-body,
+.sub-spoiler > .pdr-sub-body,
+.inat-sub-spoiler > .inat-sub-body {
+  padding: 8px 10px !important; /* Было 12px 14px */
+  gap: 6px !important;          /* Уменьшили шаг между контролами */
+  background: var(--bg-primary) !important;
+  border-top: none !important;
+}
+
+/* --- 3. ИСПРАВЛЕНИЕ КОНТЕЙНЕРА ТРЕКИНГА (GPS LOGGER) И PDR --- */
+/* Устраняем дублирование паддингов и стягиваем блоки */
+.spoiler-body.pdr-spoiler-container,
+.pdr-spoiler-container {
+  display: flex;
+  flex-direction: column;
+  gap: 7px !important;         /* Было 12px */
+  padding: 10px 10px !important;
+}
+
+/* Карточки внутри трекера (Фоновая работа, База треков и т.д.) */
+.pdr-card-box,
+.pdr-presets-wrap {
+  padding: 9px 11px !important;
+  gap: 6px !important;
+  border-radius: var(--radius-sm, 9px) !important;
+  margin-bottom: 0 !important;
+}
+
+.pdr-card-header {
+  font-size: 11.5px !important;
+  margin-bottom: 0 !important;
+}
+
+/* Список треков в карточке — аккуратный плотный скролл */
+.track-settings-list {
+  gap: 4px !important;
+  max-height: 200px;
+}
+
+.track-setting-item {
+  padding: 5px 8px !important;
+}
+
+/* --- 4. ПОДДЕРЖКА ТЕМ (DARK И НОЧНОЙ КРАСНЫЙ МОНОХРОМ) --- */
+[data-theme="dark"] .modal-content-scroll > details.spoiler {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .modal-content-scroll > details.spoiler[open] {
+  border-color: var(--accent);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="night-vision"] .modal-content-scroll > details.spoiler {
+  background: #120303 !important;
+  border-color: #3b0707 !important;
+}
+
+[data-theme="night-vision"] .modal-content-scroll > details.spoiler[open] {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.3) !important;
+}
+
+[data-theme="night-vision"] .modal-content-scroll > details.spoiler[open] > summary.spoiler-title {
+  border-left-color: #ef4444 !important;
+  color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .sub-spoiler,
+[data-theme="night-vision"] .inat-sub-spoiler {
+  border-color: #3b0707 !important;
+  background: #0d0202 !important;
+}
+
+[data-theme="night-vision"] .sub-spoiler[open] > .sub-spoiler-title,
+[data-theme="night-vision"] .inat-sub-spoiler[open] > .sub-spoiler-title {
+  border-left-color: #ef4444 !important;
+  color: #ef4444 !important;
+}
 
 /* =========================================================================
    ВЕЕРНОЕ РАДИАЛЬНОЕ МЕНЮ (ЧЕТВЕРТЬ КРУГА ИЗ УГЛА)
@@ -14811,7 +14991,940 @@ body.sheet-open .shadow-height-hud {
   word-break: normal;
   overflow-wrap: break-word;
 }
+/* =========================================================================
+   МОДУЛЬ «ИНФОРМАЦИЯ ОБ ЭТОМ МЕСТЕ» (PLACE INSIGHT)
+   ========================================================================= */
 
+.place-insight-modal-box {
+  max-width: 480px !important;
+  width: 95vw;
+}
+
+.pi-hero-card {
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-md, 12px);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pi-hero-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.pi-badge {
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 12px;
+  background: var(--bg-primary);
+  border: 1px solid currentColor;
+  line-height: 1.25;
+}
+
+.pi-hero-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1.25;
+}
+
+.pi-hero-subtitle {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-top: 1px;
+}
+
+.pi-metrics-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+@media (max-width: 420px) {
+  .pi-metrics-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pi-metric-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-left-width: 3.5px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pi-metric-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.pi-metric-val {
+  font-size: 12.5px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.pi-metric-desc {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.pi-highlight-box {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: var(--radius-sm, 8px);
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pi-box-title {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #10b981;
+}
+
+.pi-box-text {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-main);
+}
+
+.pi-section-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pi-section-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.pi-features-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+@media (max-width: 420px) {
+  .pi-features-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pi-feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.pi-feature-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.pi-feature-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.pi-feature-text b {
+  font-size: 11.5px;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pi-feature-text small {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.pi-species-group-head {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.pi-species-chips-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.pi-species-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  color: var(--text-main);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.12s ease;
+}
+
+.pi-species-chip:hover:not(.static) {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  transform: translateY(-1px);
+}
+
+.pi-species-chip.static {
+  cursor: default;
+}
+
+/* Ночной режим (красный монохром) */
+[data-theme="night-vision"] .place-insight-modal-box {
+  background: #050101 !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] .pi-hero-card,
+[data-theme="night-vision"] .pi-section-card {
+  background: #120303 !important;
+  border-color: #3b0707 !important;
+}
+
+[data-theme="night-vision"] .pi-highlight-box {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .pi-metric-card,
+[data-theme="night-vision"] .pi-feature-item,
+[data-theme="night-vision"] .pi-species-chip {
+  background: #050101 !important;
+  border-color: #3b0707 !important;
+  color: #f87171 !important;
+}
+
+
+/* =========================================================================
+   МОДУЛЬ ЗАПИСИ ТРЕКОВ (TRACK RECORDER / GPS LOGGER)
+   ========================================================================= */
+
+/* Анимация кнопки записи */
+#btn-track-record.recording {
+  background: #fee2e2 !important;
+  color: #ef4444 !important;
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.35), var(--shadow-float) !important;
+  animation: pulseRecordingDot 1.4s infinite ease-in-out;
+}
+
+#btn-track-record.paused {
+  background: #fef3c7 !important;
+  color: #d97706 !important;
+  border-color: #f59e0b !important;
+}
+
+@keyframes pulseRecordingDot {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+/* Панель настройки перед стартом */
+.track-config-hud {
+  position: absolute;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1500;
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  box-shadow: var(--shadow-float);
+  width: calc(100vw - 32px);
+  max-width: 360px;
+  user-select: none;
+  animation: toastFade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+.track-hud-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.track-hud-title {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.track-hud-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.track-config-row {
+  display: flex;
+  gap: 8px;
+}
+
+.track-colors-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.track-color-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.track-color-btn.active {
+  border-color: var(--text-main);
+  transform: scale(1.2);
+  box-shadow: 0 0 0 2px var(--bg-primary);
+}
+
+/* Компактный Live HUD (пауза и стоп) */
+.track-live-hud {
+  position: absolute;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1500;
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1.5px solid #ef4444;
+  border-radius: var(--radius-lg);
+  padding: 8px 14px;
+  box-shadow: 0 4px 18px rgba(239, 68, 68, 0.25), var(--shadow-float);
+  width: calc(100vw - 32px);
+  max-width: 360px;
+  user-select: none;
+  animation: toastFade 0.2s ease-out;
+}
+
+.track-live-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.track-live-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.track-live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: navPulseGreen 1.4s infinite ease-out;
+}
+
+.track-live-dot.paused {
+  background: #f59e0b;
+  animation: none;
+}
+
+.track-live-val {
+  font-size: 15px;
+  color: var(--text-main);
+}
+
+.track-live-sep {
+  color: var(--text-muted);
+}
+
+.track-live-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.track-live-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.track-live-btn {
+  height: 32px;
+  width: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.track-live-btn.stop {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.track-live-ele-row {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-top: 3px;
+  text-align: left;
+}
+
+/* Бейджи треков на карте */
+.wm-track-badge-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.wm-track-badge {
+  background: var(--bg-glass-strong);
+  border: 1.5px solid var(--track-c, #ef4444);
+  color: var(--text-main);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.wm-track-badge:hover {
+  transform: scale(1.08);
+}
+
+/* Попап трека */
+.wm-track-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px;
+}
+
+.wm-track-popup-title {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.wm-track-popup-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.wm-track-popup-grid b {
+  color: var(--text-main);
+}
+
+.wm-track-popup-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.wm-track-popup-actions .btn {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+/* Список в настройках */
+.track-settings-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.track-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 230px; /* Ровно 5 элементов по высоте */
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+
+.track-setting-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+}
+
+.track-setting-color {
+  width: 10px;
+  height: 24px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.track-setting-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.track-setting-name {
+  font-size: 12.5px;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-setting-dist {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.track-setting-actions {
+  display: flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.track-setting-actions .icon-btn-sm {
+  width: 27px;
+  height: 27px;
+  font-size: 12px;
+  padding: 0;
+}
+
+/* Ночной режим */
+[data-theme="night-vision"] .track-config-hud,
+[data-theme="night-vision"] .track-live-hud {
+  background: rgba(18, 3, 3, 0.95);
+  border-color: #ef4444;
+}
+
+[data-theme="night-vision"] .track-setting-item {
+  background: #120303;
+  border-color: #3b0707;
+}
+
+.track-live-actions {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.track-live-btn.cancel {
+  color: var(--text-muted);
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.track-live-btn.cancel:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+[data-theme="night-vision"] .track-live-btn.cancel {
+  color: #ef4444;
+  border-color: #3b0707;
+}
+
+[data-theme="night-vision"] .track-live-btn.cancel:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* =========================================================================
+   УЛУЧШЕННЫЙ ПОПАП ТРЕКА НА КАРТЕ
+   ========================================================================= */
+.wm-track-leaflet-popup .leaflet-popup-content-wrapper {
+  background: var(--bg-glass-strong) !important;
+  color: var(--text-main) !important;
+  border-radius: var(--radius-md, 12px) !important;
+  border: 1.5px solid var(--border-strong) !important;
+  box-shadow: var(--shadow-float) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 6px;
+}
+
+.wm-track-leaflet-popup .leaflet-popup-content {
+  margin: 6px 8px !important;
+  width: 270px !important;
+  line-height: 1.35 !important;
+}
+
+.wm-track-leaflet-popup .leaflet-popup-tip {
+  background: var(--bg-glass-strong) !important;
+}
+
+.wm-track-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wm-track-popup-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+}
+
+.wm-track-popup-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.wm-track-popup-title {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.wm-track-popup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 5px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.wm-track-popup-grid .cell {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.wm-track-popup-grid .lbl {
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+
+.wm-track-popup-grid .val {
+  font-weight: 800;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.wm-track-popup-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.wm-track-popup-actions .btn {
+  flex: 1;
+  font-size: 11px;
+  padding: 5px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+/* =========================================================================
+   МОДАЛЬНОЕ ОКНО ДЕТАЛЕЙ ТРЕКА И ГРАФИК ВЫСОТ
+   ========================================================================= */
+.track-details-modal-box {
+  max-width: 500px !important;
+  width: 95vw;
+}
+
+.track-details-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.track-details-badge-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.track-details-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+@media (min-width: 440px) {
+  .track-metrics-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.track-metric-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.track-metric-card .lbl {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.track-metric-card .val {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.track-metric-card .sub {
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+
+/* Карточка графика */
+.track-chart-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.track-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.track-chart-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.track-chart-cur-probe {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-chart-svg-wrap {
+  position: relative;
+  width: 100%;
+  height: 120px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.track-elevation-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.track-chart-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Маркер синхронизации точки на карте при касании графика */
+.wm-track-probe-marker {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 3px solid var(--accent);
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.4), 0 2px 8px rgba(0,0,0,0.4);
+  animation: probePulse 1.2s infinite ease-in-out;
+}
+
+@keyframes probePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.25); }
+}
+
+/* Стрелочки направления вдоль трека */
+.wm-track-arrow-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.wm-track-arrow-symbol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  pointer-events: none;
+  transform-origin: center center;
+}
+
+/* =========================================================================
+   НОЧНАЯ ТЕМА ДЛЯ МОДУЛЯ ТРЕКОВ
+   ========================================================================= */
+[data-theme="night-vision"] .wm-track-leaflet-popup .leaflet-popup-content-wrapper,
+[data-theme="night-vision"] .wm-track-leaflet-popup .leaflet-popup-tip {
+  background: rgba(18, 3, 3, 0.96) !important;
+  border-color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .wm-track-popup-grid,
+[data-theme="night-vision"] .track-metric-card,
+[data-theme="night-vision"] .track-chart-card {
+  background: #120303 !important;
+  border-color: #3b0707 !important;
+}
+
+[data-theme="night-vision"] .track-details-modal-box {
+  background: #050101 !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] .track-chart-svg-wrap {
+  background: #050101 !important;
+  border-color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .track-chart-cur-probe,
+[data-theme="night-vision"] .track-details-title,
+[data-theme="night-vision"] .wm-track-popup-title {
+  color: #ef4444 !important;
+}
+
+/* Облачные общие треки */
+.wm-remote-track-badge {
+  border-style: dashed !important;
+  border-color: #06b6d4 !important;
+  background: var(--bg-glass-strong) !important;
+}
+
+#modal-track-share,
+#modal-track-download-pass {
+  z-index: 3500 !important;
+}
+
+[data-theme="night-vision"] #modal-track-share .modal-box,
+[data-theme="night-vision"] #modal-track-download-pass .modal-box {
+  background: #050101 !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+[data-theme="night-vision"] #modal-track-share .styled-input,
+[data-theme="night-vision"] #modal-track-download-pass .styled-input {
+  background: #120303 !important;
+  border-color: #3b0707 !important;
+  color: #f87171 !important;
+}
 /* Ночной режим */
 [data-theme="night-vision"] .quick-pie-tip {
   background: rgba(18, 3, 3, 0.96);
