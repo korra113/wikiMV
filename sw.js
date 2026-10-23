@@ -1,9 +1,8 @@
-const SHELL_CACHE = 'wm-shell-v81'; // Обновляем версию для сброса кэша
+const SHELL_CACHE = 'wm-shell-v82'; // Подняли версию для сброса и обновления кэша
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
 const TILE_TIMEOUT_MS = 7500;
-
 
 let noTrimTiles = false;
 
@@ -29,8 +28,6 @@ function emptyTileResponse() {
     }
   });
 }
-
-
 
 const ASSETS_TO_CACHE = [
   './',
@@ -61,10 +58,13 @@ const ASSETS_TO_CACHE = [
   'js/rangeRing.js',
   'js/imageOverlay.js',
   'js/pdrEngine.js',
-  'js/imuLogger.js',    // <-- ДОБАВИТЬ
-  'js/inaturalist.js',  // <-- ДОБАВИТЬ
+  'js/imuLogger.js',
+  'js/inaturalist.js',
+  'js/soil.js',       // <-- Добавлен анализ почвы (SoilGrids)
+  'js/water.js',      // <-- Добавлен анализ паводков и заболоченности
   'js/main.js'
 ];
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(SHELL_CACHE).then(async (cache) => {
@@ -92,9 +92,10 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
-    }).then(() => self.clients.claim()) // <-- перехватывает все запросы сразу
+    }).then(() => self.clients.claim())
   );
 });
+
 // Запрос с быстрым таймаутом и поддержкой внешней отмены
 async function fetchTileWithTimeout(req, timeoutMs) {
   const ctl = new AbortController();
@@ -154,7 +155,6 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = req.url;
 
-  // ИСПРАВЛЕНО 1: Service Worker не должен перехватывать не-GET запросы (PUT, POST, DELETE)
   if (req.method !== 'GET') {
     return;
   }
@@ -212,11 +212,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // ИСПРАВЛЕНО 2: добавлен bypass для Firebase Realtime DB и динамических API
+  // Bypass для внешних динамических API
   if (
     url.includes('api.wikimapia.org') || 
     url.includes('firebaseio.com') ||
-    url.includes('inaturalist.org') || // <-- ДОБАВИТЬ СЮДА
+    url.includes('inaturalist.org') ||
+    url.includes('isric.org') ||         // <-- SoilGrids API
     url.includes('nominatim') || 
     url.includes('photon') || 
     url.includes('wttr.in') ||    
