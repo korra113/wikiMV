@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v85'; // Подняли версию для сброса и обновления кэша
+const SHELL_CACHE = 'wm-shell-v86'; // Обновлено для применения новых модулей
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -60,8 +60,10 @@ const ASSETS_TO_CACHE = [
   'js/pdrEngine.js',
   'js/imuLogger.js',
   'js/inaturalist.js',
-  'js/soil.js',       // <-- Добавлен анализ почвы (SoilGrids)
-  'js/water.js',      // <-- Добавлен анализ паводков и заболоченности
+  'js/soil.js',
+  'js/water.js',
+  'js/placeInsight.js', // <-- Подключен модуль разведки местности
+  'js/tracker.js',      // <-- Подключен GPS-трекер
   'js/main.js'
 ];
 
@@ -217,11 +219,14 @@ self.addEventListener('fetch', (event) => {
     url.includes('api.wikimapia.org') || 
     url.includes('firebaseio.com') ||
     url.includes('inaturalist.org') ||
-    url.includes('isric.org') ||         // <-- SoilGrids API
+    url.includes('isric.org') ||         // SoilGrids API
     url.includes('nominatim') || 
     url.includes('photon') || 
     url.includes('wttr.in') ||    
     url.includes('open-meteo.com') ||
+    url.includes('wikipedia.org') ||     // Википедия
+    url.includes('wikimedia.org') ||     // Фото Викисклада
+    url.includes('wikidata.org') ||
     url.includes('hexlet.app') ||
     url.includes('corsproxy.io') ||
     url.includes('corsproxy.org') ||
