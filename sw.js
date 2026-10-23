@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v82'; // Подняли версию для сброса и обновления кэша
+const SHELL_CACHE = 'wm-shell-v83'; // Подняли версию для сброса и обновления кэша
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
