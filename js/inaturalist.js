@@ -634,10 +634,22 @@
           for (const qId of rawCharIds) {
             if (WIKIDATA_PLANT_CHARACTERISTICS_MAP[qId]) {
               const item = WIKIDATA_PLANT_CHARACTERISTICS_MAP[qId];
-              charResults.push(item);
+              // Жизненный цикл уже выводится в lifeCycle — исключаем дубликат
               if (['Q2483861', 'Q152535', 'Q157957'].includes(qId)) {
                 result.lifeCycle = item.text;
+                continue;
               }
+              // Лекарственное свойство уже выводится в isMedicinal
+              if (qId === 'Q188840') {
+                result.isMedicinal = true;
+                continue;
+              }
+              // Ядовитость уже выводится в toxicity
+              if (qId === 'Q188902') {
+                result.toxicity = { text: 'Ядовитое растение', icon: '🔴', color: '#ef4444' };
+                continue;
+              }
+              charResults.push(item);
             } else {
               const label = wdLabelsCache.get(qId);
               if (label && label !== qId) {
@@ -2910,7 +2922,10 @@ async function resolveRussianTaxonName(latinName, onResolved) {
     const url = `https://api.inaturalist.org/${apiVersion}/${path}${queryString}`;
 
     const doFetch = (withAuth) => {
-      const headers = { 'Accept': 'application/json' };
+      const headers = { 
+        'Accept': 'application/json',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7' // <-- ГАРАНТИРУЕТ РУССКИЙ ЯЗЫК В WEBVIEW И APK
+      };
       if (withAuth) {
         const h = getAuthHeader();
         if (h) headers['Authorization'] = h;
@@ -4195,6 +4210,7 @@ async function resolveRussianTaxonName(latinName, onResolved) {
       order: 'desc',
       order_by: actualOrderBy,
       locale: 'ru',
+      preferred_place_id: '6986', // <-- ID 6986 задаёт приоритет русскоязычных названий в iNat
       fields: OBSERVATION_FIELDS_LIGHT
     });
 
@@ -4506,8 +4522,11 @@ async function resolveRussianTaxonName(latinName, onResolved) {
   // =========================================================================
   // ПОЛНОСТЬЮ ОБНОВЛЕННАЯ, ЛАКОНИЧНАЯ И КРАСИВАЯ КАРТОЧКА НАБЛЮДЕНИЯ
   // =========================================================================
+  let cardRenderSeq = 0; // На уровне модуля
   function openObservationCard(obs, syncHistory = true) {
     stopAllAudio(); 
+    const currentCardToken = ++cardRenderSeq; 
+
     const lat = obs._lat;
     const lng = obs._lng;
     clearAccuracyCircle();
@@ -5092,90 +5111,64 @@ async function resolveRussianTaxonName(latinName, onResolved) {
 
 
       // 5. Динамические пилюли в шапке карточки
+      if (currentCardToken !== cardRenderSeq) return;
+
       const pillsRow = document.getElementById('inat-meta-pills-row');
       if (pillsRow) {
         const extraPills = [];
+        const seenKeys = new Set();
 
-        // ДЛЯ ГРИБОВ
-        if (fungiTraits) {
-          if (fungiTraits.edibility) {
-            extraPills.push(`
-              <span class="inat-pill ${fungiTraits.edibility.class}" title="Статус съедобности гриба">
-                ${fungiTraits.edibility.icon} ${escapeHtml(fungiTraits.edibility.text)}
-              </span>
-            `);
+        // Считываем уже имеющиеся теги
+        pillsRow.querySelectorAll('.inat-pill').forEach(el => {
+          seenKeys.add(el.textContent.replace(/[\s\-_]+/g, '').toLowerCase());
+        });
+
+        function pushPill(html, label) {
+          if (!html) return;
+          const clean = (label || html.replace(/<[^>]+>/g, '')).replace(/[\s\-_]+/g, '').toLowerCase();
+          for (const k of seenKeys) {
+            if (k.includes(clean) || clean.includes(k)) return; // Исключает дублирование «многолетник» и «многолетнее растение»
           }
-          if (fungiTraits.isMedicinal) {
-            extraPills.push('<span class="inat-pill inat-pill-medicinal" title="Используется в медицине">💊 Целебный</span>');
-          }
-          if (fungiTraits.isPsychoactive) {
-            extraPills.push('<span class="inat-pill inat-pill-trait" title="Психоактивный вид">🍄✨ Психоактивный</span>');
-          }
-          if (fungiTraits.hymeniumType) {
-            extraPills.push(`<span class="inat-pill inat-pill-trait">${fungiTraits.hymeniumType.icon} ${escapeHtml(fungiTraits.hymeniumType.text)}</span>`);
-          }
+          seenKeys.add(clean);
+          extraPills.push(html);
         }
 
-        // ДЛЯ РАСТЕНИЙ (жизненная форма, плоды, свойства, возраст и характеристики)
+        if (fungiTraits) {
+          if (fungiTraits.edibility) {
+            pushPill(`
+              <span class="inat-pill ${fungiTraits.edibility.class}" title="Статус съедобности гриба">
+                ${fungiTraits.edibility.icon} ${escapeHtml(fungiTraits.edibility.text)}
+              </span>`, fungiTraits.edibility.text);
+          }
+          if (fungiTraits.isMedicinal) pushPill('<span class="inat-pill inat-pill-medicinal" title="Используется в медицине">💊 Целебный</span>', 'целебный');
+          if (fungiTraits.isPsychoactive) pushPill('<span class="inat-pill inat-pill-trait" title="Психоактивный вид">🍄✨ Психоактивный</span>', 'психоактивный');
+          if (fungiTraits.hymeniumType) pushPill(`<span class="inat-pill inat-pill-trait">${fungiTraits.hymeniumType.icon} ${escapeHtml(fungiTraits.hymeniumType.text)}</span>`, fungiTraits.hymeniumType.text);
+        }
+
         if (plantTraits) {
-          if (plantTraits.growthForm) {
-            extraPills.push(`<span class="inat-pill inat-pill-trait" title="Жизненная форма">${plantTraits.growthForm.icon} ${escapeHtml(plantTraits.growthForm.text)}</span>`);
-          }
-          if (plantTraits.lifeCycle) {
-            extraPills.push(`<span class="inat-pill inat-pill-trait" title="Жизненный цикл">⏳ ${escapeHtml(plantTraits.lifeCycle)}</span>`);
-          }
-          if (plantTraits.longevity) {
-            extraPills.push(`<span class="inat-pill inat-pill-trait" title="Срок жизни">⏳ До ${escapeHtml(plantTraits.longevity)}</span>`);
-          }
-          if (plantTraits.fruitType) {
-            extraPills.push(`<span class="inat-pill inat-pill-trait" title="Тип плода">${plantTraits.fruitType.icon || '🌰'} ${escapeHtml(plantTraits.fruitType.text)}</span>`);
-          }
+          if (plantTraits.growthForm) pushPill(`<span class="inat-pill inat-pill-trait" title="Жизненная форма">${plantTraits.growthForm.icon} ${escapeHtml(plantTraits.growthForm.text)}</span>`, plantTraits.growthForm.text);
+          if (plantTraits.lifeCycle) pushPill(`<span class="inat-pill inat-pill-trait" title="Жизненный цикл">⏳ ${escapeHtml(plantTraits.lifeCycle)}</span>`, plantTraits.lifeCycle);
+          if (plantTraits.longevity) pushPill(`<span class="inat-pill inat-pill-trait" title="Срок жизни">⏳ До ${escapeHtml(plantTraits.longevity)}</span>`, plantTraits.longevity);
+          if (plantTraits.fruitType) pushPill(`<span class="inat-pill inat-pill-trait" title="Тип плода">${plantTraits.fruitType.icon || '🌰'} ${escapeHtml(plantTraits.fruitType.text)}</span>`, plantTraits.fruitType.text);
           if (plantTraits.characteristics?.length) {
             plantTraits.characteristics.forEach(ch => {
-              if (ch.pill) extraPills.push(`<span class="inat-pill inat-pill-trait">${escapeHtml(ch.pill)}</span>`);
+              if (ch.pill) pushPill(`<span class="inat-pill inat-pill-trait">${escapeHtml(ch.pill)}</span>`, ch.text);
             });
           }
           if (plantTraits.toxicity) {
-            extraPills.push(`<span class="inat-pill" style="background:rgba(239,68,68,0.15); color:${plantTraits.toxicity.color}; border:1px solid ${plantTraits.toxicity.color};">${plantTraits.toxicity.icon} ${escapeHtml(plantTraits.toxicity.text)}</span>`);
+            pushPill(`<span class="inat-pill" style="background:rgba(239,68,68,0.15); color:${plantTraits.toxicity.color}; border:1px solid ${plantTraits.toxicity.color};">${plantTraits.toxicity.icon} ${escapeHtml(plantTraits.toxicity.text)}</span>`, plantTraits.toxicity.text);
           }
         }
 
-        // ДЛЯ ЖИВОТНЫХ
-        if (animalTraits) {
-          if (animalTraits.dielCycle?.pill) {
-            extraPills.push(`<span class="inat-pill inat-pill-trait">${animalTraits.dielCycle.pill}</span>`);
-          }
-          if (animalTraits.diet?.pill) {
-            extraPills.push(`<span class="inat-pill inat-pill-trait">${animalTraits.diet.pill}</span>`);
-          }
-          if (animalTraits.hibernation?.pill) {
-            extraPills.push(`<span class="inat-pill inat-pill-trait">${animalTraits.hibernation.pill}</span>`);
-          }
-          if (animalTraits.migration?.pill) {
-            extraPills.push(`<span class="inat-pill inat-pill-trait">${animalTraits.migration.pill}</span>`);
-          }
-          if (animalTraits.qualities && animalTraits.qualities.length > 0) {
-            animalTraits.qualities.forEach(q => {
-              if (q.pill) extraPills.push(`<span class="inat-pill inat-pill-trait">${escapeHtml(q.pill)}</span>`);
-            });
-          }
-          if (animalTraits.mass) {
-            extraPills.push(`<span class="inat-pill inat-pill-trait">⚖️ ${escapeHtml(animalTraits.mass)}</span>`);
-          }
-        }
-
-        // Общие съедобные части (P3489)
         if (wdData && wdData.edibleParts && wdData.edibleParts.length > 0) {
-          extraPills.push(`
+          pushPill(`
             <span class="inat-pill inat-pill-edible" title="Съедобные части">
               🍓 Съедобно: ${escapeHtml(wdData.edibleParts.join(', '))}
-            </span>
-          `);
+            </span>`, 'съедобно');
         }
 
-        // Лекарственное (P2176)
         if ((wdData && wdData.isMedicinal) || plantTraits?.isMedicinal) {
-          extraPills.push('<span class="inat-pill inat-pill-medicinal" title="Лекарственное растение">💊 Лекарственное</span>');
+          pushPill('<span class="inat-pill inat-pill-medicinal" title="Лекарственное растение">💊 Лекарственное</span>', 'лекарственное');
         }
 
         if (extraPills.length > 0) {
@@ -5545,6 +5538,7 @@ async function resolveRussianTaxonName(latinName, onResolved) {
     const params = new URLSearchParams({
       q,
       locale: 'ru',
+      preferred_place_id: '6986',
       per_page: '8',
       fields: '(id:!t,name:!t,preferred_common_name:!t,rank:!t,iconic_taxon_name:!t,default_photo:(square_url:!t))'
     });
@@ -5590,6 +5584,7 @@ async function resolveRussianTaxonName(latinName, onResolved) {
         order: 'desc',
         order_by: 'votes',
         locale: 'ru',
+        preferred_place_id: '6986',
         fields: OBSERVATION_FIELDS_LIGHT
       });
 
