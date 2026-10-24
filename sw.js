@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v86'; // Обновлено для применения новых модулей
+const SHELL_CACHE = 'wm-shell-v87'; // Обновлено для применения новых модулей
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -62,8 +62,9 @@ const ASSETS_TO_CACHE = [
   'js/inaturalist.js',
   'js/soil.js',
   'js/water.js',
-  'js/placeInsight.js', // <-- Подключен модуль разведки местности
-  'js/tracker.js',      // <-- Подключен GPS-трекер
+  'js/placeInsight.js',
+  'js/tracker.js',
+  'js/demRelief.js', // <-- ДОБАВЛЕНО: модуль 3D-рельефа и WebGL-отмывки
   'js/main.js'
 ];
 
@@ -190,7 +191,11 @@ self.addEventListener('fetch', (event) => {
     url.includes('virtualearth.net') ||
     url.includes('yandex.net') ||
     url.includes('wikimapia.org/?x=') ||
-    url.includes('wikimapia.org/x=');
+    url.includes('wikimapia.org/x=') ||
+    // ДОБАВИТЬ ДЛЯ РАБОТЫ 3D-СЛОЯ DEM:
+    url.includes('elevation-tiles-prod') ||
+    url.includes('terrarium') ||
+    url.includes('s3.amazonaws.com');
 
   if (isTile) {
     event.respondWith(
