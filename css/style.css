@@ -14577,6 +14577,291 @@ body.sheet-open .shadow-height-hud {
   color: #ef4444 !important;
 }
 
+
+
+
+
+
+/* Панели WebGL Hillshade и горизонталей */
+.leaflet-wm-dem-hillshade-pane-pane {
+  mix-blend-mode: multiply;
+  pointer-events: none !important;
+}
+
+.leaflet-wm-dem-contours-pane-pane {
+  pointer-events: none !important;
+}
+
+[data-theme="night-vision"] .leaflet-wm-dem-hillshade-pane-pane,
+[data-theme="night-vision"] .leaflet-wm-dem-contours-pane-pane {
+  filter: url(#wm-night-vision-filter) !important;
+}
+
+
+/* =========================================================================
+   ПЛАВАЮЩИЙ HUD НАСТРОЙКИ 3D РЕЛЬЕФА (LIVE PREVIEW НА КАРТЕ)
+   ========================================================================= */
+
+.dem-relief-hud {
+  position: absolute;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1500;
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-lg, 18px);
+  padding: 10px 14px;
+  box-shadow: var(--shadow-float);
+  width: calc(100vw - 28px);
+  max-width: 440px;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: toastFade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+body.sheet-open .dem-relief-hud,
+body.wm-ui-hidden .dem-relief-hud {
+  display: none !important;
+}
+
+.dem-relief-hud.collapsed .dem-hud-tabs,
+.dem-relief-hud.collapsed .dem-hud-body {
+  display: none !important;
+}
+
+.dem-hud-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  gap: 8px;
+}
+
+.dem-hud-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dem-hud-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.dem-hud-title {
+  font-size: 13.5px;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.dem-hud-switches {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.dem-hud-switch-btn {
+  padding: 3px 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dem-hud-switch-btn.active {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+  box-shadow: 0 1px 4px rgba(2, 132, 199, 0.35);
+}
+
+.dem-hud-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dem-hud-min-btn,
+.dem-hud-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dem-hud-close-btn:hover { color: var(--danger); }
+.dem-hud-min-btn:hover { background: var(--accent-bg); color: var(--accent); }
+
+/* Вкладки */
+.dem-hud-tabs {
+  display: flex;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.dem-hud-tab-btn {
+  flex: 1;
+  padding: 5px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.dem-hud-tab-btn.active {
+  background: var(--bg-primary);
+  color: var(--text-main);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.dem-hud-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.dem-hud-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dem-hud-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dem-hud-row label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.dem-hud-row label b { color: var(--text-main); }
+
+.dem-hud-lbl {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.dem-hud-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-items: end;
+}
+
+/* Чипы времени суток */
+.dem-tone-chips {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.dem-tone-chip {
+  padding: 3px 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dem-tone-chip:hover {
+  border-color: var(--accent);
+}
+
+.dem-tone-chip.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Кнопки сглаживания */
+.dem-smooth-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.dem-smooth-btn {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dem-smooth-btn.active {
+  background: #10b981;
+  border-color: #10b981;
+  color: #ffffff;
+}
+
+/* Тема ночного зрения */
+[data-theme="night-vision"] .dem-relief-hud {
+  background: rgba(18, 3, 3, 0.96);
+  border-color: #ef4444;
+}
+
+[data-theme="night-vision"] .dem-hud-switch-btn.active {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #050101;
+}
+
+[data-theme="night-vision"] .dem-tone-chip.active {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+[data-theme="night-vision"] .dem-smooth-btn.active {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #050101;
+}
+
+
+
+
 /* =========================================================================
    ВЕЕРНОЕ РАДИАЛЬНОЕ МЕНЮ (ЧЕТВЕРТЬ КРУГА ИЗ УГЛА)
    ========================================================================= */
