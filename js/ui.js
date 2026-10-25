@@ -2419,8 +2419,20 @@
     return MOON_PHASE_NAMES[0];
   }
 
-  function fmtTime(d) {
+  function fmtLocalMapTime(d, lng) {
     if (!d || isNaN(d.getTime())) return '--:--';
+    
+    // Если долгота передана — вычисляем местный часовой пояс точки (UTC + Math.round(lng / 15))
+    // Для Осло (lng ~ 10.75°): 10.75 / 15 = 0.71 -> UTC+1
+    if (typeof lng === 'number' && isFinite(lng)) {
+      const approxTzOffsetHours = Math.round(lng / 15);
+      const utcMs = d.getTime() + (d.getTimezoneOffset() * 60000);
+      const localDate = new Date(utcMs + approxTzOffsetHours * 3600000);
+      const h = String(localDate.getHours()).padStart(2, '0');
+      const m = String(localDate.getMinutes()).padStart(2, '0');
+      return `${h}:${m}`;
+    }
+
     return d.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   }
 
@@ -2581,11 +2593,11 @@
               <span class="ih-chevron">▼</span>
             </summary>
             <div class="ih-spoiler-body ih-grid-2">
-              <div>🌅 Восход: <b>${fmtTime(sTimes.sunrise)}</b></div>
-              <div>🌇 Закат: <b>${fmtTime(sTimes.sunset)}</b></div>
-              <div>☀️ Полдень: <b>${fmtTime(sTimes.solarNoon)}</b></div>
-              <div>✨ Зол час: <b>${fmtTime(sTimes.goldenHour)}</b></div>
-              <div>🌆 Сумерки: <b>${fmtTime(sTimes.dusk)}</b></div>
+               <div>🌅 Восход: <b>${fmtLocalMapTime(sTimes.sunrise, refLng)}</b></div>
+                <div>🌇 Закат: <b>${fmtLocalMapTime(sTimes.sunset, refLng)}</b></div>
+                <div>☀️ Полдень: <b>${fmtLocalMapTime(sTimes.solarNoon, refLng)}</b></div>
+                <div>✨ Зол час: <b>${fmtLocalMapTime(sTimes.goldenHour, refLng)}</b></div>
+                <div>🌆 Сумерки: <b>${fmtLocalMapTime(sTimes.dusk, refLng)}</b></div>
               <div>🧭 Азимут: <b>${Math.round(sunAzDeg)}° (${degToCompass(sunAzDeg)})</b></div>
             </div>
           </details>
@@ -2611,8 +2623,8 @@
             <div class="ih-spoiler-body">
               <div class="ih-row" style="margin-bottom: 3px;"><span class="ih-lbl">Фаза:</span><span class="ih-val">${phase.name}</span></div>
               <div class="ih-grid-2">
-                <div>Восход: <b>${moonTimes.rise ? fmtTime(moonTimes.rise) : '--:--'}</b></div>
-                <div>Заход: <b>${moonTimes.set ? fmtTime(moonTimes.set) : '--:--'}</b></div>
+                <div>Восход: <b>${moonTimes.rise ? fmtLocalMapTime(moonTimes.rise, refLng) : '--:--'}</b></div>
+                <div>Заход: <b>${moonTimes.set ? fmtLocalMapTime(moonTimes.set, refLng) : '--:--'}</b></div>
                 <div>Высота: <b>${moonAltDeg}°</b></div>
                 <div>Азимут: <b>${Math.round(moonAzDeg)}° (${degToCompass(moonAzDeg)})</b></div>
               </div>
