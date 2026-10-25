@@ -1076,6 +1076,9 @@
   // =========================================================================
   // ШЕЙДЕРЫ WEBGL 2.0 (GLSL ES 3.00)
   // =========================================================================
+  // =========================================================================
+  // ШЕЙДЕРЫ WEBGL 2.0 (GLSL ES 3.00)
+  // =========================================================================
   const VS_SOURCE = `#version 300 es
     in vec2 a_pos;
     in vec2 a_uv;
@@ -1093,106 +1096,42 @@
     }
   `;
 
-  const FS_SOURCE = `#version 300 es
+  // ШЕЙДЕР ПРЕДВАРИТЕЛЬНОГО ПРОХОДА ГЕОМЕТРИИ (G-BUFFER)
+  // ШЕЙДЕР ПРЕДВАРИТЕЛЬНОГО ПРОХОДА ГЕОМЕТРИИ (1 ТЕКСТУРА RGBA8)
+  const FS_GEOM_SOURCE = `#version 300 es
     precision highp float;
     precision highp int;
 
     uniform sampler2D u_dem;
-    uniform ivec2 u_iRes;             // Размер текстуры с паддингом в пикселях
-    uniform vec2 u_tileOrigin;
+    uniform ivec2 u_iRes;
     uniform float u_pad;
-    uniform vec3 u_sunDir;
-    uniform vec3 u_lightColor;
-    uniform vec3 u_shadowColor;
-    uniform vec3 u_skyColor;
-    uniform float u_alpenglowWeight;
-    uniform float u_sunIntensity;
     uniform float u_zFactor;
-    uniform int u_mode;
     uniform int u_smooth;
-    uniform int u_hypso;
+    uniform float u_metersPerPixel;
     uniform float u_useAO;
     uniform float u_aoStrength;
     uniform float u_aoRadius;
     uniform float u_aoSlopeBleed;
     uniform float u_useSVF;
     uniform float u_svfStrength;
-    uniform float u_useCastShadow;
-    uniform float u_shadowReach;
-    uniform float u_shadowOpacity;
-    uniform float u_useHachure;
-    uniform int u_hachureType;
-    uniform float u_hachureDensity;
-    uniform float u_imhofDeflection;
-    uniform float u_hachureOpacity;
-    uniform float u_hachureSlope;
-    uniform vec3  u_hachureColor;
-    uniform float u_hachureLightMod;
-    uniform float u_useMDOW;
-    uniform float u_imhofWarmCool;
-    uniform float u_lightWrap;
-    uniform float u_metersPerPixel;
-    uniform float u_paperGrain;
-
-    uniform float u_orenNayarRoughness;
-    uniform float u_inkBleed;
-    uniform float u_waterlining;
-
-    uniform int   u_ditherBlend;
-    uniform float u_ditherEnabled;
-    uniform int   u_ditherType;
-    uniform float u_ditherScale;
-    uniform float u_ditherAngle;
-    uniform float u_ditherDensity;
-    uniform float u_ditherThreshold;
-    uniform float u_ditherLowCut;
-    uniform float u_ditherSoftness;
-    uniform vec3  u_ditherColor;
-    uniform int   u_ditherZone;
-    uniform float u_ditherStrength;
-
-    uniform float u_lightBoost;
-    uniform int   u_isManualMode;
-    uniform int   u_debugValley;
-    uniform vec3  u_manualColorPeak;
-    uniform vec3  u_manualColorValley;
-    uniform float u_manualLightBlend;
     uniform float u_elevMin;
     uniform float u_elevSpan;
 
     in vec2 v_uv;
     in vec2 v_tileLocalPx;
 
+    // Один стандартный буфер вывода (RGBA8)
     out vec4 fragColor;
 
-    // Быстрое извлечение высоты через целочисленный texelFetch без интерполяций
     float decodeH(vec4 c) {
       if (c.a < 0.1) return -99999.0;
       return (c.r * 255.0 * 256.0 + c.g * 255.0 + c.b * 255.0 / 256.0) - 32768.0;
     }
 
     float getRawHPx(ivec2 p, float fallbackH) {
-      ivec2 cp = clamp(p, ivec2(0), u_iRes - ivec2(1));
-      vec4 c = texelFetch(u_dem, cp, 0);
+      vec4 c = texelFetch(u_dem, clamp(p, ivec2(0), u_iRes - ivec2(1)), 0);
       float h = decodeH(c);
       return (h < -1000.0) ? fallbackH : h;
-    }
-
-    float hash(vec2 p) {
-      p = fract(p * vec2(123.34, 456.21));
-      p += dot(p, p + 45.32);
-      return fract(p.x * p.y);
-    }
-
-    float noise(vec2 p) {
-      vec2 i = floor(p);
-      vec2 f = fract(p);
-      f = f * f * (3.0 - 2.0 * f);
-      float a = hash(i);
-      float b = hash(i + vec2(1.0, 0.0));
-      float c = hash(i + vec2(0.0, 1.0));
-      float d = hash(i + vec2(1.0, 1.0));
-      return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
     }
 
     float getGaussianHPx(ivec2 p, float centerH, int rad) {
@@ -1220,12 +1159,245 @@
         float sampleH = getRawHPx(p + off[i], centerH);
         float diff = abs(sampleH - centerH);
         float spatialW = (i < 4) ? 0.12 : 0.07;
-        float rangeW = exp(- (diff * diff) / 25.0);
+        float d = clamp(diff * 0.2, 0.0, 1.0);
+        float rangeW = 1.0 - d * d;
         float w = spatialW * rangeW;
         sumH += sampleH * w;
         totalWeight += w;
       }
       return sumH / totalWeight;
+    }
+
+    float computeSkyViewFactorPx(ivec2 p, float h0, float maxSafeR) {
+      if (u_useSVF < 0.5) return 1.0;
+      int rPx = int(clamp(maxSafeR, 1.0, 12.0));
+      float distM = max(1.0, float(rPx) * u_metersPerPixel);
+      int diagPx = int(round(float(rPx) * 0.7071));
+
+      float hN  = getRawHPx(p + ivec2(0,  rPx), h0);
+      float hS  = getRawHPx(p - ivec2(0,  rPx), h0);
+      float hE  = getRawHPx(p + ivec2( rPx, 0), h0);
+      float hW  = getRawHPx(p - ivec2( rPx, 0), h0);
+      float hNE = getRawHPx(p + ivec2( diagPx,  diagPx), h0);
+      float hNW = getRawHPx(p + ivec2(-diagPx,  diagPx), h0);
+      float hSE = getRawHPx(p + ivec2( diagPx, -diagPx), h0);
+      float hSW = getRawHPx(p + ivec2(-diagPx, -diagPx), h0);
+
+      float horizonBlock = 0.0;
+      horizonBlock += clamp((hN  - h0) / distM, 0.0, 1.5);
+      horizonBlock += clamp((hS  - h0) / distM, 0.0, 1.5);
+      horizonBlock += clamp((hE  - h0) / distM, 0.0, 1.5);
+      horizonBlock += clamp((hW  - h0) / distM, 0.0, 1.5);
+      horizonBlock += clamp((hNE - h0) / distM, 0.0, 1.5);
+      horizonBlock += clamp((hNW - h0) / distM, 0.0, 1.5);
+      horizonBlock += clamp((hSE - h0) / distM, 0.0, 1.5);
+      horizonBlock += clamp((hSW - h0) / distM, 0.0, 1.5);
+      horizonBlock *= 0.125;
+
+      float ridgeBonus = clamp((h0 - ((hN + hS + hE + hW) * 0.25)) / distM, 0.0, 0.8);
+      return clamp(1.0 - horizonBlock * 1.8 * u_svfStrength + ridgeBonus * 1.4 * u_svfStrength, 0.15, 2.4);
+    }
+
+    void main() {
+      ivec2 basePx = ivec2(floor(v_uv * vec2(u_iRes)));
+      vec4 centerRaw = texelFetch(u_dem, clamp(basePx, ivec2(0), u_iRes - ivec2(1)), 0);
+      float centerH = decodeH(centerRaw);
+
+      if (centerRaw.a < 0.1 || centerH < -1000.0) {
+        fragColor = vec4(0.0);
+        return;
+      }
+
+      float maxSafeR = max(1.0, u_pad - 3.0);
+      int stepPx = 1;
+      float z00, z10, z20, z01, z21, z02, z12, z22;
+
+      if (u_smooth == 0) {
+        stepPx = 1;
+        z00 = getRawHPx(basePx + ivec2(-1, -1), centerH);
+        z10 = getRawHPx(basePx + ivec2( 0, -1), centerH);
+        z20 = getRawHPx(basePx + ivec2( 1, -1), centerH);
+        z01 = getRawHPx(basePx + ivec2(-1,  0), centerH);
+        z21 = getRawHPx(basePx + ivec2( 1,  0), centerH);
+        z02 = getRawHPx(basePx + ivec2(-1,  1), centerH);
+        z12 = getRawHPx(basePx + ivec2( 0,  1), centerH);
+        z22 = getRawHPx(basePx + ivec2( 1,  1), centerH);
+      } else if (u_smooth == 2) {
+        int r = int(min(max(1.8, 50.0 / u_metersPerPixel), maxSafeR));
+        stepPx = max(1, r);
+        z00 = getBilateralHPx(basePx + ivec2(-stepPx, -stepPx), centerH, 1);
+        z10 = getBilateralHPx(basePx + ivec2( 0,      -stepPx), centerH, 1);
+        z20 = getBilateralHPx(basePx + ivec2( stepPx, -stepPx), centerH, 1);
+        z01 = getBilateralHPx(basePx + ivec2(-stepPx,  0),      centerH, 1);
+        z21 = getBilateralHPx(basePx + ivec2( stepPx,  0),      centerH, 1);
+        z02 = getBilateralHPx(basePx + ivec2(-stepPx,  stepPx), centerH, 1);
+        z12 = getBilateralHPx(basePx + ivec2( 0,       stepPx), centerH, 1);
+        z22 = getBilateralHPx(basePx + ivec2( stepPx,  stepPx), centerH, 1);
+      } else {
+        float targetMetersRadius = clamp(45.0, u_metersPerPixel * 1.5, 90.0);
+        float adaptiveBlurRadius = min(max(1.5, targetMetersRadius / u_metersPerPixel), maxSafeR);
+        stepPx = max(1, int(round(adaptiveBlurRadius)));
+        z00 = getGaussianHPx(basePx + ivec2(-stepPx, -stepPx), centerH, 1);
+        z10 = getGaussianHPx(basePx + ivec2( 0,      -stepPx), centerH, 1);
+        z20 = getGaussianHPx(basePx + ivec2( stepPx, -stepPx), centerH, 1);
+        z01 = getGaussianHPx(basePx + ivec2(-stepPx,  0),      centerH, 1);
+        z21 = getGaussianHPx(basePx + ivec2( stepPx,  0),      centerH, 1);
+        z02 = getGaussianHPx(basePx + ivec2(-stepPx,  stepPx), centerH, 1);
+        z12 = getGaussianHPx(basePx + ivec2( 0,       stepPx), centerH, 1);
+        z22 = getGaussianHPx(basePx + ivec2( stepPx,  stepPx), centerH, 1);
+      }
+
+      float deltaMeters = max(0.1, 2.0 * float(stepPx) * u_metersPerPixel);
+      float dzdx = ((z20 + 2.0 * z21 + z22) - (z00 + 2.0 * z01 + z02)) / (8.0 * deltaMeters) * u_zFactor;
+      float dzdy = ((z02 + 2.0 * z12 + z22) - (z00 + 2.0 * z10 + z20)) / (8.0 * deltaMeters) * u_zFactor;
+      vec3 norm = normalize(vec3(-dzdx, -dzdy, 1.0));
+
+      float curvature = ((z10 + z01 + z21 + z12) * 0.25) - centerH;
+      float crestGlint = clamp(-curvature * 0.20 * u_zFactor, 0.0, 0.40);
+      float svf = computeSkyViewFactorPx(basePx, centerH, maxSafeR);
+
+      float aoVal = 1.0;
+      if (u_useAO > 0.5) {
+        float aoMeterRadius = max(90.0, u_metersPerPixel * 3.5) * u_aoRadius;
+        int wideR = int(min(aoMeterRadius / u_metersPerPixel, maxSafeR));
+        float avgH = (getRawHPx(basePx + ivec2(-wideR,  0), centerH) +
+                      getRawHPx(basePx + ivec2( wideR,  0), centerH) +
+                      getRawHPx(basePx + ivec2( 0, -wideR), centerH) +
+                      getRawHPx(basePx + ivec2( 0,  wideR), centerH)) * 0.25;
+
+        float filteredDiff = max(0.0, (avgH - centerH) - 0.7);
+        float slope = length(vec2(dzdx, dzdy));
+        float slopeBleedFactor = mix(1.0, clamp(slope * 14.0, 0.5, 3.0), u_aoSlopeBleed);
+        float valleyDepth = (filteredDiff * slopeBleedFactor) / max(2.5, u_metersPerPixel * 0.35);
+        aoVal = clamp(1.0 - valleyDepth * 0.26 * u_aoStrength, 0.35, 1.0);
+      }
+
+      // --- УПАКОВКА В 1 ТЕКСТУРУ RGBA8 ---
+      // R, G: нормали XY [-1..1] -> [0..1]
+      vec2 encNorm = norm.xy * 0.5 + 0.5;
+
+      // B: Затенение (0.0..0.75) + Гребни (0.75..1.0)
+      float ambVal = clamp(aoVal * min(1.0, svf), 0.0, 1.0);
+      float packedB = clamp(ambVal * 0.75 + crestGlint * 0.625, 0.0, 1.0);
+
+      // A: Относительная высота [0..1]
+      float hNorm = clamp((centerH - u_elevMin) / max(1.0, u_elevSpan), 0.0, 1.0);
+
+      fragColor = vec4(encNorm, packedB, hNorm);
+    }
+  `;
+
+  // ШЕЙДЕР ОСВЕЩЕНИЯ (РЕАЛЬНОЕ ВРЕМЯ)
+  // =========================================================================
+  // ДИНАМИЧЕСКИЙ ГЕНЕРАТОР ШЕЙДЕРА ОСВЕЩЕНИЯ (МОДУЛЬНАЯ КОМПИЛЯЦИЯ)
+  // =========================================================================
+  function buildLightFragmentShader(flags) {
+    const defines = [];
+    if (flags.mdow) defines.push('#define USE_MDOW');
+    if (flags.hachure) {
+      defines.push('#define USE_HACHURE');
+      defines.push(`#define HACHURE_${(flags.hachureType || 'classic').toUpperCase()}`);
+    }
+    if (flags.dither) {
+      defines.push('#define USE_DITHER');
+      defines.push(`#define DITHER_${(flags.ditherType || 'blue').toUpperCase()}`);
+    }
+
+    return `#version 300 es
+    precision highp float;
+    precision highp int;
+
+    ${defines.join('\n')}
+
+    uniform sampler2D u_dem;
+    uniform sampler2D u_gbuf;
+    uniform ivec2 u_iRes;
+    uniform float u_pad;
+    uniform vec3 u_sunDir;
+    uniform vec3 u_lightColor;
+    uniform vec3 u_shadowColor;
+    uniform vec3 u_skyColor;
+    uniform float u_alpenglowWeight;
+    uniform float u_sunIntensity;
+    uniform float u_zFactor;
+    uniform int u_mode;
+    uniform int u_hypso;
+    uniform float u_useSVF;
+    uniform float u_svfStrength;
+    uniform float u_useCastShadow;
+    uniform float u_shadowReach;
+    uniform float u_shadowOpacity;
+    uniform float u_imhofDeflection;
+    uniform float u_imhofWarmCool;
+    uniform float u_lightWrap;
+    uniform float u_metersPerPixel;
+    uniform float u_paperGrain;
+
+    uniform float u_orenNayarRoughness;
+    uniform float u_inkBleed;
+    uniform float u_waterlining;
+
+    #ifdef USE_HACHURE
+    uniform float u_hachureDensity;
+    uniform float u_hachureOpacity;
+    uniform float u_hachureSlope;
+    uniform vec3  u_hachureColor;
+    uniform float u_hachureLightMod;
+    #endif
+
+    #ifdef USE_DITHER
+    uniform int   u_ditherBlend;
+    uniform float u_ditherScale;
+    uniform float u_ditherAngle;
+    uniform float u_ditherDensity;
+    uniform float u_ditherThreshold;
+    uniform float u_ditherLowCut;
+    uniform float u_ditherSoftness;
+    uniform vec3  u_ditherColor;
+    uniform int   u_ditherZone;
+    uniform float u_ditherStrength;
+    #endif
+
+    uniform float u_lightBoost;
+    uniform int   u_isManualMode;
+    uniform int   u_debugValley;
+    uniform vec3  u_manualColorPeak;
+    uniform vec3  u_manualColorValley;
+    uniform float u_manualLightBlend;
+    uniform float u_elevMin;
+    uniform float u_elevSpan;
+
+    in vec2 v_uv;
+    in vec2 v_tileLocalPx;
+
+    out vec4 fragColor;
+
+    float hash(vec2 p) {
+      p = fract(p * vec2(123.34, 456.21));
+      p += dot(p, p + 45.32);
+      return fract(p.x * p.y);
+    }
+
+    float noise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      float a = hash(i);
+      float b = hash(i + vec2(1.0, 0.0));
+      float c = hash(i + vec2(0.0, 1.0));
+      float d = hash(i + vec2(1.0, 1.0));
+      return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    }
+
+    float decodeH(vec4 c) {
+      if (c.a < 0.1) return -99999.0;
+      return (c.r * 255.0 * 256.0 + c.g * 255.0 + c.b * 255.0 / 256.0) - 32768.0;
+    }
+
+    float getRawHPx(ivec2 p, float fallbackH) {
+      vec4 c = texelFetch(u_dem, clamp(p, ivec2(0), u_iRes - ivec2(1)), 0);
+      float h = decodeH(c);
+      return (h < -1000.0) ? fallbackH : h;
     }
 
     float computeCastShadowPx(ivec2 basePx, vec2 localCoord, float h0, vec3 sunDir, float maxSafeMeters) {
@@ -1265,37 +1437,6 @@
       return mix(1.0 - u_shadowOpacity * 0.35, shadowFactor, horizonFade);
     }
 
-    float computeSkyViewFactorPx(ivec2 p, float h0, float maxSafeR) {
-      if (u_useSVF < 0.5) return 1.0;
-
-      int rPx = int(clamp(maxSafeR, 1.0, 12.0));
-      float distM = max(1.0, float(rPx) * u_metersPerPixel);
-      int diagPx = int(round(float(rPx) * 0.7071));
-
-      float hN  = getRawHPx(p + ivec2(0,  rPx), h0);
-      float hS  = getRawHPx(p - ivec2(0,  rPx), h0);
-      float hE  = getRawHPx(p + ivec2( rPx, 0), h0);
-      float hW  = getRawHPx(p - ivec2( rPx, 0), h0);
-      float hNE = getRawHPx(p + ivec2( diagPx,  diagPx), h0);
-      float hNW = getRawHPx(p + ivec2(-diagPx,  diagPx), h0);
-      float hSE = getRawHPx(p + ivec2( diagPx, -diagPx), h0);
-      float hSW = getRawHPx(p + ivec2(-diagPx, -diagPx), h0);
-
-      float horizonBlock = 0.0;
-      horizonBlock += clamp((hN  - h0) / distM, 0.0, 1.5);
-      horizonBlock += clamp((hS  - h0) / distM, 0.0, 1.5);
-      horizonBlock += clamp((hE  - h0) / distM, 0.0, 1.5);
-      horizonBlock += clamp((hW  - h0) / distM, 0.0, 1.5);
-      horizonBlock += clamp((hNE - h0) / distM, 0.0, 1.5);
-      horizonBlock += clamp((hNW - h0) / distM, 0.0, 1.5);
-      horizonBlock += clamp((hSE - h0) / distM, 0.0, 1.5);
-      horizonBlock += clamp((hSW - h0) / distM, 0.0, 1.5);
-      horizonBlock *= 0.125;
-
-      float ridgeBonus = clamp((h0 - ((hN + hS + hE + hW) * 0.25)) / distM, 0.0, 0.8);
-      return clamp(1.0 - horizonBlock * 1.8 * u_svfStrength + ridgeBonus * 1.4 * u_svfStrength, 0.15, 2.4);
-    }
-
     vec3 getVintageHypso(float h) {
       float normH = clamp((h + 50.0) / 2500.0, 0.0, 1.0);
       vec3 cLow   = vec3(0.86, 0.88, 0.80);
@@ -1307,101 +1448,33 @@
       return mix(cHigh, cCrest, (normH - 0.75) / 0.25);
     }
 
-    float getOrganicNoise(vec2 p) {
-      vec2 ip = floor(p);
-      vec2 u = fract(p);
-      u = u * u * (3.0 - 2.0 * u);
-      float n00 = fract(sin(dot(ip, vec2(12.9898, 78.233))) * 43758.5453);
-      float n10 = fract(sin(dot(ip + vec2(1.0, 0.0), vec2(12.9898, 78.233))) * 43758.5453);
-      float n01 = fract(sin(dot(ip + vec2(0.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);
-      float n11 = fract(sin(dot(ip + vec2(1.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);
-      float h = mix(mix(n00, n10, u.x), mix(n01, n11, u.x), u.y);
-      float fine = fract(sin(dot(p, vec2(269.5, 183.3))) * 43758.5453);
-      return fract(h * 0.6180339887 + fine * 0.3819660113);
+    float getOrenNayarLight(vec3 N, vec3 L, float roughness, float wrap) {
+      float sigma2 = roughness * roughness;
+      float A = 1.0 - 0.5 * (sigma2 / (sigma2 + 0.33));
+      float B = 0.45 * (sigma2 / (sigma2 + 0.09));
+
+      float cos_ti = dot(N, L);
+      float wrapped_cos_ti = max(0.0, (cos_ti + wrap) / (1.0 + wrap));
+      float cos_tr = max(0.001, N.z);
+      float C = max(0.0, L.z - cos_ti * cos_tr) / max(cos_ti, cos_tr);
+      return wrapped_cos_ti * (A + B * C);
     }
 
+    float computeWaterlining(float h, float slope, vec2 px) {
+      if (slope > 0.006) return 0.0;
+      float ripple = sin(px.x * 0.3 + px.y * 0.3 + noise(px * 0.1) * 4.0);
+      float bands = smoothstep(0.3, 0.7, sin(h * 6.28 + ripple * 0.5));
+      return bands * smoothstep(0.006, 0.001, slope) * 0.45;
+    }
+
+    // =========================================================================
+    // ТОЛЬКО АКТИВНЫЕ ФУНКЦИИ ДИЗЕРИНГА (КОМПИЛИРУЕТСЯ СТРОГО 1 ШТУКА)
+    // =========================================================================
+    #ifdef USE_DITHER
     vec2 rotate2D(vec2 p, float rad) {
       float c = cos(rad);
       float s = sin(rad);
       return vec2(p.x * c - p.y * s, p.x * s + p.y * c);
-    }
-
-    float getBayer4(vec2 p) {
-      ivec2 b = ivec2(floor(mod(p, 4.0)));
-      int b0x = b.x & 1;
-      int b0y = b.y & 1;
-      int b1x = (b.x >> 1) & 1;
-      int b1y = (b.y >> 1) & 1;
-      int m0 = 2 * b0x + 3 * b0y - 4 * b0x * b0y;
-      int m1 = 2 * b1x + 3 * b1y - 4 * b1x * b1y;
-      return float(4 * m0 + m1) / 16.0;
-    }
-
-    float getHalftoneDots(vec2 pRot, float luma, float scale, float density) {
-      vec2 grid = fract(pRot / max(1.0, scale * 3.5)) - 0.5;
-      float dist = length(grid);
-      float targetRadius = sqrt(clamp(1.0 - luma, 0.0, 1.0)) * 0.65 * clamp(density, 0.2, 2.5);
-      return smoothstep(targetRadius + 0.08, targetRadius - 0.08, dist);
-    }
-
-    float getLinearHatch(vec2 pRot, float luma, float scale, float density) {
-      float coord = pRot.y / max(1.0, scale * 3.2);
-      float wave = abs(fract(coord) - 0.5) * 2.0;
-      float thickness = clamp((1.0 - luma) * 0.85 * density, 0.02, 0.98);
-      return smoothstep(thickness - 0.12, thickness + 0.12, wave);
-    }
-
-    float getWoodcutHatch(vec2 pRot, float luma, float scale, float density, vec2 gradDir) {
-      vec2 d = normalize(rotate2D(gradDir, 0.785) + vec2(0.2, 0.8));
-      float coord = dot(pRot, d) / max(1.0, scale * 3.2);
-      float wave = abs(fract(coord) - 0.5) * 2.0;
-      float thickness = clamp((1.0 - luma) * 0.85 * density, 0.05, 0.95);
-      return smoothstep(thickness - 0.15, thickness + 0.15, wave);
-    }
-
-    float getCrossHatch(vec2 pRot, float luma, float scale, float density) {
-      vec2 d1 = vec2(0.7071, 0.7071);
-      vec2 d2 = vec2(-0.7071, 0.7071);
-      float w1 = abs(fract(dot(pRot, d1) / (scale * 3.0)) - 0.5) * 2.0;
-      float w2 = abs(fract(dot(pRot, d2) / (scale * 3.0)) - 0.5) * 2.0;
-      float t1 = clamp(smoothstep(0.75, 0.2, luma) * density, 0.0, 1.0);
-      float t2 = clamp(smoothstep(0.40, 0.05, luma) * density, 0.0, 1.0);
-      return clamp(t1 * smoothstep(0.4, 0.6, w1) + t2 * smoothstep(0.4, 0.6, w2), 0.0, 1.0);
-    }
-
-    float getWavyHatch(vec2 pRot, float luma, float scale, float density) {
-      float sc = max(1.0, scale * 3.5);
-      float waveMod = sin(pRot.x / (sc * 1.8)) * 0.8;
-      float coord = (pRot.y + waveMod * sc * 0.5) / sc;
-      float wave = abs(fract(coord) - 0.5) * 2.0;
-      float thickness = clamp((1.0 - luma) * 0.85 * density, 0.02, 0.98);
-      return smoothstep(thickness - 0.12, thickness + 0.12, wave);
-    }
-
-    float getHexDots(vec2 pRot, float luma, float scale, float density) {
-      float s = max(1.0, scale * 3.8);
-      vec2 gridCoord = pRot / s;
-      vec2 g1 = fract(gridCoord) - 0.5;
-      vec2 g2 = fract(gridCoord + vec2(0.5, 0.866025)) - 0.5;
-      float dist = min(length(vec2(g1.x, g1.y * 1.1547)), length(vec2(g2.x, g2.y * 1.1547)));
-      float targetRadius = sqrt(clamp(1.0 - luma, 0.0, 1.0)) * 0.62 * clamp(density, 0.2, 2.5);
-      return smoothstep(targetRadius + 0.08, targetRadius - 0.08, dist);
-    }
-
-    float getChevronHatch(vec2 pRot, float luma, float scale, float density) {
-      float sc = max(1.0, scale * 3.6);
-      float zigzag = abs(fract(pRot.x / (sc * 2.0)) - 0.5) * 2.0;
-      float coord = (pRot.y + zigzag * sc * 0.8) / sc;
-      float wave = abs(fract(coord) - 0.5) * 2.0;
-      float thickness = clamp((1.0 - luma) * 0.85 * density, 0.03, 0.97);
-      return smoothstep(thickness - 0.12, thickness + 0.12, wave);
-    }
-
-    float getLithoGrain(vec2 p, float luma, float scale, float density) {
-      vec2 sp = p / max(0.5, scale * 1.4);
-      float clump = getOrganicNoise(sp) * 0.65 + getOrganicNoise(sp * 2.13 + vec2(17.1, 43.7)) * 0.35;
-      float threshold = clamp((1.0 - luma) * 0.9 * density, 0.0, 1.0);
-      return smoothstep(1.0 - threshold - 0.1, 1.0 - threshold + 0.1, clump);
     }
 
     vec3 blendDitherColor(int mode, vec3 base, vec3 blend) {
@@ -1418,109 +1491,148 @@
       return blend;
     }
 
-    float getOrenNayarLight(vec3 N, vec3 L, float roughness, float wrap) {
-      float sigma2 = roughness * roughness;
-      float A = 1.0 - 0.5 * (sigma2 / (sigma2 + 0.33));
-      float B = 0.45 * (sigma2 / (sigma2 + 0.09));
-
-      float cos_ti = dot(N, L);
-      float wrapped_cos_ti = max(0.0, (cos_ti + wrap) / (1.0 + wrap));
-      float cos_tr = max(0.001, N.z);
-      float C = max(0.0, L.z - cos_ti * cos_tr) / max(cos_ti, cos_tr);
-      return wrapped_cos_ti * (A + B * C);
+    #if defined(DITHER_BLUE) || defined(DITHER_STIPPLE) || defined(DITHER_LITHO)
+    float getOrganicNoise(vec2 p) {
+      vec2 ip = floor(p);
+      vec2 u = fract(p);
+      u = u * u * (3.0 - 2.0 * u);
+      float n00 = fract(sin(dot(ip, vec2(12.9898, 78.233))) * 43758.5453);
+      float n10 = fract(sin(dot(ip + vec2(1.0, 0.0), vec2(12.9898, 78.233))) * 43758.5453);
+      float n01 = fract(sin(dot(ip + vec2(0.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);
+      float n11 = fract(sin(dot(ip + vec2(1.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);
+      float h = mix(mix(n00, n10, u.x), mix(n01, n11, u.x), u.y);
+      float fine = fract(sin(dot(p, vec2(269.5, 183.3))) * 43758.5453);
+      return fract(h * 0.6180339887 + fine * 0.3819660113);
     }
+    #endif
 
-    vec2 getHessianFlowDir(float z00, float z10, float z20, float z01, float centerH, float z21, float z02, float z12, float z22, vec2 fallbackDir) {
-      float a = (z21 - 2.0 * centerH + z01);
-      float b = ((z22 - z20) - (z02 - z00)) * 0.25;
-      float c = (z12 - 2.0 * centerH + z10);
-
-      float disc = sqrt((a - c) * (a - c) + 4.0 * b * b);
-      if (disc < 0.0001) return fallbackDir;
-
-      vec2 eigenVec = vec2(2.0 * b, (c - a) + disc);
-      float len = length(eigenVec);
-      return (len < 0.0001) ? fallbackDir : (eigenVec / len);
+    #if defined(DITHER_BAYER)
+    float getBayer4(vec2 p) {
+      ivec2 b = ivec2(floor(mod(p, 4.0)));
+      int b0x = b.x & 1;
+      int b0y = b.y & 1;
+      int b1x = (b.x >> 1) & 1;
+      int b1y = (b.y >> 1) & 1;
+      int m0 = 2 * b0x + 3 * b0y - 4 * b0x * b0y;
+      int m1 = 2 * b1x + 3 * b1y - 4 * b1x * b1y;
+      return float(4 * m0 + m1) / 16.0;
     }
+    #endif
 
-    float computeWaterlining(float h, float slope, vec2 px) {
-      if (slope > 0.006) return 0.0;
-      float ripple = sin(px.x * 0.3 + px.y * 0.3 + noise(px * 0.1) * 4.0);
-      float bands = smoothstep(0.3, 0.7, sin(h * 6.28 + ripple * 0.5));
-      return bands * smoothstep(0.006, 0.001, slope) * 0.45;
+    #if defined(DITHER_DOTS)
+    float getHalftoneDots(vec2 pRot, float luma, float scale, float density) {
+      vec2 grid = fract(pRot / max(1.0, scale * 3.5)) - 0.5;
+      float dist = length(grid);
+      float targetRadius = sqrt(clamp(1.0 - luma, 0.0, 1.0)) * 0.65 * clamp(density, 0.2, 2.5);
+      return smoothstep(targetRadius + 0.08, targetRadius - 0.08, dist);
     }
+    #endif
+
+    #if defined(DITHER_HATCH)
+    float getLinearHatch(vec2 pRot, float luma, float scale, float density) {
+      float coord = pRot.y / max(1.0, scale * 3.2);
+      float wave = abs(fract(coord) - 0.5) * 2.0;
+      float thickness = clamp((1.0 - luma) * 0.85 * density, 0.02, 0.98);
+      return smoothstep(thickness - 0.12, thickness + 0.12, wave);
+    }
+    #endif
+
+    #if defined(DITHER_WOODCUT)
+    float getWoodcutHatch(vec2 pRot, float luma, float scale, float density, vec2 gradDir) {
+      vec2 d = normalize(rotate2D(gradDir, 0.785) + vec2(0.2, 0.8));
+      float coord = dot(pRot, d) / max(1.0, scale * 3.2);
+      float wave = abs(fract(coord) - 0.5) * 2.0;
+      float thickness = clamp((1.0 - luma) * 0.85 * density, 0.05, 0.95);
+      return smoothstep(thickness - 0.15, thickness + 0.15, wave);
+    }
+    #endif
+
+    #if defined(DITHER_CROSS)
+    float getCrossHatch(vec2 pRot, float luma, float scale, float density) {
+      vec2 d1 = vec2(0.7071, 0.7071);
+      vec2 d2 = vec2(-0.7071, 0.7071);
+      float w1 = abs(fract(dot(pRot, d1) / (scale * 3.0)) - 0.5) * 2.0;
+      float w2 = abs(fract(dot(pRot, d2) / (scale * 3.0)) - 0.5) * 2.0;
+      float t1 = clamp(smoothstep(0.75, 0.2, luma) * density, 0.0, 1.0);
+      float t2 = clamp(smoothstep(0.40, 0.05, luma) * density, 0.0, 1.0);
+      return clamp(t1 * smoothstep(0.4, 0.6, w1) + t2 * smoothstep(0.4, 0.6, w2), 0.0, 1.0);
+    }
+    #endif
+
+    #if defined(DITHER_WAVY)
+    float getWavyHatch(vec2 pRot, float luma, float scale, float density) {
+      float sc = max(1.0, scale * 3.5);
+      float waveMod = sin(pRot.x / (sc * 1.8)) * 0.8;
+      float coord = (pRot.y + waveMod * sc * 0.5) / sc;
+      float wave = abs(fract(coord) - 0.5) * 2.0;
+      float thickness = clamp((1.0 - luma) * 0.85 * density, 0.02, 0.98);
+      return smoothstep(thickness - 0.12, thickness + 0.12, wave);
+    }
+    #endif
+
+    #if defined(DITHER_HEX)
+    float getHexDots(vec2 pRot, float luma, float scale, float density) {
+      float s = max(1.0, scale * 3.8);
+      vec2 gridCoord = pRot / s;
+      vec2 g1 = fract(gridCoord) - 0.5;
+      vec2 g2 = fract(gridCoord + vec2(0.5, 0.866025)) - 0.5;
+      float dist = min(length(vec2(g1.x, g1.y * 1.1547)), length(vec2(g2.x, g2.y * 1.1547)));
+      float targetRadius = sqrt(clamp(1.0 - luma, 0.0, 1.0)) * 0.62 * clamp(density, 0.2, 2.5);
+      return smoothstep(targetRadius + 0.08, targetRadius - 0.08, dist);
+    }
+    #endif
+
+    #if defined(DITHER_CHEVRON)
+    float getChevronHatch(vec2 pRot, float luma, float scale, float density) {
+      float sc = max(1.0, scale * 3.6);
+      float zigzag = abs(fract(pRot.x / (sc * 2.0)) - 0.5) * 2.0;
+      float coord = (pRot.y + zigzag * sc * 0.8) / sc;
+      float wave = abs(fract(coord) - 0.5) * 2.0;
+      float thickness = clamp((1.0 - luma) * 0.85 * density, 0.03, 0.97);
+      return smoothstep(thickness - 0.12, thickness + 0.12, wave);
+    }
+    #endif
+
+    #if defined(DITHER_LITHO)
+    float getLithoGrain(vec2 p, float luma, float scale, float density) {
+      vec2 sp = p / max(0.5, scale * 1.4);
+      float clump = getOrganicNoise(sp) * 0.65 + getOrganicNoise(sp * 2.13 + vec2(17.1, 43.7)) * 0.35;
+      float threshold = clamp((1.0 - luma) * 0.9 * density, 0.0, 1.0);
+      return smoothstep(1.0 - threshold - 0.1, 1.0 - threshold + 0.1, clump);
+    }
+    #endif
+    #endif
 
     void main() {
-      // Преобразуем нормализованные v_uv в целочисленные пиксели текстуры
-      ivec2 basePx = ivec2(floor(v_uv * vec2(u_iRes)));
-      vec4 centerRaw = texelFetch(u_dem, clamp(basePx, ivec2(0), u_iRes - ivec2(1)), 0);
-      float centerH = decodeH(centerRaw);
+      ivec2 tilePx = ivec2(gl_FragCoord.xy);
+      vec4 g = texelFetch(u_gbuf, tilePx, 0);
 
-      if (centerRaw.a < 0.1 || centerH < -1000.0) {
+      if (g.r == 0.0 && g.g == 0.0 && g.b == 0.0 && g.a == 0.0) {
         fragColor = vec4(0.0);
         return;
       }
 
+      vec2 nxy = g.xy * 2.0 - 1.0;
+      float nz = sqrt(max(0.0001, 1.0 - dot(nxy, nxy)));
+      vec3 norm = vec3(nxy, nz);
+
+      float hNorm = g.a;
+      float centerH = u_elevMin + hNorm * u_elevSpan;
+
+      float packedB = g.b;
+      float aoVal = clamp(packedB / 0.75, 0.0, 1.0);
+      float svf = aoVal;
+      float crestGlint = clamp((packedB - 0.75) / 0.625, 0.0, 0.40);
+      float ridgeness = smoothstep(0.35, 0.85, hNorm);
+
+      float safeNz = max(0.001, norm.z);
+      float dzdx = -norm.x / safeNz;
+      float dzdy = -norm.y / safeNz;
+      float slope = length(vec2(dzdx, dzdy));
+
       float maxSafeR = max(1.0, u_pad - 3.0);
       float maxSafeMeters = maxSafeR * u_metersPerPixel;
-
-      int stepPx = 1;
-      float z00, z10, z20, z01, z21, z02, z12, z22;
-
-      if (u_smooth == 0) {
-        stepPx = 1;
-        z00 = getRawHPx(basePx + ivec2(-1, -1), centerH);
-        z10 = getRawHPx(basePx + ivec2( 0, -1), centerH);
-        z20 = getRawHPx(basePx + ivec2( 1, -1), centerH);
-        z01 = getRawHPx(basePx + ivec2(-1,  0), centerH);
-        z21 = getRawHPx(basePx + ivec2( 1,  0), centerH);
-        z02 = getRawHPx(basePx + ivec2(-1,  1), centerH);
-        z12 = getRawHPx(basePx + ivec2( 0,  1), centerH);
-        z22 = getRawHPx(basePx + ivec2( 1,  1), centerH);
-      } else if (u_smooth == 2) {
-        int r = int(min(max(1.8, 50.0 / u_metersPerPixel), maxSafeR));
-        stepPx = max(1, r);
-        z00 = getBilateralHPx(basePx + ivec2(-stepPx, -stepPx), centerH, 1);
-        z10 = getBilateralHPx(basePx + ivec2( 0,      -stepPx), centerH, 1);
-        z20 = getBilateralHPx(basePx + ivec2( stepPx, -stepPx), centerH, 1);
-        z01 = getBilateralHPx(basePx + ivec2(-stepPx,  0),      centerH, 1);
-        z21 = getBilateralHPx(basePx + ivec2( stepPx,  0),      centerH, 1);
-        z02 = getBilateralHPx(basePx + ivec2(-stepPx,  stepPx), centerH, 1);
-        z12 = getBilateralHPx(basePx + ivec2( 0,       stepPx), centerH, 1);
-        z22 = getBilateralHPx(basePx + ivec2( stepPx,  stepPx), centerH, 1);
-      } else if (u_smooth == 3) {
-        float sGrad = length(vec2(getRawHPx(basePx + ivec2(2, 0), centerH) - getRawHPx(basePx - ivec2(2, 0), centerH),
-                                  getRawHPx(basePx + ivec2(0, 2), centerH) - getRawHPx(basePx - ivec2(0, 2), centerH)));
-        float adaptR = min(mix(max(2.5, 75.0 / u_metersPerPixel), 1.2, clamp(sGrad * 0.15, 0.0, 1.0)), maxSafeR);
-        stepPx = max(1, int(round(adaptR)));
-        z00 = getGaussianHPx(basePx + ivec2(-stepPx, -stepPx), centerH, 1);
-        z10 = getGaussianHPx(basePx + ivec2( 0,      -stepPx), centerH, 1);
-        z20 = getGaussianHPx(basePx + ivec2( stepPx, -stepPx), centerH, 1);
-        z01 = getGaussianHPx(basePx + ivec2(-stepPx,  0),      centerH, 1);
-        z21 = getGaussianHPx(basePx + ivec2( stepPx,  0),      centerH, 1);
-        z02 = getGaussianHPx(basePx + ivec2(-stepPx,  stepPx), centerH, 1);
-        z12 = getGaussianHPx(basePx + ivec2( 0,       stepPx), centerH, 1);
-        z22 = getGaussianHPx(basePx + ivec2( stepPx,  stepPx), centerH, 1);
-      } else {
-        float targetMetersRadius = clamp(45.0, u_metersPerPixel * 1.5, 90.0);
-        float adaptiveBlurRadius = min(max(1.5, targetMetersRadius / u_metersPerPixel), maxSafeR);
-        stepPx = max(1, int(round(adaptiveBlurRadius)));
-        z00 = getGaussianHPx(basePx + ivec2(-stepPx, -stepPx), centerH, 1);
-        z10 = getGaussianHPx(basePx + ivec2( 0,      -stepPx), centerH, 1);
-        z20 = getGaussianHPx(basePx + ivec2( stepPx, -stepPx), centerH, 1);
-        z01 = getGaussianHPx(basePx + ivec2(-stepPx,  0),      centerH, 1);
-        z21 = getGaussianHPx(basePx + ivec2( stepPx,  0),      centerH, 1);
-        z02 = getGaussianHPx(basePx + ivec2(-stepPx,  stepPx), centerH, 1);
-        z12 = getGaussianHPx(basePx + ivec2( 0,       stepPx), centerH, 1);
-        z22 = getGaussianHPx(basePx + ivec2( stepPx,  stepPx), centerH, 1);
-      }
-
-      float deltaMeters = max(0.1, 2.0 * float(stepPx) * u_metersPerPixel);
-      float dzdx = ((z20 + 2.0 * z21 + z22) - (z00 + 2.0 * z01 + z02)) / (8.0 * deltaMeters) * u_zFactor;
-      float dzdy = ((z02 + 2.0 * z12 + z22) - (z00 + 2.0 * z10 + z20)) / (8.0 * deltaMeters) * u_zFactor;
-
-      float slope = length(vec2(dzdx, dzdy));
-      vec3 norm = normalize(vec3(-dzdx, -dzdy, 1.0));
+      ivec2 basePx = ivec2(floor(v_uv * vec2(u_iRes)));
 
       vec3 effectiveSunDir = u_sunDir;
       if (u_imhofDeflection > 0.01 && slope > 0.02) {
@@ -1537,7 +1649,7 @@
       float wrappedLight;
       float castShadow = 1.0;
 
-      if (u_useMDOW > 0.5) {
+      #ifdef USE_MDOW
         vec3 dir1 = effectiveSunDir;
         vec3 dir2 = normalize(vec3(effectiveSunDir.y, -effectiveSunDir.x, effectiveSunDir.z * 1.1));
         vec3 dir3 = normalize(vec3(-effectiveSunDir.y, effectiveSunDir.x, effectiveSunDir.z * 0.9));
@@ -1549,23 +1661,18 @@
         float l4 = max(0.0, dot(norm, dir4));
 
         wrappedLight = l1 * 0.55 + l2 * 0.20 + l3 * 0.15 + l4 * 0.10;
-        castShadow = computeCastShadowPx(basePx, v_tileLocalPx, centerH, effectiveSunDir, maxSafeMeters);
-      } else {
+      #else
         wrappedLight = getOrenNayarLight(norm, effectiveSunDir, u_orenNayarRoughness, u_lightWrap);
-        castShadow = computeCastShadowPx(basePx, v_tileLocalPx, centerH, effectiveSunDir, maxSafeMeters);
-      }
+      #endif
 
+      castShadow = computeCastShadowPx(basePx, v_tileLocalPx, centerH, effectiveSunDir, maxSafeMeters);
       castShadow = mix(1.0, castShadow, clamp(u_sunIntensity * 1.15, 0.25, 1.0));
       float directLight = wrappedLight * castShadow * u_sunIntensity;
       float skyFill = clamp(dot(norm, vec3(0.0, 0.0, 1.0)) * 0.65 + 0.35, 0.0, 1.0);
 
-      float curvature = ((z10 + z01 + z21 + z12) * 0.25) - centerH;
-      float crestGlint = clamp(-curvature * 0.20 * u_zFactor, 0.0, 0.40);
-
-      float svf = computeSkyViewFactorPx(basePx, centerH, maxSafeR);
       float dayLuma = clamp(dot(u_lightColor, vec3(0.299, 0.587, 0.114)), 0.05, 1.0);
+      hNorm = clamp((centerH - u_elevMin) / max(1.0, u_elevSpan), 0.0, 1.0);
 
-      float hNorm = clamp((centerH - u_elevMin) / max(1.0, u_elevSpan), 0.0, 1.0);
       float blendBias = clamp(u_manualLightBlend, 0.02, 0.98);
       float gamma = (1.0 - blendBias) / blendBias;
       float elevFactor = pow(hNorm, gamma);
@@ -1592,14 +1699,6 @@
       }
 
       float boostDiff = u_lightBoost - 1.0;
-      int tpiR = int(min(maxSafeR, max(4.0, 250.0 / u_metersPerPixel)));
-      float avgT = (getRawHPx(basePx + ivec2( tpiR, 0), centerH) +
-                    getRawHPx(basePx - ivec2( tpiR, 0), centerH) +
-                    getRawHPx(basePx + ivec2(0,  tpiR), centerH) +
-                    getRawHPx(basePx - ivec2(0, -tpiR), centerH)) * 0.25;
-      float tpi = clamp((centerH - avgT) / max(8.0, u_elevSpan * 0.15), -1.0, 1.0);
-      float ridgeness = smoothstep(-0.2, 0.8, tpi);
-
       float peakness = clamp(pow(hNorm, 1.5) * 0.65 + ridgeness * 0.35, 0.0, 1.0);
       float sunFacing = smoothstep(0.10, 0.80, directLight);
       float twilightDamp = mix(1.0, 0.55, u_alpenglowWeight);
@@ -1632,23 +1731,11 @@
         finalCol = mix(finalCol, vec3(0.04, 0.08, 0.16), valleyDepth * 0.35 * isNight);
       }
 
-      if (u_useAO > 0.5) {
-        float aoMeterRadius = max(90.0, u_metersPerPixel * 3.5) * u_aoRadius;
-        int wideR = int(min(aoMeterRadius / u_metersPerPixel, maxSafeR));
-        float avgH = (getRawHPx(basePx + ivec2(-wideR,  0), centerH) +
-                      getRawHPx(basePx + ivec2( wideR,  0), centerH) +
-                      getRawHPx(basePx + ivec2( 0, -wideR), centerH) +
-                      getRawHPx(basePx + ivec2( 0,  wideR), centerH)) * 0.25;
-
-        float filteredDiff = max(0.0, (avgH - centerH) - 0.7);
-        float slopeBleedFactor = mix(1.0, clamp(slope * 14.0, 0.5, 3.0), u_aoSlopeBleed);
-        float valleyDepth = (filteredDiff * slopeBleedFactor) / max(2.5, u_metersPerPixel * 0.35);
-        finalCol *= clamp(1.0 - valleyDepth * 0.26 * u_aoStrength, 0.35, 1.0);
-      }
-
+      finalCol *= aoVal;
       finalCol *= mix(1.0, svf, min(1.0, u_svfStrength * 0.45));
 
-      if (u_useHachure > 0.5 && slope > u_hachureSlope) {
+      #ifdef USE_HACHURE
+      if (slope > u_hachureSlope) {
         float density = max(0.3, u_hachureDensity);
         float slopeFactor = smoothstep(u_hachureSlope, u_hachureSlope * 3.2, slope);
         float sunMod = mix(1.0, clamp(1.25 - directLight, 0.15, 1.0), u_hachureLightMod);
@@ -1659,29 +1746,24 @@
           hachureCoord += (hash(hachureCoord * 4.0) - 0.5) * 0.35;
         }
 
-        if (u_hachureType == 3) {
-          vec2 fallbackContour = normalize(vec2(-dzdy, dzdx));
-          vec2 flowDir = getHessianFlowDir(z00, z10, z20, z01, centerH, z21, z02, z12, z22, fallbackContour);
-          hachureDarkness = smoothstep(0.15, 0.82, sin(dot(hachureCoord, flowDir) * 1.5 * density)) * slopeFactor;
-        } else if (u_hachureType == 1) {
+        #if defined(HACHURE_LEHMANN)
           vec2 gradDir = normalize(vec2(dzdx, dzdy));
           vec2 perpDir = vec2(-gradDir.y, gradDir.x);
           float stripe = sin(dot(hachureCoord, perpDir) * density * 1.8);
           float rowMask = smoothstep(-0.2, 0.2, sin(dot(hachureCoord, gradDir) * density * 0.6));
           float lehmannThickness = clamp(slope * 1.5, 0.1, 0.95);
           hachureDarkness = smoothstep(1.0 - lehmannThickness, 1.0, stripe) * rowMask * slopeFactor;
-        } else if (u_hachureType == 2) {
-          float laplacian = (z10 + z01 + z21 + z12) - (4.0 * centerH);
-          float ridge = clamp(-laplacian * 0.4 * u_zFactor, 0.0, 1.0);
-          float couloir = clamp(laplacian * 0.5 * u_zFactor, 0.0, 1.0);
+        #elif defined(HACHURE_ROCK)
+          float ridge = clamp(crestGlint * 2.5, 0.0, 1.0);
+          float couloir = clamp(slope * 0.4, 0.0, 1.0);
           vec2 rockDir = normalize(vec2(-dzdy * 0.3 + dzdx * 0.7, dzdx * 0.3 + dzdy * 0.7));
           float rockStripe = sin(dot(hachureCoord, rockDir) * density * 2.2);
           hachureDarkness = smoothstep(0.1, 0.8, rockStripe) * slopeFactor * couloir * 0.85;
           finalCol += warmSunCol * (ridge * slopeFactor * 0.35);
-        } else {
+        #else
           vec2 dirAlongContour = normalize(vec2(-dzdy, dzdx));
           hachureDarkness = smoothstep(0.18, 0.78, sin(dot(hachureCoord, dirAlongContour) * 1.6 * density)) * slopeFactor;
-        }
+        #endif
 
         if (u_inkBleed > 0.5 && hachureDarkness > 0.2) {
           finalCol -= vec3(smoothstep(0.2, 0.9, hachureDarkness) * 0.08);
@@ -1689,6 +1771,7 @@
 
         finalCol = mix(finalCol, u_hachureColor, clamp(hachureDarkness * u_hachureOpacity * sunMod, 0.0, 1.0));
       }
+      #endif
 
       if (u_hypso > 0) {
         finalCol = mix(finalCol, finalCol * getVintageHypso(centerH), 0.70);
@@ -1708,37 +1791,38 @@
       float paperGrain = ((hash(grainPos * 2.5) - 0.5) * 0.7 + (noise(grainPos * 0.35) - 0.5) * 0.3) * (u_paperGrain * 0.22);
       finalCol += vec3(paperGrain * dayLuma);
 
-      if (u_ditherEnabled > 0.5) {
+      #ifdef USE_DITHER
+      {
         float luma = dot(finalCol, vec3(0.299, 0.587, 0.114));
         vec2 p = v_tileLocalPx;
         float dScale = max(0.4, u_ditherScale);
         vec2 pRot = rotate2D(p, (u_ditherAngle * 3.14159265) / 180.0);
         float ditherMask = 0.0;
 
-        if (u_ditherType == 0) {
+        #if defined(DITHER_BLUE)
           ditherMask = (clamp(luma / max(0.1, u_ditherDensity), 0.0, 1.0) < getOrganicNoise(p / dScale)) ? 1.0 : 0.0;
-        } else if (u_ditherType == 1) {
+        #elif defined(DITHER_HATCH)
           ditherMask = getLinearHatch(pRot, luma, dScale, u_ditherDensity);
-        } else if (u_ditherType == 2) {
+        #elif defined(DITHER_DOTS)
           ditherMask = getHalftoneDots(pRot, luma, dScale, u_ditherDensity);
-        } else if (u_ditherType == 3) {
+        #elif defined(DITHER_BAYER)
           ditherMask = (clamp(luma / max(0.1, u_ditherDensity), 0.0, 1.0) < getBayer4(pRot / dScale)) ? 1.0 : 0.0;
-        } else if (u_ditherType == 4) {
+        #elif defined(DITHER_WOODCUT)
           ditherMask = getWoodcutHatch(pRot, luma, dScale, u_ditherDensity, vec2(dzdx, dzdy));
-        } else if (u_ditherType == 5) {
+        #elif defined(DITHER_CROSS)
           ditherMask = getCrossHatch(pRot, luma, dScale, u_ditherDensity);
-        } else if (u_ditherType == 6) {
+        #elif defined(DITHER_STIPPLE)
           float stipple = smoothstep(0.25, 0.85, (getOrganicNoise(p / (dScale * 1.5)) * 0.6 + hash(floor(pRot / (dScale * 1.8))) * 0.4));
           ditherMask = (clamp(luma / max(0.1, u_ditherDensity), 0.0, 1.0) < stipple) ? 1.0 : 0.0;
-        } else if (u_ditherType == 7) {
+        #elif defined(DITHER_WAVY)
           ditherMask = getWavyHatch(pRot, luma, dScale, u_ditherDensity);
-        } else if (u_ditherType == 8) {
+        #elif defined(DITHER_HEX)
           ditherMask = getHexDots(pRot, luma, dScale, u_ditherDensity);
-        } else if (u_ditherType == 9) {
+        #elif defined(DITHER_CHEVRON)
           ditherMask = getChevronHatch(pRot, luma, dScale, u_ditherDensity);
-        } else {
+        #elif defined(DITHER_LITHO)
           ditherMask = getLithoGrain(p, luma, dScale, u_ditherDensity);
-        }
+        #endif
 
         float halfSoft = max(0.01, u_ditherSoftness * 0.5);
         float highPass = smoothstep(u_ditherThreshold + halfSoft, u_ditherThreshold - halfSoft, luma);
@@ -1749,6 +1833,7 @@
         vec3 targetInkColor = blendDitherColor(u_ditherBlend, finalCol, u_ditherColor);
         finalCol = mix(finalCol, targetInkColor, clamp(ditherMask * zoneWeight * u_ditherStrength, 0.0, 1.0));
       }
+      #endif
 
       if (u_waterlining > 0.5) {
         float waterLine = computeWaterlining(centerH, slope, v_tileLocalPx);
@@ -1760,11 +1845,111 @@
       fragColor = vec4(clamp(finalCol, 0.0, 1.0), 1.0);
     }
   `;
+  }
 
   let sharedGl = null;
-  let sharedProgram = null;
+  let sharedGeomProg = null;
   let sharedVao = null;
-  let glLocations = null;
+  let sharedFbo = null;
+  let geomLocations = null;
+  let globalGeomVersion = 1;
+
+  // Кэш программ освещения по ключу флагов
+  const lightProgramCache = new Map();
+
+  function getOrCreateLightProgram(gl, flags) {
+    const key = [
+      flags.mdow ? '1' : '0',
+      flags.hachure ? (flags.hachureType || 'classic') : '0',
+      flags.dither ? (flags.ditherType || 'blue') : '0'
+    ].join('|');
+
+    if (lightProgramCache.has(key)) {
+      return lightProgramCache.get(key);
+    }
+
+    function compile(type, src) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error('Light Shader Error:', gl.getShaderInfoLog(s));
+      }
+      return s;
+    }
+
+    const fsSrc = buildLightFragmentShader(flags);
+    const prog = gl.createProgram();
+    gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS_SOURCE));
+    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fsSrc));
+    gl.linkProgram(prog);
+
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      console.error('Light Program Link Error:', gl.getProgramInfoLog(prog));
+    }
+
+    const locs = {
+      dem: gl.getUniformLocation(prog, 'u_dem'),
+      gbuf: gl.getUniformLocation(prog, 'u_gbuf'),
+      iRes: gl.getUniformLocation(prog, 'u_iRes'),
+      pad: gl.getUniformLocation(prog, 'u_pad'),
+      uvOrigin: gl.getUniformLocation(prog, 'u_uvOrigin'),
+      uvScale: gl.getUniformLocation(prog, 'u_uvScale'),
+      sunDir: gl.getUniformLocation(prog, 'u_sunDir'),
+      lightColor: gl.getUniformLocation(prog, 'u_lightColor'),
+      shadowColor: gl.getUniformLocation(prog, 'u_shadowColor'),
+      skyColor: gl.getUniformLocation(prog, 'u_skyColor'),
+      alpenglowWeight: gl.getUniformLocation(prog, 'u_alpenglowWeight'),
+      sunIntensity: gl.getUniformLocation(prog, 'u_sunIntensity'),
+      zFactor: gl.getUniformLocation(prog, 'u_zFactor'),
+      mode: gl.getUniformLocation(prog, 'u_mode'),
+      hypso: gl.getUniformLocation(prog, 'u_hypso'),
+      useSVF: gl.getUniformLocation(prog, 'u_useSVF'),
+      svfStrength: gl.getUniformLocation(prog, 'u_svfStrength'),
+      useCastShadow: gl.getUniformLocation(prog, 'u_useCastShadow'),
+      shadowReach: gl.getUniformLocation(prog, 'u_shadowReach'),
+      shadowOpacity: gl.getUniformLocation(prog, 'u_shadowOpacity'),
+      imhofDeflection: gl.getUniformLocation(prog, 'u_imhofDeflection'),
+      imhofWarmCool: gl.getUniformLocation(prog, 'u_imhofWarmCool'),
+      lightWrap: gl.getUniformLocation(prog, 'u_lightWrap'),
+      paperGrain: gl.getUniformLocation(prog, 'u_paperGrain'),
+      mpp: gl.getUniformLocation(prog, 'u_metersPerPixel'),
+      orenNayarRoughness: gl.getUniformLocation(prog, 'u_orenNayarRoughness'),
+      inkBleed: gl.getUniformLocation(prog, 'u_inkBleed'),
+      waterlining: gl.getUniformLocation(prog, 'u_waterlining'),
+      lightBoost: gl.getUniformLocation(prog, 'u_lightBoost'),
+      isManualMode: gl.getUniformLocation(prog, 'u_isManualMode'),
+      debugValley: gl.getUniformLocation(prog, 'u_debugValley'),
+      manualColorPeak: gl.getUniformLocation(prog, 'u_manualColorPeak'),
+      manualColorValley: gl.getUniformLocation(prog, 'u_manualColorValley'),
+      manualLightBlend: gl.getUniformLocation(prog, 'u_manualLightBlend'),
+      elevMin: gl.getUniformLocation(prog, 'u_elevMin'),
+      elevSpan: gl.getUniformLocation(prog, 'u_elevSpan'),
+
+      // Штриховка (только если USE_HACHURE)
+      hachureDensity: gl.getUniformLocation(prog, 'u_hachureDensity'),
+      hachureOpacity: gl.getUniformLocation(prog, 'u_hachureOpacity'),
+      hachureSlope: gl.getUniformLocation(prog, 'u_hachureSlope'),
+      hachureColor: gl.getUniformLocation(prog, 'u_hachureColor'),
+      hachureLightMod: gl.getUniformLocation(prog, 'u_hachureLightMod'),
+
+      // Дизеринг (только если USE_DITHER)
+      ditherBlend: gl.getUniformLocation(prog, 'u_ditherBlend'),
+      ditherScale: gl.getUniformLocation(prog, 'u_ditherScale'),
+      ditherAngle: gl.getUniformLocation(prog, 'u_ditherAngle'),
+      ditherDensity: gl.getUniformLocation(prog, 'u_ditherDensity'),
+      ditherThreshold: gl.getUniformLocation(prog, 'u_ditherThreshold'),
+      ditherLowCut: gl.getUniformLocation(prog, 'u_ditherLowCut'),
+      ditherSoftness: gl.getUniformLocation(prog, 'u_ditherSoftness'),
+      ditherColor: gl.getUniformLocation(prog, 'u_ditherColor'),
+      ditherZone: gl.getUniformLocation(prog, 'u_ditherZone'),
+      ditherStrength: gl.getUniformLocation(prog, 'u_ditherStrength')
+    };
+
+    const entry = { prog, locs };
+    lightProgramCache.set(key, entry);
+    return entry;
+  }
 
   function initSharedGl() {
     if (sharedGl) return;
@@ -1772,7 +1957,6 @@
     canvas.width = 256;
     canvas.height = 256;
 
-    // Запрашиваем webgl2 контекст
     const gl = canvas.getContext('webgl2', {
       preserveDrawingBuffer: false,
       antialias: false,
@@ -1789,8 +1973,10 @@
     canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       sharedGl = null;
-      sharedProgram = null;
+      sharedGeomProg = null;
       sharedVao = null;
+      sharedFbo = null;
+      lightProgramCache.clear();
     }, false);
 
     function compile(type, src) {
@@ -1798,27 +1984,22 @@
       gl.shaderSource(s, src);
       gl.compileShader(s);
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-        console.error('DEM WebGL2 Shader Error:', gl.getShaderInfoLog(s));
+        console.error('Shader Error:', gl.getShaderInfoLog(s));
       }
       return s;
     }
 
-    const prog = gl.createProgram();
-    gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS_SOURCE));
-    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS_SOURCE));
-    gl.linkProgram(prog);
+    // 1. Программа запекания геометрии
+    const gProg = gl.createProgram();
+    gl.attachShader(gProg, compile(gl.VERTEX_SHADER, VS_SOURCE));
+    gl.attachShader(gProg, compile(gl.FRAGMENT_SHADER, FS_GEOM_SOURCE));
+    gl.linkProgram(gProg);
 
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-      console.error('DEM WebGL2 Link Error:', gl.getProgramInfoLog(prog));
-      return;
-    }
+    sharedFbo = gl.createFramebuffer();
 
-    gl.useProgram(prog);
-
-    // Нативный VAO в WebGL 2: настраиваем геометрию квада один раз навсегда
+    // Настройка VAO для полноэкранного квада
     const vao = gl.createVertexArray();
     gl.bindVertexArray(vao);
-
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
@@ -1830,81 +2011,36 @@
        1,  1, 1, 0
     ]), gl.STATIC_DRAW);
 
-    const aPos = gl.getAttribLocation(prog, 'a_pos');
-    const aUv = gl.getAttribLocation(prog, 'a_uv');
+    // Привязываем атрибуты к G-программе (слоты 0 и 1 одинаковы во всех программах)
+    const aPos = gl.getAttribLocation(gProg, 'a_pos');
+    const aUv = gl.getAttribLocation(gProg, 'a_uv');
     gl.enableVertexAttribArray(aPos);
     gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 16, 0);
     gl.enableVertexAttribArray(aUv);
     gl.vertexAttribPointer(aUv, 2, gl.FLOAT, false, 16, 8);
-
-    gl.bindVertexArray(null); // Отключаем VAO
+    gl.bindVertexArray(null);
 
     sharedGl = gl;
-    sharedProgram = prog;
+    sharedGeomProg = gProg;
     sharedVao = vao;
 
-    glLocations = {
-      debugValley: gl.getUniformLocation(prog, 'u_debugValley'),
-      dem: gl.getUniformLocation(prog, 'u_dem'),
-      iRes: gl.getUniformLocation(prog, 'u_iRes'),
-      tileOrigin: gl.getUniformLocation(prog, 'u_tileOrigin'),
-      pad: gl.getUniformLocation(prog, 'u_pad'),
-      uvOrigin: gl.getUniformLocation(prog, 'u_uvOrigin'),
-      uvScale: gl.getUniformLocation(prog, 'u_uvScale'),
-      sunDir: gl.getUniformLocation(prog, 'u_sunDir'),
-      lightColor: gl.getUniformLocation(prog, 'u_lightColor'),
-      shadowColor: gl.getUniformLocation(prog, 'u_shadowColor'),
-      zFactor: gl.getUniformLocation(prog, 'u_zFactor'),
-      ditherEnabled: gl.getUniformLocation(prog, 'u_ditherEnabled'),
-      ditherType: gl.getUniformLocation(prog, 'u_ditherType'),
-      ditherScale: gl.getUniformLocation(prog, 'u_ditherScale'),
-      ditherThreshold: gl.getUniformLocation(prog, 'u_ditherThreshold'),
-      ditherSoftness: gl.getUniformLocation(prog, 'u_ditherSoftness'),
-      ditherColor: gl.getUniformLocation(prog, 'u_ditherColor'),
-      ditherZone: gl.getUniformLocation(prog, 'u_ditherZone'),
-      ditherStrength: gl.getUniformLocation(prog, 'u_ditherStrength'),
-      ditherAngle: gl.getUniformLocation(prog, 'u_ditherAngle'),
-      ditherDensity: gl.getUniformLocation(prog, 'u_ditherDensity'),
-      ditherLowCut: gl.getUniformLocation(prog, 'u_ditherLowCut'),
-      ditherBlend: gl.getUniformLocation(prog, 'u_ditherBlend'),
-      orenNayarRoughness: gl.getUniformLocation(prog, 'u_orenNayarRoughness'),
-      inkBleed: gl.getUniformLocation(prog, 'u_inkBleed'),
-      waterlining: gl.getUniformLocation(prog, 'u_waterlining'),
-      mode: gl.getUniformLocation(prog, 'u_mode'),
-      smooth: gl.getUniformLocation(prog, 'u_smooth'),
-      hypso: gl.getUniformLocation(prog, 'u_hypso'),
-      useAO: gl.getUniformLocation(prog, 'u_useAO'),
-      aoStrength: gl.getUniformLocation(prog, 'u_aoStrength'),
-      aoRadius: gl.getUniformLocation(prog, 'u_aoRadius'),
-      aoSlopeBleed: gl.getUniformLocation(prog, 'u_aoSlopeBleed'),
-      useSVF: gl.getUniformLocation(prog, 'u_useSVF'),
-      svfStrength: gl.getUniformLocation(prog, 'u_svfStrength'),
-      useCastShadow: gl.getUniformLocation(prog, 'u_useCastShadow'),
-      shadowReach: gl.getUniformLocation(prog, 'u_shadowReach'),
-      shadowOpacity: gl.getUniformLocation(prog, 'u_shadowOpacity'),
-      useHachure: gl.getUniformLocation(prog, 'u_useHachure'),
-      hachureType: gl.getUniformLocation(prog, 'u_hachureType'),
-      hachureDensity: gl.getUniformLocation(prog, 'u_hachureDensity'),
-      hachureOpacity: gl.getUniformLocation(prog, 'u_hachureOpacity'),
-      hachureSlope: gl.getUniformLocation(prog, 'u_hachureSlope'),
-      hachureColor: gl.getUniformLocation(prog, 'u_hachureColor'),
-      hachureLightMod: gl.getUniformLocation(prog, 'u_hachureLightMod'),
-      imhofDeflection: gl.getUniformLocation(prog, 'u_imhofDeflection'),
-      useMDOW: gl.getUniformLocation(prog, 'u_useMDOW'),
-      imhofWarmCool: gl.getUniformLocation(prog, 'u_imhofWarmCool'),
-      skyColor: gl.getUniformLocation(prog, 'u_skyColor'),
-      alpenglowWeight: gl.getUniformLocation(prog, 'u_alpenglowWeight'),
-      sunIntensity: gl.getUniformLocation(prog, 'u_sunIntensity'),
-      lightWrap: gl.getUniformLocation(prog, 'u_lightWrap'),
-      paperGrain: gl.getUniformLocation(prog, 'u_paperGrain'),
-      mpp: gl.getUniformLocation(prog, 'u_metersPerPixel'),
-      lightBoost: gl.getUniformLocation(prog, 'u_lightBoost'),
-      isManualMode: gl.getUniformLocation(prog, 'u_isManualMode'),
-      manualColorPeak: gl.getUniformLocation(prog, 'u_manualColorPeak'),
-      manualColorValley: gl.getUniformLocation(prog, 'u_manualColorValley'),
-      manualLightBlend: gl.getUniformLocation(prog, 'u_manualLightBlend'),
-      elevMin: gl.getUniformLocation(prog, 'u_elevMin'),
-      elevSpan: gl.getUniformLocation(prog, 'u_elevSpan')
+    geomLocations = {
+      dem: gl.getUniformLocation(gProg, 'u_dem'),
+      iRes: gl.getUniformLocation(gProg, 'u_iRes'),
+      pad: gl.getUniformLocation(gProg, 'u_pad'),
+      uvOrigin: gl.getUniformLocation(gProg, 'u_uvOrigin'),
+      uvScale: gl.getUniformLocation(gProg, 'u_uvScale'),
+      zFactor: gl.getUniformLocation(gProg, 'u_zFactor'),
+      smooth: gl.getUniformLocation(gProg, 'u_smooth'),
+      mpp: gl.getUniformLocation(gProg, 'u_metersPerPixel'),
+      useAO: gl.getUniformLocation(gProg, 'u_useAO'),
+      aoStrength: gl.getUniformLocation(gProg, 'u_aoStrength'),
+      aoRadius: gl.getUniformLocation(gProg, 'u_aoRadius'),
+      aoSlopeBleed: gl.getUniformLocation(gProg, 'u_aoSlopeBleed'),
+      useSVF: gl.getUniformLocation(gProg, 'u_useSVF'),
+      svfStrength: gl.getUniformLocation(gProg, 'u_svfStrength'),
+      elevMin: gl.getUniformLocation(gProg, 'u_elevMin'),
+      elevSpan: gl.getUniformLocation(gProg, 'u_elevSpan')
     };
   }
 
@@ -1928,16 +2064,14 @@
       gl.canvas.width = S;
       gl.canvas.height = S;
     }
-    gl.viewport(0, 0, S, S);
-    gl.useProgram(sharedProgram);
 
-    // Подключаем нативный VAO (0 накладных расходов на установку атрибутов вершин)
-    gl.bindVertexArray(sharedVao);
+    const mppBase = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
+    const currentMpp = mppBase / (S / 256.0);
+    const effZ = getEffectiveZFactor();
+    const vStats = getViewportElevationStats(zoom);
 
+    // 1. Управление текстурой исходного DEM
     let tileTex = targetCanvas ? targetCanvas._demTex : null;
-    
-    // WebGL 2: используем texStorage2D для аллокации неизменяемой текстуры один раз,
-    // а затем обновляем пиксели через texSubImage2D.
     if (!tileTex || targetCanvas._demTexWidth !== P || targetCanvas._demTexHeight !== P) {
       if (tileTex) gl.deleteTexture(tileTex);
       tileTex = gl.createTexture();
@@ -1946,8 +2080,6 @@
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-      
-      // Иммутабельное хранилище RGBA8:
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, P, P);
 
       if (targetCanvas) {
@@ -1955,116 +2087,183 @@
         targetCanvas._demTexWidth = P;
         targetCanvas._demTexHeight = P;
       }
-    } else {
-      gl.bindTexture(gl.TEXTURE_2D, tileTex);
     }
 
-    // Если картинка изменилась, выполняем быструю перезапись через texSubImage2D
     if (!targetCanvas || targetCanvas._cachedDemImg !== img) {
+      gl.bindTexture(gl.TEXTURE_2D, tileTex);
       gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, P, P, gl.RGBA, gl.UNSIGNED_BYTE, img);
-      if (targetCanvas) {
-        targetCanvas._cachedDemImg = img;
+      if (targetCanvas) targetCanvas._cachedDemImg = img;
+    }
+
+    // 2. Управление текстурами G-Buffer (_gBuf0 и _gBuf1)
+    if (targetCanvas && (!targetCanvas._gBuf || targetCanvas._gBufWidth !== S)) {
+       if (targetCanvas._gBuf) {
+         gl.deleteTexture(targetCanvas._gBuf);
+       }
+       const t = gl.createTexture();
+       gl.bindTexture(gl.TEXTURE_2D, t);
+       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+       // Стандартный RGBA8 без расширений и без Float16
+       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, S, S);
+
+       targetCanvas._gBuf = t;
+       targetCanvas._gBufWidth = S;
+       targetCanvas._geomVersion = -1;
+     }
+
+    // 3. ПРОХОД 1: ЗАПЕКАНИЕ ГЕОМЕТРИИ (выполняется 1 раз при загрузке или смене рельефа)
+    const needGeomPass = !targetCanvas || targetCanvas._geomVersion !== globalGeomVersion || targetCanvas._cachedZ !== effZ;
+    if (needGeomPass && targetCanvas && targetCanvas._gBuf) {
+       gl.bindFramebuffer(gl.FRAMEBUFFER, sharedFbo);
+       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, targetCanvas._gBuf, 0);
+       // Больше НИКАКИХ gl.drawBuffers - стандартный COLOR_ATTACHMENT0
+       gl.viewport(0, 0, S, S);
+
+      gl.useProgram(sharedGeomProg);
+      gl.bindVertexArray(sharedVao);
+
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, tileTex);
+      gl.uniform1i(geomLocations.dem, 0);
+
+      gl.uniform2i(geomLocations.iRes, P, P);
+      gl.uniform1f(geomLocations.pad, B);
+      gl.uniform2f(geomLocations.uvOrigin, B / P, B / P);
+      gl.uniform2f(geomLocations.uvScale, S / P, S / P);
+      gl.uniform1f(geomLocations.zFactor, effZ);
+
+      const smoothModesMap = { none: 0, gauss: 1, bilateral: 2 };
+      gl.uniform1i(geomLocations.smooth, smoothModesMap[cfg.smoothMode] !== undefined ? smoothModesMap[cfg.smoothMode] : 2);
+      gl.uniform1f(geomLocations.mpp, currentMpp);
+
+      gl.uniform1f(geomLocations.useAO, cfg.ambientOcclusion ? 1.0 : 0.0);
+      gl.uniform1f(geomLocations.aoStrength, cfg.aoStrength || 1.0);
+      gl.uniform1f(geomLocations.aoRadius, cfg.aoRadius !== undefined ? cfg.aoRadius : 1.0);
+      gl.uniform1f(geomLocations.aoSlopeBleed, cfg.aoSlopeBleed !== undefined ? cfg.aoSlopeBleed : 0.65);
+
+      gl.uniform1f(geomLocations.useSVF, cfg.svfEnabled !== false ? 1.0 : 0.0);
+      gl.uniform1f(geomLocations.svfStrength, cfg.svfStrength !== undefined ? cfg.svfStrength : 0.85);
+
+      gl.uniform1f(geomLocations.elevMin, vStats.minH);
+      gl.uniform1f(geomLocations.elevSpan, Math.max(10.0, vStats.span));
+
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      targetCanvas._geomVersion = globalGeomVersion;
+      targetCanvas._cachedZ = effZ;
+    }
+
+    // 4. ПРОХОД 2: МГНОВЕННОЕ ОСВЕЩЕНИЕ (60+ FPS при кручении времени)
+    gl.viewport(0, 0, S, S);
+
+    // Получаем программу с нужной конфигурацией модулей (из кэша)
+    const activeProgramEntry = getOrCreateLightProgram(gl, {
+      mdow: !!cfg.mdowEnabled,
+      hachure: !!cfg.hachureEnabled,
+      hachureType: cfg.hachureType,
+      dither: !!cfg.ditherEnabled,
+      ditherType: cfg.ditherType
+    });
+
+    const activeProg = activeProgramEntry.prog;
+    const lightLocations = activeProgramEntry.locs;
+
+    gl.useProgram(activeProg);
+    gl.bindVertexArray(sharedVao);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tileTex);
+    if (lightLocations.dem) gl.uniform1i(lightLocations.dem, 0);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, targetCanvas ? targetCanvas._gBuf : tileTex);
+    if (lightLocations.gbuf) gl.uniform1i(lightLocations.gbuf, 1);
+
+    if (lightLocations.iRes) gl.uniform2i(lightLocations.iRes, P, P);
+    if (lightLocations.pad) gl.uniform1f(lightLocations.pad, B);
+    if (lightLocations.uvOrigin) gl.uniform2f(lightLocations.uvOrigin, B / P, B / P);
+    if (lightLocations.uvScale) gl.uniform2f(lightLocations.uvScale, S / P, S / P);
+
+    if (lightLocations.sunDir) gl.uniform3f(lightLocations.sunDir, lighting.sunVec[0], lighting.sunVec[1], lighting.sunVec[2]);
+    if (lightLocations.lightColor) gl.uniform3f(lightLocations.lightColor, lighting.lightColor[0], lighting.lightColor[1], lighting.lightColor[2]);
+    if (lightLocations.shadowColor) gl.uniform3f(lightLocations.shadowColor, lighting.shadowColor[0], lighting.shadowColor[1], lighting.shadowColor[2]);
+    if (lightLocations.skyColor) gl.uniform3f(lightLocations.skyColor, lighting.skyColor[0], lighting.skyColor[1], lighting.skyColor[2]);
+    if (lightLocations.alpenglowWeight) gl.uniform1f(lightLocations.alpenglowWeight, lighting.alpenglowWeight !== undefined ? lighting.alpenglowWeight : 0.0);
+    if (lightLocations.sunIntensity) gl.uniform1f(lightLocations.sunIntensity, lighting.sunIntensity !== undefined ? lighting.sunIntensity : 1.0);
+    if (lightLocations.zFactor) gl.uniform1f(lightLocations.zFactor, effZ);
+    if (lightLocations.mode) gl.uniform1i(lightLocations.mode, lighting.isSwiss ? 1 : 0);
+    if (lightLocations.hypso) gl.uniform1i(lightLocations.hypso, { none: 0, atlas: 1 }[cfg.hypsoMode] || 0);
+
+    if (lightLocations.useSVF) gl.uniform1f(lightLocations.useSVF, cfg.svfEnabled !== false ? 1.0 : 0.0);
+    if (lightLocations.svfStrength) gl.uniform1f(lightLocations.svfStrength, cfg.svfStrength !== undefined ? cfg.svfStrength : 0.85);
+
+    if (lightLocations.useCastShadow) gl.uniform1f(lightLocations.useCastShadow, cfg.castShadows ? 1.0 : 0.0);
+    if (lightLocations.shadowReach) gl.uniform1f(lightLocations.shadowReach, cfg.shadowReach || 1.0);
+    if (lightLocations.shadowOpacity) gl.uniform1f(lightLocations.shadowOpacity, cfg.shadowOpacity !== undefined ? cfg.shadowOpacity : 0.60);
+
+    // Параметры штриховки (передаются только если модуль скомпилирован)
+    if (cfg.hachureEnabled) {
+      if (lightLocations.hachureDensity) gl.uniform1f(lightLocations.hachureDensity, cfg.hachureDensity || 1.0);
+      if (lightLocations.hachureOpacity) gl.uniform1f(lightLocations.hachureOpacity, cfg.hachureOpacity !== undefined ? cfg.hachureOpacity : 0.75);
+      if (lightLocations.hachureSlope) gl.uniform1f(lightLocations.hachureSlope, cfg.hachureSlope !== undefined ? cfg.hachureSlope : 0.08);
+      if (lightLocations.hachureLightMod) gl.uniform1f(lightLocations.hachureLightMod, cfg.hachureLightMod !== undefined ? cfg.hachureLightMod : 0.60);
+      if (lightLocations.hachureColor) {
+        const hachCol = hexToVec3(cfg.hachureColor || '#1c1917');
+        gl.uniform3f(lightLocations.hachureColor, hachCol[0], hachCol[1], hachCol[2]);
       }
     }
 
-    const originX = coords ? coords.x * 256.0 : 0.0;
-    const originY = coords ? coords.y * 256.0 : 0.0;
-    gl.uniform2f(glLocations.tileOrigin, originX, originY);
-    gl.uniform1f(glLocations.pad, B);
+    if (lightLocations.imhofDeflection) gl.uniform1f(lightLocations.imhofDeflection, cfg.imhofDeflection !== undefined ? cfg.imhofDeflection : 0.35);
+    if (lightLocations.imhofWarmCool) gl.uniform1f(lightLocations.imhofWarmCool, lighting.warmCool !== undefined ? lighting.warmCool : 0.85);
+    if (lightLocations.lightWrap) gl.uniform1f(lightLocations.lightWrap, cfg.lightWrap !== undefined ? cfg.lightWrap : 0.35);
+    if (lightLocations.paperGrain) gl.uniform1f(lightLocations.paperGrain, cfg.paperGrain !== undefined ? cfg.paperGrain : 0.4);
+    if (lightLocations.mpp) gl.uniform1f(lightLocations.mpp, currentMpp);
+    if (lightLocations.orenNayarRoughness) gl.uniform1f(lightLocations.orenNayarRoughness, cfg.orenNayarRoughness !== undefined ? cfg.orenNayarRoughness : 0.5);
+    if (lightLocations.inkBleed) gl.uniform1f(lightLocations.inkBleed, cfg.inkBleed !== false ? 1.0 : 0.0);
+    if (lightLocations.waterlining) gl.uniform1f(lightLocations.waterlining, cfg.waterlining !== false ? 1.0 : 0.0);
 
-    gl.uniform2f(glLocations.uvOrigin, B / P, B / P);
-    gl.uniform2f(glLocations.uvScale, S / P, S / P);
-    gl.uniform2i(glLocations.iRes, P, P); // Целочисленный размер для texelFetch
-    gl.uniform1f(glLocations.zFactor, getEffectiveZFactor());
-    gl.uniform1i(glLocations.mode, lighting.isSwiss ? 1 : 0);
-    gl.uniform1f(glLocations.aoRadius, cfg.aoRadius !== undefined ? cfg.aoRadius : 1.0);
-    gl.uniform1f(glLocations.aoStrength, cfg.aoStrength || 1.0);
-    gl.uniform1f(glLocations.aoSlopeBleed, cfg.aoSlopeBleed !== undefined ? cfg.aoSlopeBleed : 0.65);
-    gl.uniform1f(glLocations.paperGrain, cfg.paperGrain !== undefined ? cfg.paperGrain : 0.4);
+    // Параметры дизеринга (передаются только если модуль скомпилирован)
+    if (cfg.ditherEnabled) {
+      const ditherBlendMap = { normal: 0, multiply: 1, overlay: 2, softlight: 3, screen: 4, burn: 5, difference: 6 };
+      if (lightLocations.ditherBlend) gl.uniform1i(lightLocations.ditherBlend, ditherBlendMap[cfg.ditherBlendMode] !== undefined ? ditherBlendMap[cfg.ditherBlendMode] : 1);
+      if (lightLocations.ditherScale) gl.uniform1f(lightLocations.ditherScale, cfg.ditherScale || 1.0);
+      if (lightLocations.ditherAngle) gl.uniform1f(lightLocations.ditherAngle, cfg.ditherAngle !== undefined ? cfg.ditherAngle : 45.0);
+      if (lightLocations.ditherDensity) gl.uniform1f(lightLocations.ditherDensity, cfg.ditherDensity !== undefined ? cfg.ditherDensity : 1.0);
+      if (lightLocations.ditherThreshold) gl.uniform1f(lightLocations.ditherThreshold, cfg.ditherThreshold !== undefined ? cfg.ditherThreshold : 0.60);
+      if (lightLocations.ditherLowCut) gl.uniform1f(lightLocations.ditherLowCut, cfg.ditherLowCut !== undefined ? cfg.ditherLowCut : 0.00);
+      if (lightLocations.ditherSoftness) gl.uniform1f(lightLocations.ditherSoftness, cfg.ditherSoftness !== undefined ? cfg.ditherSoftness : 0.20);
+      if (lightLocations.ditherColor) {
+        const dithCol = hexToVec3(cfg.ditherColor || '#1a1614');
+        gl.uniform3f(lightLocations.ditherColor, dithCol[0], dithCol[1], dithCol[2]);
+      }
+      const ditherZoneMap = { shadows: 0, highlights: 1, all: 2 };
+      if (lightLocations.ditherZone) gl.uniform1i(lightLocations.ditherZone, ditherZoneMap[cfg.ditherZone] !== undefined ? ditherZoneMap[cfg.ditherZone] : 0);
+      if (lightLocations.ditherStrength) gl.uniform1f(lightLocations.ditherStrength, cfg.ditherStrength !== undefined ? cfg.ditherStrength : 0.85);
+    }
 
-    gl.uniform1f(glLocations.useSVF, cfg.svfEnabled !== false ? 1.0 : 0.0);
-    gl.uniform1f(glLocations.svfStrength, cfg.svfStrength !== undefined ? cfg.svfStrength : 0.85);
+    if (lightLocations.lightBoost) gl.uniform1f(lightLocations.lightBoost, cfg.lightBoost !== undefined ? cfg.lightBoost : 1.0);
+    if (lightLocations.isManualMode) gl.uniform1i(lightLocations.isManualMode, (cfg.sunMode === 'manual') ? 1 : 0);
+    if (lightLocations.debugValley) gl.uniform1i(lightLocations.debugValley, cfg.debugValley ? 1 : 0);
 
-    gl.uniform1f(glLocations.useCastShadow, cfg.castShadows ? 1.0 : 0.0);
-    gl.uniform1f(glLocations.shadowReach, cfg.shadowReach || 1.0);
-    gl.uniform1f(glLocations.shadowOpacity, cfg.shadowOpacity !== undefined ? cfg.shadowOpacity : 0.60);
+    if (lightLocations.manualColorPeak) {
+      const colPeak = hexToVec3(cfg.manualPeakColor || '#fff8e7');
+      gl.uniform3f(lightLocations.manualColorPeak, colPeak[0], colPeak[1], colPeak[2]);
+    }
+    if (lightLocations.manualColorValley) {
+      const colValley = hexToVec3(cfg.manualValleyColor || '#ffd8a8');
+      gl.uniform3f(lightLocations.manualColorValley, colValley[0], colValley[1], colValley[2]);
+    }
+    if (lightLocations.manualLightBlend) gl.uniform1f(lightLocations.manualLightBlend, cfg.manualLightBlend !== undefined ? cfg.manualLightBlend : 0.5);
 
-    gl.uniform1f(glLocations.orenNayarRoughness, cfg.orenNayarRoughness !== undefined ? cfg.orenNayarRoughness : 0.5);
-    gl.uniform1f(glLocations.inkBleed, cfg.inkBleed !== false ? 1.0 : 0.0);
-    gl.uniform1f(glLocations.waterlining, cfg.waterlining !== false ? 1.0 : 0.0);
+    if (lightLocations.elevMin) gl.uniform1f(lightLocations.elevMin, vStats.minH);
+    if (lightLocations.elevSpan) gl.uniform1f(lightLocations.elevSpan, Math.max(10.0, vStats.span));
 
-    gl.uniform3f(glLocations.skyColor, lighting.skyColor[0], lighting.skyColor[1], lighting.skyColor[2]);
-    gl.uniform1f(glLocations.alpenglowWeight, lighting.alpenglowWeight !== undefined ? lighting.alpenglowWeight : 0.0);
-    gl.uniform1f(glLocations.sunIntensity, lighting.sunIntensity !== undefined ? lighting.sunIntensity : 1.0);
-
-    const hachureTypeMap = { classic: 0, lehmann: 1, rock: 2, flow: 3 };
-    gl.uniform1i(glLocations.hachureType, hachureTypeMap[cfg.hachureType] !== undefined ? hachureTypeMap[cfg.hachureType] : 3);
-    gl.uniform1f(glLocations.useHachure, cfg.hachureEnabled ? 1.0 : 0.0);
-    gl.uniform1f(glLocations.hachureDensity, cfg.hachureDensity || 1.0);
-    gl.uniform1f(glLocations.hachureOpacity, cfg.hachureOpacity !== undefined ? cfg.hachureOpacity : 0.75);
-    gl.uniform1f(glLocations.hachureSlope, cfg.hachureSlope !== undefined ? cfg.hachureSlope : 0.08);
-    gl.uniform1f(glLocations.hachureLightMod, cfg.hachureLightMod !== undefined ? cfg.hachureLightMod : 0.60);
-    
-    const hachCol = hexToVec3(cfg.hachureColor || '#1c1917');
-    gl.uniform3f(glLocations.hachureColor, hachCol[0], hachCol[1], hachCol[2]);
-    gl.uniform1f(glLocations.imhofDeflection, cfg.imhofDeflection !== undefined ? cfg.imhofDeflection : 0.35);
-    gl.uniform1f(glLocations.useMDOW, cfg.mdowEnabled ? 1.0 : 0.0);
-    gl.uniform1f(glLocations.imhofWarmCool, lighting.warmCool !== undefined ? lighting.warmCool : 0.85);
-    gl.uniform1f(glLocations.lightWrap, cfg.lightWrap !== undefined ? cfg.lightWrap : 0.35);
-
-    gl.uniform1f(glLocations.lightBoost, cfg.lightBoost !== undefined ? cfg.lightBoost : 1.0);
-    const isManual = (cfg.sunMode === 'manual');
-    gl.uniform1i(glLocations.isManualMode, isManual ? 1 : 0);
-    gl.uniform1i(glLocations.debugValley, cfg.debugValley ? 1 : 0);
-
-    const colPeak = hexToVec3(cfg.manualPeakColor || '#fff8e7');
-    gl.uniform3f(glLocations.manualColorPeak, colPeak[0], colPeak[1], colPeak[2]);
-
-    const colValley = hexToVec3(cfg.manualValleyColor || '#ffd8a8');
-    gl.uniform3f(glLocations.manualColorValley, colValley[0], colValley[1], colValley[2]);
-    gl.uniform1f(glLocations.manualLightBlend, cfg.manualLightBlend !== undefined ? cfg.manualLightBlend : 0.5);
-
-    const vStats = getViewportElevationStats(zoom);
-    gl.uniform1f(glLocations.elevMin, vStats.minH);
-    gl.uniform1f(glLocations.elevSpan, Math.max(10.0, vStats.span));
-
-    const smoothModesMap = { none: 0, gauss: 1, bilateral: 2, adaptive: 3 };
-    gl.uniform1i(glLocations.smooth, smoothModesMap[cfg.smoothMode] !== undefined ? smoothModesMap[cfg.smoothMode] : 2);
-    gl.uniform1i(glLocations.hypso, { none: 0, atlas: 1 }[cfg.hypsoMode] || 0);
-    gl.uniform1f(glLocations.useAO, cfg.ambientOcclusion ? 1.0 : 0.0);
-
-    const mppBase = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
-    gl.uniform1f(glLocations.mpp, mppBase / (S / 256.0));
-
-    gl.uniform3f(glLocations.sunDir, lighting.sunVec[0], lighting.sunVec[1], lighting.sunVec[2]);
-    gl.uniform3f(glLocations.lightColor, lighting.lightColor[0], lighting.lightColor[1], lighting.lightColor[2]);
-    gl.uniform3f(glLocations.shadowColor, lighting.shadowColor[0], lighting.shadowColor[1], lighting.shadowColor[2]);
-
-    gl.uniform1f(glLocations.ditherEnabled, cfg.ditherEnabled ? 1.0 : 0.0);
-    const ditherTypeMap = {
-      blue: 0, hatch: 1, dots: 2, bayer: 3, woodcut: 4, cross: 5,
-      stipple: 6, wavy: 7, hex: 8, chevron: 9, litho: 10
-    };
-    gl.uniform1i(glLocations.ditherType, ditherTypeMap[cfg.ditherType] !== undefined ? ditherTypeMap[cfg.ditherType] : 0);
-
-    const ditherBlendMap = { normal: 0, multiply: 1, overlay: 2, softlight: 3, screen: 4, burn: 5, difference: 6 };
-    gl.uniform1i(glLocations.ditherBlend, ditherBlendMap[cfg.ditherBlendMode] !== undefined ? ditherBlendMap[cfg.ditherBlendMode] : 1);
-    gl.uniform1f(glLocations.ditherScale, cfg.ditherScale || 1.0);
-    gl.uniform1f(glLocations.ditherAngle, cfg.ditherAngle !== undefined ? cfg.ditherAngle : 45.0);
-    gl.uniform1f(glLocations.ditherDensity, cfg.ditherDensity !== undefined ? cfg.ditherDensity : 1.0);
-    gl.uniform1f(glLocations.ditherThreshold, cfg.ditherThreshold !== undefined ? cfg.ditherThreshold : 0.60);
-    gl.uniform1f(glLocations.ditherLowCut, cfg.ditherLowCut !== undefined ? cfg.ditherLowCut : 0.00);
-    gl.uniform1f(glLocations.ditherSoftness, cfg.ditherSoftness !== undefined ? cfg.ditherSoftness : 0.20);
-    
-    const dithCol = hexToVec3(cfg.ditherColor || '#1a1614');
-    gl.uniform3f(glLocations.ditherColor, dithCol[0], dithCol[1], dithCol[2]);
-    const ditherZoneMap = { shadows: 0, highlights: 1, all: 2 };
-    gl.uniform1i(glLocations.ditherZone, ditherZoneMap[cfg.ditherZone] !== undefined ? ditherZoneMap[cfg.ditherZone] : 0);
-    gl.uniform1f(glLocations.ditherStrength, cfg.ditherStrength !== undefined ? cfg.ditherStrength : 0.85);
-
-    // Рисуем квад
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.bindVertexArray(null);
 
@@ -2399,6 +2598,16 @@
       tile._demLat = centerLatLng.lat;
       tile._demLng = centerLatLng.lng;
 
+      tile._cleanup = () => {
+        if (sharedGl) {
+           if (tile._demTex) sharedGl.deleteTexture(tile._demTex);
+           if (tile._gBuf) sharedGl.deleteTexture(tile._gBuf);
+           tile._demTex = null;
+           tile._gBuf = null;
+           tile._cachedDemImg = null;
+         }
+       };
+
       loadPaddedDemTile(coords)
         .then(img => {
           if (!tile.parentNode && this._tiles && !this._tiles[this._tileCoordsToKey(coords)]) {
@@ -2420,6 +2629,12 @@
         });
 
       return tile;
+    },
+
+    _removeTile(key) {
+      const tile = this._tiles[key]?.el;
+      if (tile && tile._cleanup) tile._cleanup();
+      L.GridLayer.prototype._removeTile.call(this, key);
     }
   });
 
@@ -3121,15 +3336,20 @@
         if (sharedGl && hillshadeLayerInstance && hillshadeLayerInstance._tiles) {
           for (const k in hillshadeLayerInstance._tiles) {
             const el = hillshadeLayerInstance._tiles[k]?.el;
-            if (el && el._demTex) {
-              sharedGl.deleteTexture(el._demTex);
+            if (el) {
+              if (el._demTex) sharedGl.deleteTexture(el._demTex);
+              if (el._gBuf) sharedGl.deleteTexture(el._gBuf);
               el._demTex = null;
+              el._gBuf = null;
               el._demTexWidth = 0;
               el._demTexHeight = 0;
+              el._gBufWidth = 0;
               el._cachedDemImg = null;
+              el._geomVersion = -1;
             }
           }
         }
+        globalGeomVersion++;
 
         if (hillshadeLayerInstance && cfg.hillshadeEnabled) {
           hillshadeLayerInstance.redraw();
@@ -3393,24 +3613,21 @@
     document.getElementById('dem-hud-ao-strength-slider')?.addEventListener('input', (e) => {
       const val = parseInt(e.target.value, 10);
       document.getElementById('dem-hud-ao-strength-val').textContent = val + '%';
-      cfg.aoStrength = val / 100;
-      saveConfig();
+      WM.demRelief.setConfig({ aoStrength: val / 100 });
       scheduleLiveHillshade();
     });
 
     document.getElementById('dem-hud-ao-bleed-slider')?.addEventListener('input', (e) => {
       const val = parseInt(e.target.value, 10);
       document.getElementById('dem-hud-ao-bleed-val').textContent = val + '%';
-      cfg.aoSlopeBleed = val / 100;
-      saveConfig();
+      WM.demRelief.setConfig({ aoSlopeBleed: val / 100 });
       scheduleLiveHillshade();
     });
 
     document.getElementById('dem-hud-ao-radius-slider')?.addEventListener('input', (e) => {
       const val = parseInt(e.target.value, 10);
       document.getElementById('dem-hud-ao-radius-val').textContent = val + '%';
-      cfg.aoRadius = val / 100;
-      saveConfig();
+      WM.demRelief.setConfig({ aoRadius: val / 100 });
       scheduleLiveHillshade();
     });
 
@@ -3424,11 +3641,9 @@
     document.getElementById('dem-hud-svf-slider')?.addEventListener('input', (e) => {
       const val = parseInt(e.target.value, 10);
       document.getElementById('dem-hud-svf-val').textContent = val + '%';
-      cfg.svfStrength = val / 100;
-      saveConfig();
+      WM.demRelief.setConfig({ svfStrength: val / 100 });
       scheduleLiveHillshade();
     });
-
     document.getElementById('dem-hud-toggle-hachure')?.addEventListener('change', (e) => {
       WM.demRelief.setConfig({ hachureEnabled: e.target.checked });
       const sub = document.getElementById('dem-hud-hachure-sub');
@@ -3740,6 +3955,22 @@
         newCfg.demSource !== undefined && newCfg.demSource !== oldCfg.demSource
       );
 
+      const needGeomInvalidate = (
+        newCfg.smoothMode !== undefined && newCfg.smoothMode !== oldCfg.smoothMode ||
+        newCfg.zFactor !== undefined && newCfg.zFactor !== oldCfg.zFactor ||
+        newCfg.zFactorAuto !== undefined && newCfg.zFactorAuto !== oldCfg.zFactorAuto ||
+        newCfg.ambientOcclusion !== undefined && newCfg.ambientOcclusion !== oldCfg.ambientOcclusion ||
+        newCfg.aoStrength !== undefined && newCfg.aoStrength !== oldCfg.aoStrength ||
+        newCfg.aoRadius !== undefined && newCfg.aoRadius !== oldCfg.aoRadius ||
+        newCfg.aoSlopeBleed !== undefined && newCfg.aoSlopeBleed !== oldCfg.aoSlopeBleed ||
+        newCfg.svfEnabled !== undefined && newCfg.svfEnabled !== oldCfg.svfEnabled ||
+        newCfg.svfStrength !== undefined && newCfg.svfStrength !== oldCfg.svfStrength
+      );
+
+      if (needGeomInvalidate) {
+        globalGeomVersion++;
+      }
+
       if (needTilesReload) {
         demTileMemoryCache.clear();
         demInFlightPromises.clear();
@@ -3755,7 +3986,16 @@
         }
       }
 
-      const needLightUpdate = (
+      const needShaderRecompile = (
+        newCfg.mdowEnabled !== undefined && newCfg.mdowEnabled !== oldCfg.mdowEnabled ||
+        newCfg.hachureEnabled !== undefined && newCfg.hachureEnabled !== oldCfg.hachureEnabled ||
+        (cfg.hachureEnabled && newCfg.hachureType !== undefined && newCfg.hachureType !== oldCfg.hachureType) ||
+        newCfg.ditherEnabled !== undefined && newCfg.ditherEnabled !== oldCfg.ditherEnabled ||
+        (cfg.ditherEnabled && newCfg.ditherType !== undefined && newCfg.ditherType !== oldCfg.ditherType)
+      );
+
+      // Обычное обновление uniform-переменных на лету (слайдеры, солнце, цвет) БЕЗ перекомпиляции
+      const needLightUpdate = needGeomInvalidate || needShaderRecompile || (
         newCfg.manualTimeHour !== undefined && newCfg.manualTimeHour !== oldCfg.manualTimeHour ||
         newCfg.manualDateStr !== undefined && newCfg.manualDateStr !== oldCfg.manualDateStr ||
         newCfg.sunMode !== undefined && newCfg.sunMode !== oldCfg.sunMode ||
@@ -3770,39 +4010,32 @@
         newCfg.manualShadowColor !== undefined && newCfg.manualShadowColor !== oldCfg.manualShadowColor ||
         newCfg.manualLightBlend !== undefined && newCfg.manualLightBlend !== oldCfg.manualLightBlend ||
         newCfg.ambientOcclusion !== undefined && newCfg.ambientOcclusion !== oldCfg.ambientOcclusion ||
-        newCfg.ditherAngle !== undefined && newCfg.ditherAngle !== oldCfg.ditherAngle ||
-        newCfg.ditherDensity !== undefined && newCfg.ditherDensity !== oldCfg.ditherDensity ||
-        newCfg.ditherLowCut !== undefined && newCfg.ditherLowCut !== oldCfg.ditherLowCut ||
-        newCfg.ditherBlendMode !== undefined && newCfg.ditherBlendMode !== oldCfg.ditherBlendMode ||
         newCfg.aoStrength !== undefined && newCfg.aoStrength !== oldCfg.aoStrength ||
         newCfg.aoRadius !== undefined && newCfg.aoRadius !== oldCfg.aoRadius ||
         newCfg.aoSlopeBleed !== undefined && newCfg.aoSlopeBleed !== oldCfg.aoSlopeBleed ||
         newCfg.svfEnabled !== undefined && newCfg.svfEnabled !== oldCfg.svfEnabled ||
         newCfg.svfStrength !== undefined && newCfg.svfStrength !== oldCfg.svfStrength ||
-        newCfg.castShadows !== undefined && newCfg.castShadows !== oldCfg.castShadows ||
-        newCfg.shadowReach !== undefined && newCfg.shadowReach !== oldCfg.shadowReach ||
-        newCfg.shadowOpacity !== undefined && newCfg.shadowOpacity !== oldCfg.shadowOpacity ||
-        newCfg.hachureEnabled !== undefined && newCfg.hachureEnabled !== oldCfg.hachureEnabled ||
-        newCfg.hachureType !== undefined && newCfg.hachureType !== oldCfg.hachureType ||
-        newCfg.hachureDensity !== undefined && newCfg.hachureDensity !== oldCfg.hachureDensity ||
-        newCfg.hachureOpacity !== undefined && newCfg.hachureOpacity !== oldCfg.hachureOpacity ||
-        newCfg.hachureSlope !== undefined && newCfg.hachureSlope !== oldCfg.hachureSlope ||
-        newCfg.hachureColor !== undefined && newCfg.hachureColor !== oldCfg.hachureColor ||
-        newCfg.hachureLightMod !== undefined && newCfg.hachureLightMod !== oldCfg.hachureLightMod ||
-        newCfg.imhofDeflection !== undefined && newCfg.imhofDeflection !== oldCfg.imhofDeflection ||
-        newCfg.mdowEnabled !== undefined && newCfg.mdowEnabled !== oldCfg.mdowEnabled ||
-        newCfg.paperGrain !== undefined && newCfg.paperGrain !== oldCfg.paperGrain ||
-        newCfg.smoothMode !== undefined && newCfg.smoothMode !== oldCfg.smoothMode ||
-        newCfg.ditherEnabled !== undefined && newCfg.ditherEnabled !== oldCfg.ditherEnabled ||
-        newCfg.ditherType !== undefined && newCfg.ditherType !== oldCfg.ditherType ||
+        newCfg.ditherAngle !== undefined && newCfg.ditherAngle !== oldCfg.ditherAngle ||
+        newCfg.ditherDensity !== undefined && newCfg.ditherDensity !== oldCfg.ditherDensity ||
+        newCfg.ditherLowCut !== undefined && newCfg.ditherLowCut !== oldCfg.ditherLowCut ||
+        newCfg.ditherBlendMode !== undefined && newCfg.ditherBlendMode !== oldCfg.ditherBlendMode ||
         newCfg.ditherScale !== undefined && newCfg.ditherScale !== oldCfg.ditherScale ||
         newCfg.ditherThreshold !== undefined && newCfg.ditherThreshold !== oldCfg.ditherThreshold ||
         newCfg.ditherSoftness !== undefined && newCfg.ditherSoftness !== oldCfg.ditherSoftness ||
         newCfg.ditherColor !== undefined && newCfg.ditherColor !== oldCfg.ditherColor ||
         newCfg.ditherZone !== undefined && newCfg.ditherZone !== oldCfg.ditherZone ||
         newCfg.ditherStrength !== undefined && newCfg.ditherStrength !== oldCfg.ditherStrength ||
+        newCfg.hachureDensity !== undefined && newCfg.hachureDensity !== oldCfg.hachureDensity ||
+        newCfg.hachureOpacity !== undefined && newCfg.hachureOpacity !== oldCfg.hachureOpacity ||
+        newCfg.hachureSlope !== undefined && newCfg.hachureSlope !== oldCfg.hachureSlope ||
+        newCfg.hachureColor !== undefined && newCfg.hachureColor !== oldCfg.hachureColor ||
+        newCfg.hachureLightMod !== undefined && newCfg.hachureLightMod !== oldCfg.hachureLightMod ||
+        newCfg.castShadows !== undefined && newCfg.castShadows !== oldCfg.castShadows ||
+        newCfg.shadowReach !== undefined && newCfg.shadowReach !== oldCfg.shadowReach ||
+        newCfg.shadowOpacity !== undefined && newCfg.shadowOpacity !== oldCfg.shadowOpacity ||
+        newCfg.imhofDeflection !== undefined && newCfg.imhofDeflection !== oldCfg.imhofDeflection ||
+        newCfg.paperGrain !== undefined && newCfg.paperGrain !== oldCfg.paperGrain ||
         newCfg.hypsoMode !== undefined && newCfg.hypsoMode !== oldCfg.hypsoMode ||
-        // Новые проверки для мгновенного обновления шейдера:
         newCfg.orenNayarRoughness !== undefined && newCfg.orenNayarRoughness !== oldCfg.orenNayarRoughness ||
         newCfg.inkBleed !== undefined && newCfg.inkBleed !== oldCfg.inkBleed ||
         newCfg.waterlining !== undefined && newCfg.waterlining !== oldCfg.waterlining
