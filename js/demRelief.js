@@ -1275,15 +1275,11 @@
       // --- УПАКОВКА В 1 ТЕКСТУРУ RGBA8 ---
       // R, G: нормали XY [-1..1] -> [0..1]
       vec2 encNorm = norm.xy * 0.5 + 0.5;
-
-      // B: Затенение (0.0..0.75) + Гребни (0.75..1.0)
       float ambVal = clamp(aoVal * min(1.0, svf), 0.0, 1.0);
       float packedB = clamp(ambVal * 0.75 + crestGlint * 0.625, 0.0, 1.0);
 
-      // A: Относительная высота [0..1]
-      float hNorm = clamp((centerH - u_elevMin) / max(1.0, u_elevSpan), 0.0, 1.0);
-
-      fragColor = vec4(encNorm, packedB, hNorm);
+      // Записываем нейтральную единицу (или маску валидности) в альфу:
+      fragColor = vec4(encNorm, packedB, 1.0);
     }
   `;
 
@@ -1612,12 +1608,21 @@
         return;
       }
 
+      // 1. Координата в DEM-текстуре тайла
+      ivec2 basePx = ivec2(floor(v_uv * vec2(u_iRes)));
+      float centerH = getRawHPx(basePx, -99999.0);
+      if (centerH < -1000.0) {
+        fragColor = vec4(0.0);
+        return;
+      }
+
+      // 2. Сначала рассчитываем hNorm, чтобы переменная была доступна дальше
+      float hNorm = clamp((centerH - u_elevMin) / max(1.0, u_elevSpan), 0.0, 1.0);
+
+      // 3. Восстановление нормалей и параметров из G-буфера
       vec2 nxy = g.xy * 2.0 - 1.0;
       float nz = sqrt(max(0.0001, 1.0 - dot(nxy, nxy)));
       vec3 norm = vec3(nxy, nz);
-
-      float hNorm = g.a;
-      float centerH = u_elevMin + hNorm * u_elevSpan;
 
       float packedB = g.b;
       float aoVal = clamp(packedB / 0.75, 0.0, 1.0);
@@ -1632,9 +1637,9 @@
 
       float maxSafeR = max(1.0, u_pad - 3.0);
       float maxSafeMeters = maxSafeR * u_metersPerPixel;
-      ivec2 basePx = ivec2(floor(v_uv * vec2(u_iRes)));
 
       vec3 effectiveSunDir = u_sunDir;
+
       if (u_imhofDeflection > 0.01 && slope > 0.02) {
         vec2 aspectDir = normalize(vec2(-dzdx, -dzdy));
         vec2 sunDir2D = normalize(u_sunDir.xy);
@@ -1671,7 +1676,6 @@
       float skyFill = clamp(dot(norm, vec3(0.0, 0.0, 1.0)) * 0.65 + 0.35, 0.0, 1.0);
 
       float dayLuma = clamp(dot(u_lightColor, vec3(0.299, 0.587, 0.114)), 0.05, 1.0);
-      hNorm = clamp((centerH - u_elevMin) / max(1.0, u_elevSpan), 0.0, 1.0);
 
       float blendBias = clamp(u_manualLightBlend, 0.02, 0.98);
       float gamma = (1.0 - blendBias) / blendBias;
@@ -1703,11 +1707,11 @@
       float sunFacing = smoothstep(0.10, 0.80, directLight);
       float twilightDamp = mix(1.0, 0.55, u_alpenglowWeight);
 
-      float gain = boostDiff * mix(0.04, 1.4, peakness) * mix(0.35, 1.0, sunFacing) * twilightDamp;
+      float gain = boostDiff * mix(0.20, 1.30, peakness) * mix(0.50, 1.0, sunFacing) * twilightDamp;
       gain += max(0.0, boostDiff) * crestGlint * 1.1 * twilightDamp;
-      gain -= max(0.0, boostDiff) * (1.0 - peakness) * 0.15;
 
-      warmSunCol *= max(0.0, 1.0 + gain);
+      // Гарантируем, что при boostDiff >= 0 свет никогда не становится темнее исходного:
+      warmSunCol *= (1.0 + max(-0.8, gain));
 
       float maxComponent = max(warmSunCol.r, max(warmSunCol.g, warmSunCol.b));
       if (maxComponent > 1.05) {
