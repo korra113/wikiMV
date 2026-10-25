@@ -836,12 +836,33 @@
     return WM.timeWarp.hourToDate(h, lat, lng, new Date());
   }
 
+  // Плавная интерполяция по ступеням палитры (stops отсортированы по возрастанию высоты Солнца)
+  function sampleRamp(stops, alt) {
+    const n = stops.length;
+    if (alt <= stops[0].a) return stops[0];
+    if (alt >= stops[n - 1].a) return stops[n - 1];
+    for (let i = 0; i < n - 1; i++) {
+      const s0 = stops[i], s1 = stops[i + 1];
+      if (alt <= s1.a) {
+        const lin = (alt - s0.a) / (s1.a - s0.a);
+        const t = 0.5 * lin + 0.5 * (lin * lin * (3.0 - 2.0 * lin)); // линейный + ease: без «ступенек»
+        return {
+          light: lerpVec3(s0.light, s1.light, t),
+          shadow: lerpVec3(s0.shadow, s1.shadow, t),
+          sky: lerpVec3(s0.sky, s1.sky, t),
+          k: lerp(s0.k, s1.k, t)
+        };
+      }
+    }
+    return stops[n - 1];
+  }
+
   // =========================================================================
   // РАСЧЕТ ОСВЕЩЕНИЯ
   // =========================================================================
   function getSunLighting(centerLat, centerLng) {
     const TONE_PALETTES = {
-      imhof:   { light: [1.05, 0.96, 0.84], shadow: [0.22, 0.26, 0.45], warmCool: 1.0 },
+      imhof:   { light: [1.00, 0.97, 0.92], shadow: [0.28, 0.32, 0.41], warmCool: 1.0 },
       slate:   { light: [0.96, 0.97, 0.98], shadow: [0.16, 0.20, 0.30], warmCool: 0.5 },
       day:     { light: [1.00, 0.98, 0.94], shadow: [0.30, 0.33, 0.40], warmCool: 0.3 },
       sunrise: { light: [1.02, 0.82, 0.62], shadow: [0.34, 0.22, 0.44], warmCool: 1.1 },
@@ -886,14 +907,13 @@
     if ((cfg.sunMode === 'time' || cfg.sunMode === 'suncalc') && window.SunCalc) {
       const dateForCalc = (cfg.sunMode === 'time') ? getEffectiveSunDate(centerLat, centerLng) : new Date();
 
-      // 1. Позиция Солнца
+      // 1. Астрономическое положение Солнца
       const sunPos = SunCalc.getPosition(dateForCalc, centerLat, centerLng);
       const sunAltDeg = sunPos.altitude * (180 / Math.PI);
       const sunAz = sunPos.azimuth + Math.PI;
 
-      // Ограничение визуальной высоты лучей (не падает ниже 9°, чтобы не терялся рельеф)
-      const visualSunAltDeg = Math.max(9.0, sunAltDeg);
-      const visualSunAltRad = (visualSunAltDeg * Math.PI) / 180;
+      // Визуальный угол для вектора света
+      const visualSunAltRad = (Math.max(5.0, sunAltDeg) * Math.PI) / 180;
       const cosVisualAlt = Math.cos(visualSunAltRad);
       const sunV = [
         Math.sin(sunAz) * cosVisualAlt,
@@ -901,7 +921,7 @@
         Math.sin(visualSunAltRad)
       ];
 
-      // 2. Определение половины суток (Утро vs Вечер)
+      // 2. Определение половины суток (утро / вечер)
       let isMorning = false;
       try {
         const times = SunCalc.getTimes(dateForCalc, centerLat, centerLng);
@@ -910,157 +930,125 @@
         } else {
           isMorning = (dateForCalc.getUTCHours() + centerLng / 15 + 24) % 24 < 12;
         }
-      } catch (e) {
-        isMorning = false;
-      }
+      } catch (e) { isMorning = false; }
 
-      // 3. Данные Луны
-      const moonPos = SunCalc.getMoonPosition(dateForCalc, centerLat, centerLng);
-      const moonIllum = SunCalc.getMoonIllumination(dateForCalc);
-      const moonAltDeg = moonPos.altitude * (180 / Math.PI);
-      const moonAz = moonPos.azimuth + Math.PI;
+      // 3. Выбранные вами цвета
+      const nightLight  = hexToVec3('#6b7da8'); // слабый лунно-звездный свет
+      const nightShadow = hexToVec3('#15133e'); // глубокие ночные тени
+      const nightSky    = hexToVec3('#12182b'); // ночной купол
+      const nightK      = 0.80;                 // ночная яркость
 
-      // Мягкий горизонт луны вместо жесткого ступора
-      const moonHorizonWeight = smoothstep(-5.0, 5.0, moonAltDeg);
-      const visualMoonAltRad = (Math.max(12.0, moonAltDeg) * Math.PI) / 180;
-      const cosMoonAlt = Math.cos(visualMoonAltRad);
-      const realMoonVec = [
-        Math.sin(moonAz) * cosMoonAlt,
-        -Math.cos(moonAz) * cosMoonAlt,
-        Math.sin(visualMoonAltRad)
-      ];
-      // Вектор рассеянного ночного неба при отсутствии Луны
-      const starlightVec = normalizeVec3([0.35, -0.45, 0.82]);
-      const targetNightVec = normalizeVec3(lerpVec3(starlightVec, realMoonVec, moonHorizonWeight));
+      const dawnGlow    = hexToVec3('#ff8288'); // розово-коралловые вершины на заре
+      const dawnValley  = hexToVec3('#363a78'); // холодные тени низин утром
+      const dawnLight   = hexToVec3('#ffc999'); // первые лучи солнца
 
-      // Яркость ночи:
-      // Базовый звёздный свет не падает ниже 0.22 (было 0.11), исключая черную дыру после захода Луны
-      const moonFraction = (moonIllum && typeof moonIllum.fraction === 'number') ? moonIllum.fraction : 0.5;
-      const lunarBoost = 0.38 * smoothstep(0.0, 30.0, moonAltDeg) * (0.25 + 0.75 * moonFraction);
-      const nightLightIntensity = 0.22 + lunarBoost * moonHorizonWeight;
+      const duskGlow    = hexToVec3('#eb4452'); // багровые вершины на закате
+      const duskValley  = hexToVec3('#292555'); // фиолетовые тени низин вечером
+      const duskLight   = hexToVec3('#ff7733'); // закатный луч
 
-      // Цвета ночного освещения:
-      const brightMoonLight = lerpVec3([0.62, 0.74, 0.96], [0.75, 0.90, 1.18], moonFraction);
-      const brightMoonSha   = [0.065, 0.085, 0.160];
-      const starLightCol    = [0.42, 0.52, 0.76];    // Мягкий рассеянный звёздный свет
-      const starShadowCol   = [0.055, 0.075, 0.140]; // Бархатная синева вместо глухой черноты
-
-      const moonLightCol  = lerpVec3(starLightCol, brightMoonLight, moonHorizonWeight);
-      const moonShadowCol = lerpVec3(starShadowCol, brightMoonSha, moonHorizonWeight);
-
-      // 4. Палитры дня и неба
-      const baseLight   = chosenTone.light;
-      const baseShadow  = chosenTone.shadow;
+      const dayLight    = hexToVec3('#fff8eb'); // дневной теплый свет
+      const dayShadow   = hexToVec3('#485269'); // дневные тени
       const daySky      = [0.45, 0.58, 0.75];
-      const nightSky    = [0.07, 0.10, 0.19];
 
-      // --- ПАЛИТРЫ РАССВЕТА ---
-      const dawnGoldLight   = [1.14, 0.95, 0.78];
-      const dawnGoldShadow  = [0.18, 0.22, 0.36];
-      const dawnAlpenLight  = [1.22, 0.72, 0.76];
-      const dawnAlpenShadow = [0.14, 0.16, 0.30];
-      const dawnSky         = [0.42, 0.48, 0.68];
+      // Порог отсечки темноты (-30°)
+      const cutoff = -30.0;
 
-      // --- ПАЛИТРЫ ЗАКАТА ---
-      const duskGoldLight   = [1.32, 0.78, 0.42];
-      const duskGoldShadow  = [0.24, 0.16, 0.38];
-      const duskAlpenLight  = [1.40, 0.48, 0.56];
-      const duskAlpenShadow = [0.18, 0.14, 0.34];
-      const duskSky         = [0.55, 0.33, 0.48];
+      // 4. Симметричные градиенты света (Рассвет и Закат)
+      const dawnStops = [
+        { a: cutoff - 4, light: nightLight, shadow: nightShadow, sky: nightSky, k: nightK },
+        { a: cutoff,     light: nightLight, shadow: nightShadow, sky: nightSky, k: nightK },
+        { a: cutoff + 6, light: lerpVec3(nightLight, dawnLight, 0.25), shadow: lerpVec3(nightShadow, dawnValley, 0.35), sky: [0.18, 0.20, 0.38], k: 0.45 },
+        { a: -1.0,       light: dawnLight,  shadow: dawnValley,  sky: [0.48, 0.44, 0.65], k: 0.70 },
+        { a: 3.5,        light: lerpVec3(dawnLight, dayLight, 0.5), shadow: lerpVec3(dawnValley, dayShadow, 0.5), sky: [0.46, 0.54, 0.72], k: 0.88 },
+        { a: 12.0,       light: dayLight,   shadow: dayShadow,   sky: daySky, k: 0.96 }
+      ];
 
-      const activeGoldLight   = isMorning ? dawnGoldLight   : duskGoldLight;
-      const activeGoldShadow  = isMorning ? dawnGoldShadow  : duskGoldShadow;
-      const activeAlpenLight  = isMorning ? dawnAlpenLight  : duskAlpenLight;
-      const activeAlpenShadow = isMorning ? dawnAlpenShadow : duskAlpenShadow;
-      const activeTwilightSky = isMorning ? dawnSky         : duskSky;
+      const duskStops = [
+        { a: cutoff - 4, light: nightLight, shadow: nightShadow, sky: nightSky, k: nightK },
+        { a: cutoff,     light: nightLight, shadow: nightShadow, sky: nightSky, k: nightK },
+        { a: cutoff + 6, light: lerpVec3(nightLight, duskLight, 0.25), shadow: lerpVec3(nightShadow, duskValley, 0.35), sky: [0.18, 0.16, 0.35], k: 0.45 },
+        { a: -1.0,       light: duskLight,  shadow: duskValley,  sky: [0.42, 0.34, 0.60], k: 0.70 },
+        { a: 3.5,        light: lerpVec3(duskLight, dayLight, 0.5), shadow: lerpVec3(duskValley, dayShadow, 0.5), sky: [0.46, 0.50, 0.70], k: 0.88 },
+        { a: 12.0,       light: dayLight,   shadow: dayShadow,   sky: daySky, k: 0.96 }
+      ];
 
-      let sunLightCol, sunShadowCol, skyCol;
-      let alpenWeight = 0.0;
+      const ramp = sampleRamp(isMorning ? dawnStops : duskStops, sunAltDeg);
 
-      if (sunAltDeg > 6.0) {
-        sunLightCol = baseLight;
-        sunShadowCol = baseShadow;
-        skyCol = daySky;
-      } else if (sunAltDeg > 1.5) {
-        const t = smoothstep(1.5, 6.0, sunAltDeg);
-        sunLightCol = lerpVec3(activeGoldLight, baseLight, t);
-        sunShadowCol = lerpVec3(activeGoldShadow, baseShadow, t);
-        skyCol = lerpVec3(activeTwilightSky, daySky, t);
-      } else if (sunAltDeg > -2.5) {
-        const t = smoothstep(-2.5, 1.5, sunAltDeg);
-        sunLightCol = lerpVec3(activeAlpenLight, activeGoldLight, t);
-        sunShadowCol = lerpVec3(activeAlpenShadow, activeGoldShadow, t);
-        skyCol = activeTwilightSky;
-        const maxAlpen = isMorning ? 0.80 : 1.0;
-        alpenWeight = Math.sin(t * Math.PI) * maxAlpen;
-      } else if (sunAltDeg > -9.0) {
-        // Утренняя заря/синий час (пробуждается плавно уже с -9.0°)
-        const t = smoothstep(-9.0, -2.5, sunAltDeg);
-        const blueHourLight = isMorning ? [0.36, 0.46, 0.70] : [0.32, 0.36, 0.64];
-        const blueHourSha   = isMorning ? [0.08, 0.10, 0.20] : [0.07, 0.07, 0.18];
-        sunLightCol = lerpVec3(blueHourLight, activeAlpenLight, t);
-        sunShadowCol = lerpVec3(blueHourSha, activeAlpenShadow, t);
-        skyCol = lerpVec3(nightSky, activeTwilightSky, t);
-      } else {
-        // Глубокая ночь: читаемая и пластичная
-        sunLightCol = [0.35, 0.45, 0.68];
-        sunShadowCol = [0.055, 0.075, 0.150];
-        skyCol = nightSky;
+      // 5. Расчет реального положения и фазы Луны через SunCalc
+      let moonV = [0.35, -0.45, 0.82];
+      let moonIntensity = 0.35; // базовая ночная подсветка
+
+      if (window.SunCalc && SunCalc.getMoonPosition) {
+        const moonPos = SunCalc.getMoonPosition(dateForCalc, centerLat, centerLng);
+        const moonIllum = SunCalc.getMoonIllumination ? SunCalc.getMoonIllumination(dateForCalc) : { fraction: 0.5 };
+        
+        const moonAltDeg = moonPos.altitude * (180 / Math.PI);
+        const moonAz = moonPos.azimuth + Math.PI;
+
+        // Если Луна над горизонтом: формируем честный динамический вектор
+        const effMoonAltRad = (Math.max(4.0, moonAltDeg) * Math.PI) / 180;
+        const cosMoonAlt = Math.cos(effMoonAltRad);
+        const realMoonDir = [
+          Math.sin(moonAz) * cosMoonAlt,
+          -Math.cos(moonAz) * cosMoonAlt,
+          Math.sin(effMoonAltRad)
+        ];
+
+        // Мягкий переход: если Луна садится за горизонт, вектор плавно 
+        // уходит в верхний рассеянный звездный купол [0, 0, 1]
+        const moonAboveHorizon = smoothstep(-2.0, 5.0, moonAltDeg);
+        const starlightV = [0.0, 0.0, 1.0]; // рассеянный свет неба
+        moonV = normalizeVec3(lerpVec3(starlightV, realMoonDir, moonAboveHorizon));
+
+        // Интенсивность лунного света: зависит от фазы (полнолуние ярче) и высоты Луны
+        const phaseFactor = lerp(0.25, 1.0, moonIllum.fraction); // в новолуние слабее, но не в ноль
+        moonIntensity = lerp(0.20, 0.85, moonAboveHorizon * phaseFactor);
       }
 
-      // Затухание дневного солнца (рассвет начинает плавно вливаться с -8.0°, а не с -5.5°)
-      const sunFade = smoothstep(-8.0, 1.0, sunAltDeg);
+      // Плавный переход от дневного солнца к ночной луне
+      const toNight = isMorning
+        ? 1.0 - smoothstep(cutoff + 1.0, cutoff + 9.0, sunAltDeg)
+        : smoothstep(cutoff + 9.0, cutoff + 1.0, sunAltDeg);
 
-      // =====================================================================
-      // 5. АСИММЕТРИЧНЫЙ КРОССФЕЙД (ЗАКАТ С ЛУНОЙ VS ПРЕДРАССВЕТ)
-      // =====================================================================
-      let finalLightVec;
-      let finalLightColor;
-      let finalShadowColor;
-      let finalSunIntensity;
+      const finalLightVec = normalizeVec3(lerpVec3(sunV, moonV, toNight));
 
+      // Корректируем итоговую силу ночного света с учетом фазы и положения Луны
+      const finalIntensity = lerp(ramp.k, ramp.k * moonIntensity, toNight);
+
+      // 6. Терминатор, ползущий по рельефу, и подсветка вершин
+      let twClimb, twAmt, glowW, glowCol, valleyCol;
       if (!isMorning) {
-        // --- ВЕЧЕР И ЗАКАТ ---
-        const moonBlendWeight = smoothstep(1.0, -5.0, sunAltDeg);
-        finalLightVec = normalizeVec3(lerpVec3(sunV, targetNightVec, moonBlendWeight));
-        finalLightColor = lerpVec3(sunLightCol, moonLightCol, moonBlendWeight);
-        finalShadowColor = lerpVec3(sunShadowCol, moonShadowCol, moonBlendWeight);
-
-        const sunContribution = sunFade * 0.95;
-        const moonContribution = nightLightIntensity * moonBlendWeight;
-        finalSunIntensity = Math.max(0.18, sunContribution + moonContribution);
-
+        const p = smoothstep(3.5, cutoff + 6.0, sunAltDeg);
+        twClimb = -0.15 + (1.0 - p) * 1.35;
+        twAmt   = smoothstep(5.0, 0.0, sunAltDeg) * smoothstep(cutoff - 2.0, cutoff + 4.0, sunAltDeg);
+        glowW   = smoothstep(3.5, -0.5, sunAltDeg) * smoothstep(cutoff + 4.0, cutoff + 9.0, sunAltDeg);
+        glowCol   = duskGlow;
+        valleyCol = duskValley;
       } else {
-        // --- НОЧЬ, ПРЕДРАССВЕТ И ВОСХОД ---
-        // Плавный переход от звёздно-ночного света к восходу солнца (без 3-часовой тьмы)
-        const dawnTransition = smoothstep(-7.0, 0.5, sunAltDeg);
-
-        finalLightVec = normalizeVec3(lerpVec3(targetNightVec, sunV, dawnTransition));
-        finalLightColor = lerpVec3(moonLightCol, sunLightCol, dawnTransition);
-        finalShadowColor = lerpVec3(moonShadowCol, sunShadowCol, dawnTransition);
-
-        // Фоновый ночной свет плавно уступает место рассвету:
-        const nightPortion = nightLightIntensity * (1.0 - smoothstep(-6.0, -1.0, sunAltDeg));
-        const sunPortion = sunFade * 0.95;
-
-        // Минимальный пол зафиксирован на 0.18 (вместо 0.04) — рельеф всегда виден
-        finalSunIntensity = Math.max(0.18, nightPortion + sunPortion);
+        const p = smoothstep(cutoff + 6.0, 1.5, sunAltDeg);
+        twClimb = 1.20 - p * 1.35;
+        twAmt   = smoothstep(cutoff - 2.0, cutoff + 3.0, sunAltDeg) * smoothstep(6.0, 2.0, sunAltDeg);
+        glowW   = smoothstep(cutoff + 4.0, cutoff + 8.5, sunAltDeg) * smoothstep(4.0, 0.5, sunAltDeg);
+        glowCol   = dawnGlow;
+        valleyCol = dawnValley;
       }
-
 
       return {
         sunVec: finalLightVec,
-        lightColor: finalLightColor,
-        shadowColor: finalShadowColor,
-        skyColor: skyCol,
-        alpenglowWeight: alpenWeight,
-        sunIntensity: finalSunIntensity,
-        warmCool: lerp(chosenTone.warmCool, 0.30, 1.0 - sunFade),
-        isSwiss: false
+        lightColor: ramp.light,
+        shadowColor: ramp.shadow,
+        skyColor: ramp.sky,
+        alpenglowWeight: glowW,
+        sunIntensity: ramp.k,
+        warmCool: chosenTone.warmCool,
+        isSwiss: false,
+        twilightClimb: twClimb,
+        twilightAmt: twAmt,
+        glowColor: glowCol,
+        valleyColor: valleyCol
       };
     }
 
-    // Fallback
     return {
       sunVec: normalizeVec3([0.5, -0.5, 0.7]),
       lightColor: chosenTone.light,
@@ -1363,6 +1351,11 @@
     uniform float u_elevMin;
     uniform float u_elevSpan;
 
+    uniform float u_twilightClimb;
+    uniform float u_twilightAmt;
+    uniform vec3  u_glowColor;
+    uniform vec3  u_valleyColor;
+
     in vec2 v_uv;
     in vec2 v_tileLocalPx;
 
@@ -1429,7 +1422,7 @@
         curPxVec += rayDir * (stepPixels * scale);
       }
 
-      float horizonFade = smoothstep(0.04, 0.20, sunDir.z);
+      float horizonFade = smoothstep(0.02, 0.10, sunDir.z);
       return mix(1.0 - u_shadowOpacity * 0.35, shadowFactor, horizonFade);
     }
 
@@ -1688,6 +1681,8 @@
 
       vec3 warmSunCol = u_lightColor;
       vec3 coolShaCol = u_shadowColor;
+      float twilightShade = 0.0;
+      const vec3 LUMA_W = vec3(0.299, 0.587, 0.114);
 
       if (u_isManualMode == 1) {
         float peakFactor = clamp(elevFactor + crestGlint * 0.4, 0.0, 1.0);
@@ -1695,23 +1690,22 @@
         float valleyInfluence = 1.0 - elevFactor;
         coolShaCol = mix(coolShaCol, u_manualColorValley * 0.75, valleyInfluence * 0.65);
       } else {
-        float peakExposure = pow(hNorm, 1.35) + crestGlint * 0.45;
-        float alpenFactor = u_alpenglowWeight * smoothstep(0.30, 0.90, peakExposure);
-        vec3 alpenTint = vec3(1.20, 0.45, 0.52);
-        warmSunCol = mix(warmSunCol, warmSunCol * alpenTint + vec3(0.15, 0.02, 0.05), alpenFactor * 0.75);
-        directLight += alpenFactor * 0.25;
+        // Терминатор ползёт по рельефу: склоны, обращённые к Солнцу, держат свет дольше
+        float facing = clamp(dot(norm, normalize(vec3(u_sunDir.xy, 0.35))) * 0.5 + 0.5, 0.0, 1.0);
+        float edgeW  = mix(0.07, 0.16, u_twilightAmt);
+        float hEff   = hNorm + (facing - 0.5) * 0.22 + crestGlint * 0.20;
+        float litMask = smoothstep(u_twilightClimb - edgeW, u_twilightClimb + edgeW, hEff);
+
+        // Матовое свечение на освещённых вершинах (mix, без добавления яркости)
+        float glowAmt = u_alpenglowWeight * litMask;
+        warmSunCol = mix(warmSunCol, u_glowColor * (0.80 + 0.30 * facing), glowAmt * 0.80);
+        directLight = max(directLight, glowAmt * (0.30 + 0.40 * facing));
+
+        // Низины уходят в тень и синеют
+        twilightShade = (1.0 - litMask) * u_twilightAmt;
+        directLight *= 1.0 - twilightShade * 0.45 * smoothstep(0.0, 0.3, u_alpenglowWeight);
+        coolShaCol = mix(coolShaCol, u_valleyColor, twilightShade * 0.35);
       }
-
-      float boostDiff = u_lightBoost - 1.0;
-      float peakness = clamp(pow(hNorm, 1.5) * 0.65 + ridgeness * 0.35, 0.0, 1.0);
-      float sunFacing = smoothstep(0.10, 0.80, directLight);
-      float twilightDamp = mix(1.0, 0.55, u_alpenglowWeight);
-
-      float gain = boostDiff * mix(0.20, 1.30, peakness) * mix(0.50, 1.0, sunFacing) * twilightDamp;
-      gain += max(0.0, boostDiff) * crestGlint * 1.1 * twilightDamp;
-
-      // Гарантируем, что при boostDiff >= 0 свет никогда не становится темнее исходного:
-      warmSunCol *= (1.0 + max(-0.8, gain));
 
       float maxComponent = max(warmSunCol.r, max(warmSunCol.g, warmSunCol.b));
       if (maxComponent > 1.05) {
@@ -1732,12 +1726,35 @@
 
       if (isNight > 0.05) {
         float valleyDepth = clamp((1.0 - hNorm) * (1.0 - svf * 0.7), 0.0, 1.0);
-        finalCol = mix(finalCol, vec3(0.04, 0.08, 0.16), valleyDepth * 0.35 * isNight);
+        finalCol = mix(finalCol, vec3(0.10, 0.15, 0.27), valleyDepth * 0.10 * isNight);
       }
 
       finalCol *= aoVal;
       finalCol *= mix(1.0, svf, min(1.0, u_svfStrength * 0.45));
 
+      // Сине-фиолетовый тон низин: меняем цвет, сохраняя яркость и детали рельефа
+      if (twilightShade > 0.001) {
+        vec3 vc = u_valleyColor / max(0.05, dot(u_valleyColor, LUMA_W));
+        finalCol = mix(finalCol, vec3(dot(finalCol, LUMA_W)) * vc, clamp(twilightShade * 0.55, 0.0, 0.6));
+      }
+
+      // МЯГКИЙ БУСТ СВЕТА: сильнее к вершинам и на освещённом, без перенасыщения
+      float boostDiff = u_lightBoost - 1.0;
+      if (abs(boostDiff) > 0.001) {
+        float lumB = dot(finalCol, LUMA_W);
+        float heightW = mix(0.30, 1.0, smoothstep(0.0, 1.0, hNorm)) + ridgeness * 0.15 + crestGlint * 0.5;
+        float litW = mix(0.35, 1.0, smoothstep(0.15, 0.85, directLight));
+        float twilightDamp = mix(1.0, 0.60, u_alpenglowWeight);
+        float k = boostDiff * heightW * litW * twilightDamp;
+        if (k > 0.0) {
+          float lift = k * 0.28 * (1.0 - smoothstep(0.55, 1.0, lumB)); // «плечо» защищает света
+          finalCol *= 1.0 + lift;
+          float lumA = dot(finalCol, LUMA_W);
+          finalCol = mix(finalCol, vec3(lumA), clamp(k * 0.12, 0.0, 0.25)); // чуть к серому: цвета не «кислотные»
+        } else {
+          finalCol *= 1.0 + k * 0.35;
+        }
+      }
       #ifdef USE_HACHURE
       if (slope > u_hachureSlope) {
         float density = max(0.3, u_hachureDensity);
@@ -1929,6 +1946,16 @@
       manualLightBlend: gl.getUniformLocation(prog, 'u_manualLightBlend'),
       elevMin: gl.getUniformLocation(prog, 'u_elevMin'),
       elevSpan: gl.getUniformLocation(prog, 'u_elevSpan'),
+
+      twilightClimb: gl.getUniformLocation(prog, 'u_twilightClimb'),
+      twilightAmt: gl.getUniformLocation(prog, 'u_twilightAmt'),
+      glowColor: gl.getUniformLocation(prog, 'u_glowColor'),
+      valleyColor: gl.getUniformLocation(prog, 'u_valleyColor'),
+
+      twilightClimb: gl.getUniformLocation(prog, 'u_twilightClimb'),
+      twilightAmt: gl.getUniformLocation(prog, 'u_twilightAmt'),
+      glowColor: gl.getUniformLocation(prog, 'u_glowColor'),
+      valleyColor: gl.getUniformLocation(prog, 'u_valleyColor'),
 
       // Штриховка (только если USE_HACHURE)
       hachureDensity: gl.getUniformLocation(prog, 'u_hachureDensity'),
@@ -2156,6 +2183,8 @@
       gl.uniform1f(geomLocations.elevMin, vStats.minH);
       gl.uniform1f(geomLocations.elevSpan, Math.max(10.0, vStats.span));
 
+
+
       gl.drawArrays(gl.TRIANGLES, 0, 6);
 
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -2209,8 +2238,10 @@
 
     if (lightLocations.useCastShadow) gl.uniform1f(lightLocations.useCastShadow, cfg.castShadows ? 1.0 : 0.0);
     if (lightLocations.shadowReach) gl.uniform1f(lightLocations.shadowReach, cfg.shadowReach || 1.0);
-    if (lightLocations.shadowOpacity) gl.uniform1f(lightLocations.shadowOpacity, cfg.shadowOpacity !== undefined ? cfg.shadowOpacity : 0.60);
-
+    if (lightLocations.shadowOpacity) gl.uniform1f(
+      lightLocations.shadowOpacity,
+      (cfg.shadowOpacity !== undefined ? cfg.shadowOpacity : 0.60) * (lighting.shadowMul !== undefined ? lighting.shadowMul : 1.0)
+    );
     // Параметры штриховки (передаются только если модуль скомпилирован)
     if (cfg.hachureEnabled) {
       if (lightLocations.hachureDensity) gl.uniform1f(lightLocations.hachureDensity, cfg.hachureDensity || 1.0);
@@ -2267,6 +2298,17 @@
 
     if (lightLocations.elevMin) gl.uniform1f(lightLocations.elevMin, vStats.minH);
     if (lightLocations.elevSpan) gl.uniform1f(lightLocations.elevSpan, Math.max(10.0, vStats.span));
+
+    if (lightLocations.twilightClimb) gl.uniform1f(lightLocations.twilightClimb, lighting.twilightClimb !== undefined ? lighting.twilightClimb : -1.0);
+    if (lightLocations.twilightAmt) gl.uniform1f(lightLocations.twilightAmt, lighting.twilightAmt !== undefined ? lighting.twilightAmt : 0.0);
+    if (lightLocations.glowColor) {
+      const gc = lighting.glowColor || [0.92, 0.27, 0.33];
+      gl.uniform3f(lightLocations.glowColor, gc[0], gc[1], gc[2]);
+    }
+    if (lightLocations.valleyColor) {
+      const vc = lighting.valleyColor || [0.20, 0.17, 0.46];
+      gl.uniform3f(lightLocations.valleyColor, vc[0], vc[1], vc[2]);
+    }
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.bindVertexArray(null);
@@ -4133,4 +4175,6 @@
       };
     }
   };
+
+
 })();
