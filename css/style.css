@@ -76,7 +76,9 @@ html, body {
   -webkit-backdrop-filter: none !important;
   background: var(--bg-primary) !important;
 }
-
+.leaflet-pane.leaflet-wm-dem-hillshade-pane canvas {
+  outline: 1px solid transparent;
+}
 /* Полная остановка всех циклических анимаций и пульсаций box-shadow на слабых CPU/GPU */
 .low-end * {
   animation: none !important;
@@ -14602,28 +14604,35 @@ body.sheet-open .shadow-height-hud {
    ПЛАВАЮЩИЙ HUD НАСТРОЙКИ 3D РЕЛЬЕФА (LIVE PREVIEW НА КАРТЕ)
    ========================================================================= */
 
+/* =========================================================================
+   МОДЕРНИЗИРОВАННЫЙ HUD 3D РЕЛЬЕФА (35% ВЫСОТЫ ЭКРАНА + СКРОЛЛ + СПОЙЛЕРЫ)
+   ========================================================================= */
+
 .dem-relief-hud {
   position: absolute;
-  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: 1500;
-  background: var(--bg-glass-strong);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1.5px solid var(--border-strong);
-  border-radius: var(--radius-lg, 18px);
-  padding: 10px 14px;
-  box-shadow: var(--shadow-float);
-  width: calc(100vw - 28px);
-  max-width: 440px;
-  user-select: none;
+  background: var(--bg-glass-strong, rgba(255, 255, 255, 0.94));
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1.5px solid var(--border-strong, #cbd5e1);
+  border-radius: var(--radius-lg, 16px);
+  padding: 8px 12px 10px;
+  box-shadow: var(--shadow-float, 0 8px 24px rgba(0, 0, 0, 0.18));
+  width: calc(100vw - 20px);
+  max-width: 450px;
+
+  /* СТРОГОЕ ОГРАНИЧЕНИЕ 35% ЭКРАНА С ПЛАВНЫМ СКРОЛЛОМ */
+  max-height: 55vh;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  animation: toastFade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   box-sizing: border-box;
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  user-select: none;
+  animation: toastFade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  transition: transform 0.2s ease, opacity 0.2s ease, max-height 0.2s ease;
 }
 
 body.sheet-open .dem-relief-hud,
@@ -14631,11 +14640,18 @@ body.wm-ui-hidden .dem-relief-hud {
   display: none !important;
 }
 
+/* Свёрнутое состояние (только тонкая шапка) */
+.dem-relief-hud.collapsed {
+  max-height: 48px !important;
+  padding-bottom: 8px;
+}
+
 .dem-relief-hud.collapsed .dem-hud-tabs,
 .dem-relief-hud.collapsed .dem-hud-body {
   display: none !important;
 }
 
+/* Шапка панели (всегда закреплена наверху) */
 .dem-hud-head {
   display: flex;
   align-items: center;
@@ -14643,24 +14659,26 @@ body.wm-ui-hidden .dem-relief-hud {
   border-bottom: 1px solid var(--border);
   padding-bottom: 6px;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .dem-hud-title-wrap {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   flex: 1;
 }
 
 .dem-hud-icon {
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1;
   flex-shrink: 0;
 }
 
 .dem-hud-title {
-  font-size: 13.5px;
+  font-size: 13px;
+  font-weight: 800;
   color: var(--text-main);
   white-space: nowrap;
 }
@@ -14672,8 +14690,8 @@ body.wm-ui-hidden .dem-relief-hud {
 }
 
 .dem-hud-switch-btn {
-  padding: 3px 8px;
-  font-size: 10.5px;
+  padding: 2.5px 7px;
+  font-size: 10px;
   font-weight: 700;
   border-radius: 6px;
   border: 1px solid var(--border-strong);
@@ -14693,17 +14711,17 @@ body.wm-ui-hidden .dem-relief-hud {
 .dem-hud-head-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .dem-hud-min-btn,
 .dem-hud-close-btn {
   background: transparent;
   border: none;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 3px 6px;
+  padding: 3px 5px;
   border-radius: 4px;
   display: flex;
   align-items: center;
@@ -14713,7 +14731,7 @@ body.wm-ui-hidden .dem-relief-hud {
 .dem-hud-close-btn:hover { color: var(--danger); }
 .dem-hud-min-btn:hover { background: var(--accent-bg); color: var(--accent); }
 
-/* Вкладки */
+/* Лента вкладок (всегда закреплена под шапкой) */
 .dem-hud-tabs {
   display: flex;
   background: var(--bg-secondary);
@@ -14721,12 +14739,14 @@ body.wm-ui-hidden .dem-relief-hud {
   border-radius: 8px;
   padding: 2px;
   gap: 2px;
+  margin-top: 6px;
+  flex-shrink: 0;
 }
 
 .dem-hud-tab-btn {
   flex: 1;
-  padding: 5px 4px;
-  font-size: 11px;
+  padding: 4px;
+  font-size: 10.5px;
   font-weight: 700;
   border: none;
   background: transparent;
@@ -14734,6 +14754,7 @@ body.wm-ui-hidden .dem-relief-hud {
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.12s ease;
+  white-space: nowrap;
 }
 
 .dem-hud-tab-btn.active {
@@ -14742,17 +14763,130 @@ body.wm-ui-hidden .dem-relief-hud {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
+/* ПРОКРУЧИВАЕМАЯ ОБЛАСТЬ КОНТЕНТА */
 .dem-hud-body {
-  display: flex;
-  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-top: 6px;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dem-hud-body::-webkit-scrollbar {
+  width: 4px;
+}
+.dem-hud-body::-webkit-scrollbar-thumb {
+  background: var(--border-strong, #94a3b8);
+  border-radius: 4px;
 }
 
 .dem-hud-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
+/* КОМПАКТНЫЕ ВЛОЖЕННЫЕ СПОЙЛЕРЫ ДЛЯ 3D HUD */
+.dem-hud-spoiler {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  overflow: hidden;
+  margin-top: 2px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dem-hud-spoiler[open] {
+  border-color: var(--border-strong);
+}
+
+.dem-hud-spoiler-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-main);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.dem-hud-spoiler-summary::-webkit-details-marker {
+  display: none;
+}
+
+.dem-hud-spoiler-summary:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.dem-hud-spoiler-summary .chevron {
+  font-size: 8.5px;
+  color: var(--text-muted);
+  transition: transform 0.18s ease;
+}
+
+.dem-hud-spoiler[open] .dem-hud-spoiler-summary .chevron {
+  transform: rotate(180deg);
+}
+
+.dem-hud-spoiler-body {
+  padding: 8px 9px;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* КАРТОЧКА ВНУТРИ СПОЙЛЕРА (для AO/SVF) */
+.dem-hud-card-inner {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ЗАВИСИМЫЕ БЛОКИ: СТАНОВЯТСЯ СЕРЫМИ И НЕАКТИВНЫМИ ПРИ ВЫКЛЮЧЕНИИ ТУМБЛЕРА */
+.dem-sub-dimmable {
+  transition: opacity 0.2s ease, filter 0.2s ease;
+}
+
+.dem-sub-dimmable.is-disabled {
+  opacity: 0.42 !important;
+  pointer-events: none !important;
+  filter: grayscale(0.7) !important;
+  user-select: none !important;
+}
+
+/* МИНИ-БЕЙДЖИ В ШАПКЕ СПОЙЛЕРА */
+.dem-hud-badge-mini {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+}
+
+.dem-hud-badge-mini.active {
+  background: #10b981;
+  color: #ffffff;
+  border-color: #10b981;
+}
+
+/* СЕТКИ И СТРОКИ */
 .dem-hud-row {
   display: flex;
   flex-direction: column;
@@ -14762,48 +14896,63 @@ body.wm-ui-hidden .dem-relief-hud {
 .dem-hud-row label {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   color: var(--text-muted);
 }
-.dem-hud-row label b { color: var(--text-main); }
+.dem-hud-row label b { color: var(--text-main); font-variant-numeric: tabular-nums; }
 
 .dem-hud-lbl {
-  font-size: 10.5px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
   color: var(--text-muted);
 }
 
 .dem-hud-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 6px;
   align-items: end;
 }
 
-/* Чипы времени суток */
+.dem-hud-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  align-items: end;
+}
+
+/* Стилизованный выбор цвета */
+.styled-color-picker {
+  width: 100%;
+  height: 24px;
+  border: 1px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+  border-radius: 4px;
+  background: transparent;
+}
+
+/* Чипы тонов */
 .dem-tone-chips {
   display: flex;
-  gap: 5px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 
 .dem-tone-chip {
-  padding: 3px 8px;
-  font-size: 10.5px;
+  padding: 2.5px 7px;
+  font-size: 10px;
   font-weight: 700;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-primary);
   color: var(--text-main);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.12s ease;
 }
 
-.dem-tone-chip:hover {
-  border-color: var(--accent);
-}
-
+.dem-tone-chip:hover { border-color: var(--accent); }
 .dem-tone-chip.active {
   background: var(--accent-bg);
   border-color: var(--accent);
@@ -14813,20 +14962,21 @@ body.wm-ui-hidden .dem-relief-hud {
 /* Кнопки сглаживания */
 .dem-smooth-buttons {
   display: flex;
-  gap: 4px;
+  gap: 3px;
 }
 
 .dem-smooth-btn {
   flex: 1;
-  padding: 4px 6px;
-  font-size: 10.5px;
+  padding: 3.5px 4px;
+  font-size: 9.5px;
   font-weight: 700;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-primary);
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.12s ease;
+  white-space: nowrap;
 }
 
 .dem-smooth-btn.active {
@@ -14835,32 +14985,73 @@ body.wm-ui-hidden .dem-relief-hud {
   color: #ffffff;
 }
 
-/* Тема ночного зрения */
+/* ТЁМНАЯ ТЕМА */
+[data-theme="dark"] .dem-relief-hud {
+  background: var(--bg-glass-strong, rgba(17, 24, 39, 0.94));
+  border-color: var(--border, #374151);
+}
+[data-theme="dark"] .dem-hud-spoiler-body {
+  background: #111827;
+}
+
+/* НОЧНОЙ РЕЖИМ (КРАСНЫЙ МОНОХРОМ) */
 [data-theme="night-vision"] .dem-relief-hud {
-  background: rgba(18, 3, 3, 0.96);
-  border-color: #ef4444;
+  background: rgba(18, 3, 3, 0.96) !important;
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.35) !important;
 }
-
-[data-theme="night-vision"] .dem-hud-switch-btn.active {
-  background: #ef4444;
-  border-color: #ef4444;
-  color: #050101;
-}
-
-[data-theme="night-vision"] .dem-tone-chip.active {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: #ef4444;
-  color: #ef4444;
-}
-
+[data-theme="night-vision"] .dem-hud-switch-btn.active,
 [data-theme="night-vision"] .dem-smooth-btn.active {
-  background: #ef4444;
-  border-color: #ef4444;
-  color: #050101;
+  background: #ef4444 !important;
+  border-color: #ef4444 !important;
+  color: #050101 !important;
+}
+[data-theme="night-vision"] .dem-hud-spoiler {
+  background: #120303 !important;
+  border-color: #3b0707 !important;
+}
+[data-theme="night-vision"] .dem-hud-spoiler-body {
+  background: #050101 !important;
+}
+[data-theme="night-vision"] .dem-hud-spoiler[open] {
+  border-color: #ef4444 !important;
+}
+[data-theme="night-vision"] .dem-tone-chip.active {
+  background: rgba(239, 68, 68, 0.2) !important;
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+}
+/* =========================================================================
+   ДОРАБОТКИ ДЛЯ 3D HUD РЕЛЬЕФА (ПОДСВЕТКА АВТО Z-FACTOR, ЦВЕТА И ЭКСПОРТ)
+   ========================================================================= */
+
+/* Исправление: кнопка «Авто» при активации получает яркую зелёную подсветку */
+#dem-hud-zfactor-auto-btn.active {
+  background: #10b981 !important;
+  border-color: #10b981 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6) !important;
 }
 
+#dem-hud-zfactor-auto-btn:not(.active) {
+  background: var(--bg-primary) !important;
+  color: var(--text-muted) !important;
+  border-color: var(--border-strong) !important;
+}
 
+/* Компактные кнопки импорта / экспорта в шапке HUD */
+#btn-dem-hud-export:hover,
+#btn-dem-hud-import:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
 
+/* Тонкий разделитель внутри панели */
+.dem-hud-spoiler-body hr.style-divider {
+  border: 0;
+  border-top: 1px dashed var(--border);
+  margin: 6px 0;
+}
 
 /* =========================================================================
    ВЕЕРНОЕ РАДИАЛЬНОЕ МЕНЮ (ЧЕТВЕРТЬ КРУГА ИЗ УГЛА)
