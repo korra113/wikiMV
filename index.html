@@ -493,6 +493,18 @@
           </summary>
           <div class="spoiler-body">
             
+            <!-- Переключатель полного отключения слоя Викимапии -->
+            <label class="toggle-item" style="margin-bottom: 12px; padding: 10px 12px; background: var(--bg-secondary); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+              <div>
+                <span style="font-weight: 700; font-size: 13px; display: block; color: var(--danger, #ef4444);">Отключить слой Викимапии</span>
+                <small class="hint-text" style="margin: 2px 0 0; line-height: 1.4;">
+                  Полностью отключает слой Викимапии (векторные полигоны и растровые контуры), включая наведение, прицел, клики и выбор объектов на карте.
+                </small>
+              </div>
+              <input type="checkbox" id="toggle-disable-wikimapia">
+              <span class="toggle-switch"></span>
+            </label>
+
             <!-- Режим загрузки карты -->
             <details class="spoiler sub-spoiler">
               <summary class="spoiler-title sub-spoiler-title">
@@ -1917,10 +1929,26 @@
               </summary>
               <div class="spoiler-body toggles-list">
                 
+                <!-- Источник DEM -->
+                <div class="form-group" style="margin-bottom: 8px;">
+                  <label for="dem-source-select" style="font-weight: 700; color: var(--text-main); margin-bottom: 4px;">
+                    📡 Источник цифровой модели рельефа (DEM):
+                  </label>
+                  <select id="dem-source-select" class="styled-select">
+                    <option value="mapterhorn" selected>🏔️ Mapterhorn (Copernicus GLO-30 + LiDAR)</option>
+                    <option value="aws">📦 AWS Terrarium (Mapzen / Nextzen)</option>
+                  </select>
+                  <small class="hint-text">
+                    <b>Mapterhorn</b> — глобальный рельеф Copernicus 30 м и государственные детальные LiDAR-съёмки (1–2 м) без артефактов SRTM. <b>AWS Terrarium</b> — классическая база Mapzen Joerd.
+                  </small>
+                </div>
+
                 <!-- 1. WebGL Hillshade -->
                 <div style="font-weight: 700; font-size: 13px; color: var(--text-main); margin-bottom: 2px;">
                   ☀️ Аппаратная WebGL-отмывка (GPU):
                 </div>
+
+
 
                 <label class="toggle-item">
                   <div>
@@ -1931,6 +1959,8 @@
                   <span class="toggle-switch"></span>
                 </label>
 
+
+
                 <div class="style-row" style="margin-top: 6px;">
                   <label for="dem-zfactor-slider" style="display: flex; justify-content: space-between; font-weight: 600;">
                     <span>Усиление рельефа (Z-Factor):</span>
@@ -1940,18 +1970,10 @@
                   <small class="hint-text">Увеличьте для плоских равнин, чтобы отчетливо проявились даже балки и овраги глубиной 3–10 м</small>
                 </div>
 
-                <div id="dem-manual-time-wrap" class="style-row">
-                  <label for="dem-time-slider" style="display: flex; justify-content: space-between; font-weight: 600;">
-                    <span>Время дня (свет Солнца / Луны):</span>
-                    <b id="dem-time-val" style="color: var(--accent);">15:00</b>
-                  </label>
-                  <input type="range" id="dem-time-slider" min="0" max="24" step="0.25" value="15" class="styled-range">
-                  <small class="hint-text">Плавная смена освещения: Ночь (02:00) → Рассвет (06:00) → День (14:00) → Закат (19:30)</small>
-                </div>
-
                 <div class="form-group" style="margin-top: 4px;">
                   <label for="dem-sunmode-select">Режим освещения рельефа:</label>
                   <select id="dem-sunmode-select" class="styled-select">
+                    <option value="time">🕒 Время суток (ползунок, SunCalc)</option>
                     <option value="suncalc" selected>☀️ По реальному Солнцу сейчас (SunCalc)</option>
                     <option value="swiss">🇨🇭 Швейцарская многолучевая (без слепых зон)</option>
                     <option value="manual">⏱️ Ручной ползунок времени суток</option>
@@ -1960,11 +1982,11 @@
 
                 <div id="dem-manual-time-wrap" class="style-row" hidden>
                   <label for="dem-time-slider" style="display: flex; justify-content: space-between; font-weight: 600;">
-                    <span>Время дня (тени солнца):</span>
+                    <span>Время суток (местное солнечное):</span>
                     <b id="dem-time-val" style="color: var(--accent);">15:00</b>
                   </label>
-                  <input type="range" id="dem-time-slider" min="6" max="20" step="0.5" value="15" class="styled-range">
-                  <small class="hint-text">Двигайте ползунок: Утро (07:00) → Полдень (12:00) → Закат (19:00)</small>
+                  <input type="range" id="dem-time-slider" min="0" max="1440" step="1" value="900" class="styled-range">
+                  <small class="hint-text">12:00 = солнечный полдень. Вокруг восхода и заката ползунок замедляется.</small>
                 </div>
 
                 <div class="style-row">
@@ -1999,6 +2021,19 @@
                     <option value="20" selected>Каждые 20 метров (стандарт топокарт)</option>
                     <option value="50">Каждые 50 метров (горы)</option>
                     <option value="100">Каждые 100 метров (высокогорье)</option>
+                  </select>
+                </div>
+
+                <div class="form-group" style="margin-top: 6px;">
+                  <label for="dem-contour-blend-select">Режим наложения горизонталей:</label>
+                  <select id="dem-contour-blend-select" class="styled-select">
+                    <option value="normal" selected>Normal (обычный, поверх карты)</option>
+                    <option value="multiply">Multiply (умножение: эффект старинной типографской туши)</option>
+                    <option value="overlay">Overlay (перекрытие: сохраняет света и тени рельефа)</option>
+                    <option value="soft-light">Soft-Light (мягкое органичное вплавление в спутник / OSM)</option>
+                    <option value="difference">Difference (автоконтраст: инвертирует цвет на светлом/тёмном)</option>
+                    <option value="screen">Screen (осветление: яркие изолинии для тёмных карт и ночи)</option>
+                    <option value="color-burn">Color Burn (травление и затемнение подложки)</option>
                   </select>
                 </div>
 
@@ -4300,30 +4335,9 @@
 </div>
 
 <!-- МОДАЛЬНОЕ ОКНО: ЗАГРУЗКА ТРЕКОВ ПО ПАРОЛЮ (FIREBASE) -->
-<div id="modal-track-download-pass" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-header">
-      <h3>🔑 Загрузка треков по паролю</h3>
-      <button type="button" class="modal-close-x" id="track-dl-pass-close-x">✕</button>
-    </div>
-    <p class="modal-desc">Введите пароль комнаты, чтобы загрузить сохранённые в ней треки.</p>
-
-    <div class="form-group" style="margin-bottom: 10px;">
-      <label for="track-dl-password-input">Пароль комнаты:</label>
-      <input type="text" id="track-dl-password-input" class="styled-input" placeholder="Введите пароль..." autocomplete="off">
-    </div>
-
-    <div id="track-dl-pass-status" class="hint-text" style="margin-bottom: 10px; font-weight: 600;" hidden></div>
-
-    <div class="modal-actions" style="justify-content: flex-end;">
-      <button type="button" id="btn-track-dl-pass-cancel" class="btn btn-secondary">Отмена</button>
-      <button type="button" id="btn-track-dl-pass-submit" class="btn btn-primary">📥 Загрузить</button>
-    </div>
-  </div>
-</div>
-<!-- ПЛАВАЮЩИЙ HUD НАСТРОЙКИ 3D РЕЛЬЕФА (LIVE НА КАРТЕ) -->
 <!-- ПЛАВАЮЩИЙ HUD НАСТРОЙКИ 3D РЕЛЬЕФА (LIVE НА КАРТЕ) -->
 <div id="dem-relief-hud" class="dem-relief-hud" hidden>
+  <!-- Шапка панели -->
   <div class="dem-hud-head">
     <div class="dem-hud-title-wrap">
       <span class="dem-hud-icon">🏔️</span>
@@ -4334,253 +4348,740 @@
       </div>
     </div>
     <div class="dem-hud-head-actions">
-      <button type="button" id="btn-dem-hud-minimize" class="dem-hud-min-btn" title="Свернуть панель">▼</button>
+      <input type="file" id="dem-hud-import-input" accept=".json" style="display: none;">
+      <button type="button" id="btn-dem-hud-export" class="dem-hud-min-btn" title="Экспорт настроек в JSON">💾</button>
+      <button type="button" id="btn-dem-hud-import" class="dem-hud-min-btn" title="Импорт настроек из JSON">📂</button>
+      <button type="button" id="btn-dem-hud-refresh" class="dem-hud-min-btn" title="Перезагрузить рельеф для текущей области">🔄</button>
+      <button type="button" id="btn-dem-hud-minimize" class="dem-hud-min-btn" title="Свернуть / Развернуть панель">▼</button>
       <button type="button" id="btn-dem-hud-close" class="dem-hud-close-btn" title="Закрыть">✕</button>
     </div>
   </div>
 
   <!-- Вкладки управления -->
   <div class="dem-hud-tabs">
-    <button type="button" class="dem-hud-tab-btn active" data-tab="light">☀️ Свет & Сутки</button>
-    <button type="button" class="dem-hud-tab-btn" data-tab="terrain">🏔️ Рельеф & Точность</button>
-    <button type="button" class="dem-hud-tab-btn" data-tab="contours">〰️ Горизонтали</button>
+    <button type="button" class="dem-hud-tab-btn active" data-tab="light">☀️ Свет</button>
+    <button type="button" class="dem-hud-tab-btn" data-tab="terrain">🏔️ Рельеф</button>
+    <button type="button" class="dem-hud-tab-btn" data-tab="contours">〰️ Изолинии</button>
   </div>
 
+  <!-- Прокручиваемое тело панели -->
   <div class="dem-hud-body">
-    <!-- ВКЛАДКА 1: ОСВЕЩЕНИЕ, ВРЕМЯ И ДАТА ГОДА -->
+
+    <!-- ================================================================= -->
+    <!-- ВКЛАДКА 1: СВЕТ, ВРЕМЯ И СУТКИ -->
+    <!-- ================================================================= -->
     <div id="dem-hud-body-light" class="dem-hud-section">
-      <div class="dem-hud-row" id="dem-hud-time-row">
-        <label for="dem-hud-time-slider" style="display: flex; justify-content: space-between; font-weight: 700;">
-          <span>🕒 Время суток (свет Солнца / Луны):</span>
-          <b id="dem-hud-time-val" style="color: var(--accent);">15:00</b>
-        </label>
-        <input type="range" id="dem-hud-time-slider" min="0" max="24" step="0.25" value="15" class="styled-range">
-      </div>
-
-      <div class="dem-hud-row" style="margin-bottom: 8px;">
-        <label for="dem-hud-date-input" style="font-weight: 600; font-size: 11.5px; margin-bottom: 4px; display: block;">
-          📅 Дата для высоты солнца:
-        </label>
-        <div style="display: flex; gap: 6px; align-items: center;">
-          <input type="date" id="dem-hud-date-input" class="styled-input" style="flex: 1; padding: 4px 8px; font-size: 12px;">
-          <div class="dem-season-buttons" style="display: flex; gap: 4px;">
-            <button type="button" class="dem-season-btn btn btn-secondary" data-season="summer" style="font-size: 10px; padding: 4px 6px;">☀️ Лето</button>
-            <button type="button" class="dem-season-btn btn btn-secondary" data-season="winter" style="font-size: 10px; padding: 4px 6px;">❄️ Зима</button>
-            <button type="button" class="dem-season-btn btn btn-secondary" data-season="today" style="font-size: 10px; padding: 4px 6px;">Сегодня</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="dem-hud-row" style="margin-bottom: 6px;">
-        <span class="dem-hud-lbl">Быстрый колорит:</span>
-        <div class="dem-tone-chips">
-          <button type="button" class="dem-tone-chip active" data-tone="day">☀️ День</button>
-          <button type="button" class="dem-tone-chip" data-tone="sunrise">🌅 Восход</button>
-          <button type="button" class="dem-tone-chip" data-tone="sunset">🌇 Закат</button>
-          <button type="button" class="dem-tone-chip" data-tone="moon">🌙 Ночь</button>
-        </div>
-      </div>
-
-      <div id="dem-hud-manual-angles-wrap" hidden>
-        <div class="dem-hud-row">
-          <label for="dem-hud-azimuth-slider">
-            <span>Азимут света:</span>
-            <b id="dem-hud-azimuth-val">315°</b>
-          </label>
-          <input type="range" id="dem-hud-azimuth-slider" min="0" max="360" step="5" value="315" class="styled-range">
-        </div>
-
-        <div class="dem-hud-row">
-          <label for="dem-hud-altitude-slider">
-            <span>Угол подъема солнца:</span>
-            <b id="dem-hud-altitude-val">45°</b>
-          </label>
-          <input type="range" id="dem-hud-altitude-slider" min="5" max="85" step="5" value="45" class="styled-range">
-        </div>
-      </div>
-
-      <div class="dem-hud-grid-2" style="margin-top: 6px;">
+      <!-- Базовые параметры освещения -->
+      <div class="dem-hud-grid-2">
         <div class="form-group" style="margin: 0;">
-          <label for="dem-hud-sunmode-select">Режим:</label>
-          <select id="dem-hud-sunmode-select" class="styled-select" style="padding: 4px 6px; font-size: 11px;">
-            <option value="time" selected>🕒 Ползунок времени (24ч)</option>
-            <option value="suncalc">☀️ По реальному Солнцу</option>
-            <option value="swiss">🇨🇭 Швейцарский (без слепых зон)</option>
-            <option value="manual">📐 Ручные азимут/высота</option>
+          <label for="dem-hud-sunmode-select">Режим солнца:</label>
+          <select id="dem-hud-sunmode-select" class="styled-select">
+            <option value="time" selected>🕒 Время суток (24ч)</option>
+            <option value="suncalc">☀️ Реальное Солнце</option>
+            <option value="swiss">🇨🇭 Швейцарский</option>
+            <option value="manual">📐 Ручные углы</option>
           </select>
         </div>
         <div class="form-group" style="margin: 0;">
-          <label for="dem-hud-blendmode-select">Смешивание слоя:</label>
-          <select id="dem-hud-blendmode-select" class="styled-select" style="padding: 4px 6px; font-size: 11px;">
-            <option value="multiply" selected>Multiply (старинная карта)</option>
-            <option value="soft-light">Soft-Light (для спутника / OSM)</option>
+          <label for="dem-hud-blendmode-select">Смешивание:</label>
+          <select id="dem-hud-blendmode-select" class="styled-select">
+            <option value="soft-light" selected>Soft-Light (мягкий свет)</option>
+            <option value="overlay">Overlay (перекрытие)</option>
+            <option value="hard-light">Hard-Light (жёсткий)</option>
+            <option value="multiply">Multiply (умножение)</option>
+            <option value="luminosity">Luminosity (светимость)</option>
+            <option value="screen">Screen (осветление)</option>
+            <option value="difference">Difference (контраст)</option>
+            <option value="normal">Normal (обычный)</option>
           </select>
         </div>
       </div>
+
       <div class="dem-hud-row" style="margin-top: 6px;">
         <label for="dem-hud-hs-opacity">
-          <span>Прозрачность теней:</span>
-          <b id="dem-hud-hs-opacity-val">65%</b>
+          <span>Прозрачность отмывки:</span>
+          <b id="dem-hud-hs-opacity-val">70%</b>
         </label>
-        <input type="range" id="dem-hud-hs-opacity" min="10" max="100" step="5" value="65" class="styled-range">
+        <input type="range" id="dem-hud-hs-opacity" min="10" max="100" step="5" value="70" class="styled-range">
       </div>
+
+      <div class="dem-hud-row">
+        <label for="dem-hud-light-boost-slider">
+          <span>Подсветка хребтов (Light Boost):</span>
+          <b id="dem-hud-light-boost-val" style="color: var(--accent);">×1.0</b>
+        </label>
+        <input type="range" id="dem-hud-light-boost-slider" min="0.5" max="3.0" step="0.05" value="1.0" class="styled-range">
+      </div>
+
+      <!-- СПОЙЛЕР: Положение Солнца и время суток -->
+      <details class="dem-hud-spoiler" id="spoiler-hud-sun-time" open>
+        <summary class="dem-hud-spoiler-summary">
+          <span id="dem-hud-sun-spoiler-title">🕒 Время суток и календарь</span>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <div id="dem-hud-time-container">
+            <div class="dem-hud-row" id="dem-hud-time-row">
+              <label for="dem-hud-time-slider">
+                <span>Время суток:</span>
+                <b id="dem-hud-time-val" style="color: var(--accent);">15:00</b>
+              </label>
+              <input type="range" id="dem-hud-time-slider" min="0" max="1440" step="1" value="900" class="styled-range">
+            </div>
+
+            <div class="dem-hud-row" style="margin-top: 6px;">
+              <label for="dem-hud-date-input">Дата (сезонная высота светила):</label>
+              <div style="display: flex; gap: 4px; align-items: center; margin-top: 2px;">
+                <input type="date" id="dem-hud-date-input" class="styled-input" style="flex: 1; padding: 4px 6px; font-size: 11px;">
+                <div class="dem-season-buttons" style="display: flex; gap: 3px;">
+                  <button type="button" class="dem-season-btn btn btn-secondary" data-season="summer" style="font-size: 9.5px; padding: 4px 6px;">☀️ Лето</button>
+                  <button type="button" class="dem-season-btn btn btn-secondary" data-season="winter" style="font-size: 9.5px; padding: 4px 6px;">❄️ Зима</button>
+                  <button type="button" class="dem-season-btn btn btn-secondary" data-season="today" style="font-size: 9.5px; padding: 4px 6px;">Сегодня</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Блок ручных углов и палитры (при выборе режима "Ручные углы") -->
+          <div id="dem-hud-manual-angles-wrap" hidden>
+            <div class="dem-hud-grid-2">
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-azimuth-slider">
+                  <span>Азимут:</span>
+                  <b id="dem-hud-azimuth-val">315°</b>
+                </label>
+                <input type="range" id="dem-hud-azimuth-slider" min="0" max="360" step="5" value="315" class="styled-range">
+              </div>
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-altitude-slider">
+                  <span>Высота:</span>
+                  <b id="dem-hud-altitude-val">45°</b>
+                </label>
+                <input type="range" id="dem-hud-altitude-slider" min="5" max="85" step="5" value="45" class="styled-range">
+              </div>
+            </div>
+
+            <hr class="style-divider" style="margin: 8px 0 6px;">
+
+            <div class="dem-hud-grid-3" style="align-items: start;">
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-manual-color-peak" style="font-size: 10px; margin-bottom: 2px;">🏔️ Вершины:</label>
+                <input type="color" id="dem-hud-manual-color-peak" value="#fff8e7" class="styled-color-picker">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-manual-color-valley" style="font-size: 10px; margin-bottom: 2px;">🌲 Низины:</label>
+                <input type="color" id="dem-hud-manual-color-valley" value="#ffd8a8" class="styled-color-picker">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-manual-color-shadow" style="font-size: 10px; margin-bottom: 2px;">🌑 Тени:</label>
+                <input type="color" id="dem-hud-manual-color-shadow" value="#1e2438" class="styled-color-picker">
+              </div>
+            </div>
+
+            <div class="dem-hud-row" style="margin-top: 6px;">
+              <label for="dem-hud-manual-blend-slider">
+                <span>Баланс (низины ⟷ вершины):</span>
+                <b id="dem-hud-manual-blend-val">50%</b>
+              </label>
+              <input type="range" id="dem-hud-manual-blend-slider" min="0" max="100" step="5" value="50" class="styled-range">
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <!-- СПОЙЛЕР: Палитра и свет Имхофа -->
+      <details class="dem-hud-spoiler" id="spoiler-hud-imhof">
+        <summary class="dem-hud-spoiler-summary">
+          <span>🎨 Палитра и пластика Имхофа (MDOW)</span>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <div class="dem-hud-row">
+            <span class="dem-hud-lbl">Художественный тон:</span>
+            <div class="dem-tone-chips" style="margin-top: 4px;">
+              <button type="button" class="dem-tone-chip active" data-tone="imhof">🇨🇭 Имхоф</button>
+              <button type="button" class="dem-tone-chip" data-tone="slate">🏔️ Сланец</button>
+              <button type="button" class="dem-tone-chip" data-tone="day">☀️ День</button>
+              <button type="button" class="dem-tone-chip" data-tone="sunrise">🌅 Восход</button>
+              <button type="button" class="dem-tone-chip" data-tone="sunset">🌇 Закат</button>
+              <button type="button" class="dem-tone-chip" data-tone="moon">🌙 Ночь</button>
+            </div>
+          </div>
+
+          <div class="dem-hud-grid-2" style="margin-top: 6px;">
+            <div class="dem-hud-row" style="margin: 0;">
+              <label for="dem-hud-light-wrap">
+                <span>Мягкость (Lambert):</span>
+                <b id="dem-hud-light-wrap-val">35%</b>
+              </label>
+              <input type="range" id="dem-hud-light-wrap" min="0" max="120" step="5" value="35" class="styled-range">
+            </div>
+            <div class="dem-hud-row" style="margin: 0;">
+              <label for="dem-hud-roughness-slider">
+                <span>Шероховатость:</span>
+                <b id="dem-hud-roughness-val">50%</b>
+              </label>
+              <input type="range" id="dem-hud-roughness-slider" min="0" max="150" step="5" value="50" class="styled-range">
+            </div>
+          </div>
+
+          <label class="toggle-item" style="margin-top: 6px;">
+            <div>
+              <span style="font-size: 11px; font-weight: 700;">Многолучевой свет (MDOW Swisstopo)</span>
+              <small class="hint-text">4 источника света с весами для мягких складок</small>
+            </div>
+            <input type="checkbox" id="dem-hud-toggle-mdow" checked>
+            <span class="toggle-switch"></span>
+          </label>
+
+          <div class="dem-hud-row" style="margin-top: 6px;">
+            <label for="dem-hud-imhof-defl-slider">
+              <span>Доворот света на хребтах:</span>
+              <b id="dem-hud-imhof-defl-val">35%</b>
+            </label>
+            <input type="range" id="dem-hud-imhof-defl-slider" min="0" max="160" step="5" value="35" class="styled-range">
+          </div>
+        </div>
+      </details>
+
+      <!-- СПОЙЛЕР: Падающие тени -->
+      <details class="dem-hud-spoiler">
+        <summary class="dem-hud-spoiler-summary">
+          <span>🌑 Падающие тени (Raymarching)</span>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <label class="toggle-item" style="margin: 0;">
+            <div>
+              <span style="font-size: 11.5px; font-weight: 700;">Включить расчёт падающих теней</span>
+              <small class="hint-text">Тени от вершин и острых гребней гор</small>
+            </div>
+            <input type="checkbox" id="dem-hud-toggle-cast-shadows" checked>
+            <span class="toggle-switch"></span>
+          </label>
+
+          <div id="dem-hud-cast-shadows-sub" class="dem-sub-dimmable" style="margin-top: 6px;">
+            <div class="dem-hud-grid-2">
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-shadow-reach">
+                  <span>Дальность луча:</span>
+                  <b id="dem-hud-shadow-reach-val">100%</b>
+                </label>
+                <input type="range" id="dem-hud-shadow-reach" min="20" max="250" step="10" value="100" class="styled-range">
+              </div>
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-shadow-opacity">
+                  <span>Плотность теней:</span>
+                  <b id="dem-hud-shadow-opacity-val">60%</b>
+                </label>
+                <input type="range" id="dem-hud-shadow-opacity" min="10" max="95" step="5" value="60" class="styled-range">
+              </div>
+            </div>
+          </div>
+        </div>
+      </details>
     </div>
 
-    <!-- ВКЛАДКА 2: РЕЛЬЕФ, ТОЧНОСТЬ И ОВРАГИ -->
+    <!-- ================================================================= -->
+    <!-- ВКЛАДКА 2: РЕЛЬЕФ, ТОЧНОСТЬ И ШТРИХОВКА -->
+    <!-- ================================================================= -->
     <div id="dem-hud-body-terrain" class="dem-hud-section" hidden>
-      <div class="dem-hud-row">
-        <label for="dem-hud-zfactor-slider">
-          <span>Усиление высоты (Z-Factor):</span>
-          <b id="dem-hud-zfactor-val">×3.5</b>
-        </label>
+      <!-- Базовые параметры рельефа -->
+      <div class="dem-hud-grid-2">
+        <div class="form-group" style="margin: 0;">
+          <label for="dem-hud-source-select">Источник DEM:</label>
+          <select id="dem-hud-source-select" class="styled-select">
+            <option value="mapterhorn" selected>🏔️ Mapterhorn (Copernicus + LiDAR)</option>
+            <option value="aws">📦 AWS Terrarium (Mapzen)</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+            <label for="dem-hud-zfactor-slider" style="margin: 0;">Высота (Z-Factor):</label>
+            <button type="button" id="dem-hud-zfactor-auto-btn" class="btn btn-secondary active" style="font-size: 9.5px; padding: 1px 6px;">⚡ Авто</button>
+          </div>
+          <span id="dem-hud-zfactor-val" style="font-size: 11px; font-weight: 800; color: var(--accent); display: block; text-align: right; line-height: 1;">Авто (~×9.5)</span>
+        </div>
+      </div>
+
+      <div class="dem-hud-row" style="margin-top: 6px;">
         <input type="range" id="dem-hud-zfactor-slider" min="1.0" max="10.0" step="0.5" value="3.5" class="styled-range">
       </div>
 
-      <div class="dem-hud-row" style="margin-bottom: 6px;">
-        <span class="dem-hud-lbl">Фильтрация ступеней (анти-майнкрафт):</span>
-        <div class="dem-smooth-buttons" style="display: flex; flex-wrap: wrap; gap: 4px;">
-          <button type="button" class="dem-smooth-btn" data-smooth="none" title="Без фильтрации (сырой Собель, максимальная резкость)">Выкл</button>
-          <button type="button" class="dem-smooth-btn" data-smooth="gauss" title="Классический мягкий Гаусс по всей площади (как было раньше)">Широкий Гаусс</button>
-          <button type="button" class="dem-smooth-btn active" data-smooth="bilateral" title="Сглаживает плоские ступени, оставляя пики и скалы резкими">Билатеральный</button>
-          <button type="button" class="dem-smooth-btn" data-smooth="adaptive" title="Глубокое размытие только на равнинах, 0% мыла на хребтах и горах">Адаптивный</button>
-          <button type="button" class="dem-smooth-btn" data-smooth="tangent" title="Размывает лесенки строго вдоль горизонталей (анизотропный)">Тангенс (вдоль)</button>
-          <button type="button" class="dem-smooth-btn" data-smooth="median" title="Медианный срез ступеней квантования 1м без размытия">Медиана</button>
-        </div>
-      </div>
+      <!-- СПОЙЛЕР: Фильтрация шума и текстура карты -->
+      <details class="dem-hud-spoiler" open>
+        <summary class="dem-hud-spoiler-summary">
+          <span>🧹 Фильтрация шума и текстура бумаги</span>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <div class="dem-hud-row">
+            <span class="dem-hud-lbl">Сглаживание ступеней рельефа:</span>
+            <div class="dem-smooth-buttons" style="margin-top: 4px;">
+              <button type="button" class="dem-smooth-btn" data-smooth="none" title="Резкие карьеры и дороги">Выкл</button>
+              <button type="button" class="dem-smooth-btn" data-smooth="gauss" title="Мягкий Гаусс">Гаусс</button>
+              <button type="button" class="dem-smooth-btn active" data-smooth="bilateral" title="Сглаживает ступени, сохраняя гребни">Билатерал</button>
+              <button type="button" class="dem-smooth-btn" data-smooth="adaptive" title="Размывает равнины, держит пики">Адаптив</button>
+            </div>
+          </div>
 
-      <!-- ЗАТЕНЕНИЕ НИЗИН (AO) С РАДИУСОМ -->
-      <div class="dem-hud-row" style="background: var(--bg-secondary); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-bottom: 8px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <span style="font-size: 11.5px; font-weight: 700;">Затенение низин и оврагов (AO)</span>
+          <div class="dem-hud-grid-2" style="margin-top: 8px;">
+            <div class="form-group" style="margin: 0;">
+              <label for="dem-hud-hypso-select">Гипсометрия:</label>
+              <select id="dem-hud-hypso-select" class="styled-select">
+                <option value="none" selected>Без шкалы</option>
+                <option value="atlas">Атласная</option>
+              </select>
+            </div>
+            <div class="dem-hud-row" style="margin: 0;">
+              <label for="dem-hud-paper-grain-slider">
+                <span>Зерно бумаги:</span>
+                <b id="dem-hud-paper-grain-val">40%</b>
+              </label>
+              <input type="range" id="dem-hud-paper-grain-slider" min="0" max="150" step="5" value="40" class="styled-range">
+            </div>
+          </div>
+
+          <hr class="style-divider" style="margin: 8px 0 6px;">
+
           <label class="toggle-item" style="margin: 0;">
-            <input type="checkbox" id="dem-hud-toggle-ao" checked>
+            <div>
+              <span style="font-size: 11px; font-weight: 700;">Впитывание краски и пресс (Ink Bleed)</span>
+              <small class="hint-text">Капиллярный край туши и рельеф вдавливания пластины</small>
+            </div>
+            <input type="checkbox" id="dem-hud-toggle-ink-bleed" checked>
+            <span class="toggle-switch"></span>
+          </label>
+
+          <label class="toggle-item" style="margin-top: 6px;">
+            <div>
+              <span style="font-size: 11px; font-weight: 700;">Береговые каёмки (Waterlining)</span>
+              <small class="hint-text">Экспоненциальная рябь старинных карт вдоль берегов</small>
+            </div>
+            <input type="checkbox" id="dem-hud-toggle-waterlining" checked>
             <span class="toggle-switch"></span>
           </label>
         </div>
-        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;">
-          <span>Интенсивность теней:</span>
-          <b id="dem-hud-ao-strength-val" style="color: var(--accent);">100%</b>
-        </div>
-        <input type="range" id="dem-hud-ao-strength-slider" min="20" max="250" step="10" value="100" class="styled-range">
+      </details>
 
-        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-top: 6px; margin-bottom: 2px;">
-          <span>Ширина охвата долин/балок:</span>
-          <b id="dem-hud-ao-radius-val" style="color: var(--accent);">100%</b>
-        </div>
-        <input type="range" id="dem-hud-ao-radius-slider" min="40" max="200" step="10" value="100" class="styled-range">
-      </div>
+      <!-- СПОЙЛЕР: Затенение оврагов (AO) и купол неба (SVF) -->
+      <details class="dem-hud-spoiler">
+        <summary class="dem-hud-spoiler-summary">
+          <span>🕳️ Овраги и купол неба (AO / SVF)</span>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <div class="dem-hud-card-inner">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span style="font-size: 11px; font-weight: 700;">Затенение оврагов (Ambient Occlusion)</span>
+                <small class="hint-text">Подчёркивает русла ручьёв, овраги и балки</small>
+              </div>
+              <label class="toggle-item" style="margin: 0;">
+                <input type="checkbox" id="dem-hud-toggle-ao" checked>
+                <span class="toggle-switch"></span>
+              </label>
+            </div>
 
-      <div class="dem-hud-grid-2">
-        <label class="toggle-item" style="margin: 0;">
-          <div><span style="font-size: 11px; font-weight: 700;">Гравюрная штриховка</span></div>
-          <input type="checkbox" id="dem-hud-toggle-hachure" checked>
-          <span class="toggle-switch"></span>
-        </label>
-        <div class="form-group" style="margin: 0;">
-          <label for="dem-hud-hypso-select">Гипсометрия:</label>
-          <select id="dem-hud-hypso-select" class="styled-select" style="padding: 3px 6px; font-size: 11px;">
-            <option value="none">Монохром</option>
-            <option value="atlas">Винтажный атлас</option>
-          </select>
-        </div>
-      </div>
+            <div id="dem-hud-ao-sub" class="dem-sub-dimmable" style="margin-top: 6px;">
+              <div class="dem-hud-grid-2">
+                <div class="dem-hud-row" style="margin: 0;">
+                  <label for="dem-hud-ao-strength-slider">
+                    <span>Сила:</span>
+                    <b id="dem-hud-ao-strength-val">100%</b>
+                  </label>
+                  <input type="range" id="dem-hud-ao-strength-slider" min="20" max="250" step="10" value="100" class="styled-range">
+                </div>
+                <div class="dem-hud-row" style="margin: 0;">
+                  <label for="dem-hud-ao-bleed-slider">
+                    <span>Эрозия:</span>
+                    <b id="dem-hud-ao-bleed-val">65%</b>
+                  </label>
+                  <input type="range" id="dem-hud-ao-bleed-slider" min="0" max="100" step="5" value="65" class="styled-range">
+                </div>
+              </div>
+              <div class="dem-hud-row" style="margin-top: 6px;">
+                <label for="dem-hud-ao-radius-slider">
+                  <span>Радиус охвата низин:</span>
+                  <b id="dem-hud-ao-radius-val">100%</b>
+                </label>
+                <input type="range" id="dem-hud-ao-radius-slider" min="30" max="200" step="10" value="100" class="styled-range">
+              </div>
+            </div>
+          </div>
 
-      <div class="dem-hud-row" style="margin-top: 6px;">
-        <label for="dem-hud-paper-grain-slider" style="display: flex; justify-content: space-between;">
-          <span>Зернистость пергамента:</span>
-          <b id="dem-hud-paper-grain-val">40%</b>
-        </label>
-        <input type="range" id="dem-hud-paper-grain-slider" min="0" max="100" step="5" value="40" class="styled-range">
-      </div>
+          <div class="dem-hud-card-inner" style="margin-top: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span style="font-size: 11px; font-weight: 700;">Купол неба (Sky View Factor)</span>
+                <small class="hint-text">Свечение пиков и полумрак ущелий</small>
+              </div>
+              <label class="toggle-item" style="margin: 0;">
+                <input type="checkbox" id="dem-hud-toggle-svf" checked>
+                <span class="toggle-switch"></span>
+              </label>
+            </div>
+
+            <div id="dem-hud-svf-sub" class="dem-sub-dimmable" style="margin-top: 6px;">
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-svf-slider">
+                  <span>Выраженность купола:</span>
+                  <b id="dem-hud-svf-val">85%</b>
+                </label>
+                <input type="range" id="dem-hud-svf-slider" min="10" max="300" step="5" value="85" class="styled-range">
+              </div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <!-- СПОЙЛЕР: Гравюрная штриховка склонов -->
+      <details class="dem-hud-spoiler" id="spoiler-hud-hachure">
+        <summary class="dem-hud-spoiler-summary">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span>📐 Гравюрная штриховка склонов</span>
+            <span id="dem-hud-hachure-status-badge" class="dem-hud-badge-mini">Выкл</span>
+          </div>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <label class="toggle-item" style="margin: 0;">
+            <div>
+              <span style="font-size: 11.5px; font-weight: 700;">Включить штрихи (Hachures)</span>
+              <small class="hint-text">Линии крутизны рельефа по Леману и Дюфуру</small>
+            </div>
+            <input type="checkbox" id="dem-hud-toggle-hachure">
+            <span class="toggle-switch"></span>
+          </label>
+
+          <div id="dem-hud-hachure-sub" class="dem-sub-dimmable is-disabled" style="margin-top: 6px;">
+            <div class="dem-hud-grid-2">
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-hachure-type-select">Тип штриховки:</label>
+                <select id="dem-hud-hachure-type-select" class="styled-select">
+                  <option value="flow" selected>🖋️ По кривизне Гессе (Дюрер)</option>
+                  <option value="classic">〰️ Контурная (классика)</option>
+                  <option value="lehmann">📐 Линии стока (Леман)</option>
+                  <option value="rock">🏔️ Скалы (Felszeichnung)</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-hachure-color">Цвет туши:</label>
+                <input type="color" id="dem-hud-hachure-color" value="#1c1917" class="styled-color-picker">
+              </div>
+            </div>
+
+            <div class="dem-hud-grid-2" style="margin-top: 6px;">
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-hachure-opacity-slider">
+                  <span>Яркость:</span>
+                  <b id="dem-hud-hachure-opacity-val">75%</b>
+                </label>
+                <input type="range" id="dem-hud-hachure-opacity-slider" min="10" max="100" step="5" value="75" class="styled-range">
+              </div>
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-hachure-density-slider">
+                  <span>Частота:</span>
+                  <b id="dem-hud-hachure-density-val">100%</b>
+                </label>
+                <input type="range" id="dem-hud-hachure-density-slider" min="50" max="250" step="10" value="100" class="styled-range">
+              </div>
+            </div>
+
+            <div class="dem-hud-row" style="margin-top: 6px;">
+              <label for="dem-hud-hachure-slope-slider">
+                <span>Порог крутизны:</span>
+                <b id="dem-hud-hachure-slope-val">8%</b>
+              </label>
+              <input type="range" id="dem-hud-hachure-slope-slider" min="2" max="25" step="1" value="8" class="styled-range">
+            </div>
+
+            <div class="dem-hud-row" style="margin-top: 6px;">
+              <label for="dem-hud-hachure-lightmod-slider">
+                <span>Эффект Дюфура (ослабление на свету):</span>
+                <b id="dem-hud-hachure-lightmod-val">60%</b>
+              </label>
+              <input type="range" id="dem-hud-hachure-lightmod-slider" min="0" max="100" step="5" value="60" class="styled-range">
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <!-- СПОЙЛЕР: Художественный дизеринг и гравюра -->
+      <details class="dem-hud-spoiler" id="spoiler-hud-dither">
+        <summary class="dem-hud-spoiler-summary">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span>🎭 Художественный дизеринг</span>
+            <span id="dem-hud-dither-status-badge" class="dem-hud-badge-mini">Выкл</span>
+          </div>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <label class="toggle-item" style="margin: 0;">
+            <div>
+              <span style="font-size: 11.5px; font-weight: 700;">Включить дизеринг рельефа</span>
+              <small class="hint-text">Стилизация под атласы, газетный растр и гравюры</small>
+            </div>
+            <input type="checkbox" id="dem-hud-toggle-dither">
+            <span class="toggle-switch"></span>
+          </label>
+
+          <div id="dem-hud-dither-sub" class="dem-sub-dimmable is-disabled" style="margin-top: 6px;">
+            <div class="dem-hud-grid-2">
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-dither-type-select">Тип растра/штриха:</label>
+                <select id="dem-hud-dither-type-select" class="styled-select">
+                  <option value="blue" selected>🔵 Органичный шум (зерно)</option>
+                  <option value="wavy">🌊 Волнистая гравюра (Гильош)</option>
+                  <option value="hex">⬡ Гексагональный растр (60°)</option>
+                  <option value="chevron">📐 Шеврон / Ёлочка</option>
+                  <option value="hatch">📏 Линейная штриховка</option>
+                  <option value="woodcut">📐 Ксилография (по склонам)</option>
+                  <option value="cross">✕ Перекрёстная гравюра</option>
+                  <option value="dots">⚪ Точки (Halftone 90°)</option>
+                  <option value="bayer">▦ Матрица Байера 4×4</option>
+                  <option value="stipple">✨ Меццо-тинто</option>
+                  <option value="litho">🪨 Литографский камень</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-dither-color">Цвет туши/растра:</label>
+                <input type="color" id="dem-hud-dither-color" value="#1a1614" class="styled-color-picker">
+              </div>
+            </div>
+
+            <div class="dem-hud-grid-2" style="margin-top: 6px;">
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-dither-blend-select">Смешивание туши:</label>
+                <select id="dem-hud-dither-blend-select" class="styled-select">
+                  <option value="multiply" selected>Multiply (оттиск туши)</option>
+                  <option value="normal">Normal (перекрытие)</option>
+                  <option value="overlay">Overlay (контрастный)</option>
+                  <option value="softlight">Soft-Light (мягкий)</option>
+                  <option value="screen">Screen (осветление)</option>
+                  <option value="burn">Color Burn (травление)</option>
+                  <option value="difference">Difference (инверсия)</option>
+                </select>
+              </div>
+
+              <div class="dem-hud-row" id="dem-hud-dither-angle-wrap" style="margin: 0;">
+                <label for="dem-hud-dither-angle-slider">
+                  <span>Угол штриха:</span>
+                  <b id="dem-hud-dither-angle-val" style="color: var(--accent);">45°</b>
+                </label>
+                <input type="range" id="dem-hud-dither-angle-slider" min="0" max="180" step="1" value="45" class="styled-range">
+              </div>
+            </div>
+
+            <div class="dem-hud-grid-2" style="margin-top: 6px;">
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-dither-scale-slider">
+                  <span>Масштаб зерна:</span>
+                  <b id="dem-hud-dither-scale-val">×1.0</b>
+                </label>
+                <input type="range" id="dem-hud-dither-scale-slider" min="0.5" max="3.5" step="0.1" value="1.0" class="styled-range">
+              </div>
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-dither-density-slider">
+                  <span>Плотность:</span>
+                  <b id="dem-hud-dither-density-val" style="color: var(--accent);">100%</b>
+                </label>
+                <input type="range" id="dem-hud-dither-density-slider" min="20" max="220" step="5" value="100" class="styled-range">
+              </div>
+            </div>
+
+            <div class="dem-hud-grid-2" style="margin-top: 6px;">
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-dither-zone-select">Зона применения:</label>
+                <select id="dem-hud-dither-zone-select" class="styled-select">
+                  <option value="shadows" selected>🌑 В тенях и впадинах</option>
+                  <option value="highlights">☀️ На светлых склонах</option>
+                  <option value="all">🌍 По всему рельефу</option>
+                </select>
+              </div>
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-dither-thresh-slider">
+                  <span>Порог охвата:</span>
+                  <b id="dem-hud-dither-thresh-val">60%</b>
+                </label>
+                <input type="range" id="dem-hud-dither-thresh-slider" min="5" max="95" step="5" value="60" class="styled-range">
+              </div>
+            </div>
+
+            <div class="dem-hud-grid-2" style="margin-top: 6px;">
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-dither-lowcut-slider">
+                  <span>Отсечение снизу:</span>
+                  <b id="dem-hud-dither-lowcut-val" style="color: var(--accent);">0%</b>
+                </label>
+                <input type="range" id="dem-hud-dither-lowcut-slider" min="0" max="80" step="5" value="0" class="styled-range">
+              </div>
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-dither-soft-slider">
+                  <span>Мягкость:</span>
+                  <b id="dem-hud-dither-soft-val">20%</b>
+                </label>
+                <input type="range" id="dem-hud-dither-soft-slider" min="0" max="130" step="5" value="20" class="styled-range">
+              </div>
+            </div>
+
+            <div class="dem-hud-row" style="margin-top: 6px;">
+              <label for="dem-hud-dither-str-slider">
+                <span>Интенсивность туши:</span>
+                <b id="dem-hud-dither-str-val">85%</b>
+              </label>
+              <input type="range" id="dem-hud-dither-str-slider" min="10" max="200" step="5" value="85" class="styled-range">
+            </div>
+          </div>
+        </div>
+      </details>
     </div>
 
-    <!-- ВКЛАДКА 3: ВИНТАЖНЫЕ ГОРИЗОНТАЛИ -->
+    <!-- ================================================================= -->
+    <!-- ВКЛАДКА 3: ВИНТАЖНЫЕ ИЗОЛИНИИ (ГОРИЗОНТАЛИ) -->
+    <!-- ================================================================= -->
     <div id="dem-hud-body-contours" class="dem-hud-section" hidden>
-      <div class="dem-hud-grid-2">
+      <!-- Базовые параметры линий -->
+      <div class="dem-hud-grid-3">
         <div class="form-group" style="margin: 0;">
-          <label for="dem-hud-step-select">Шаг линий:</label>
-          <select id="dem-hud-step-select" class="styled-select" style="padding: 4px 6px; font-size: 11px;">
-            <option value="5">Каждые 5 м</option>
-            <option value="10">Каждые 10 м</option>
-            <option value="20" selected>Каждые 20 м</option>
-            <option value="50">Каждые 50 м</option>
-            <option value="100">Каждые 100 м</option>
+          <label for="dem-hud-step-select">Шаг высот:</label>
+          <select id="dem-hud-step-select" class="styled-select">
+            <option value="auto" selected>⚡ Авто</option>
+            <option value="5">5 м</option>
+            <option value="10">10 м</option>
+            <option value="20">20 м</option>
+            <option value="50">50 м</option>
+            <option value="100">100 м</option>
           </select>
         </div>
-
-        <div class="dem-hud-grid-2">
-          <div class="form-group" style="margin: 0;">
-            <label for="dem-hud-contour-palette">Стиль туши:</label>
-            <select id="dem-hud-contour-palette" class="styled-select" style="padding: 4px 6px; font-size: 11px;">
-              <option value="sepia" selected>🖋️ Жжёная сепия</option>
-              <option value="custom">🎨 Свой цвет</option>
-            </select>
-          </div>
-
-          <div class="form-group" id="dem-hud-custom-color-wrap" style="margin: 0;" hidden>
-            <label for="dem-hud-contour-color">Цвет:</label>
-            <input type="color" id="dem-hud-contour-color" value="#b45309" style="width:100%; height:26px; border:none; padding:0; cursor:pointer;">
-          </div>
-        </div>
-      </div> <!-- ВОТ ЭТОТ </div> БЫЛ ПРОПУЩЕН -->
-
-      <div class="dem-hud-row" style="margin-top: 6px;">
-        <label for="dem-hud-width-slider">
-          <span>Базовая толщина пера:</span>
-          <b id="dem-hud-width-val">1.5 px</b>
-        </label>
-        <input type="range" id="dem-hud-width-slider" min="0.5" max="5.0" step="0.1" value="1.5" class="styled-range">
-      </div>
-
-      <!-- ГАШЕНИЕ И ВОЛОСЯНЫЕ ЛИНИИ НА ОБРЫВАХ -->
-      <div class="dem-hud-row" style="background: var(--bg-secondary); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-bottom: 8px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <span style="font-size: 11.5px; font-weight: 700;">Утоньшение на склонах</span>
-          <label class="toggle-item" style="margin: 0;">
-            <input type="checkbox" id="dem-hud-toggle-taper" checked>
-            <span class="toggle-switch"></span>
+        <div class="dem-hud-row" style="margin: 0;">
+          <label for="dem-hud-width-slider">
+            <span>Перо:</span>
+            <b id="dem-hud-width-val">1.5 px</b>
           </label>
+          <input type="range" id="dem-hud-width-slider" min="0.5" max="5.0" step="0.1" value="1.5" class="styled-range">
         </div>
-
-        <div id="dem-hud-taper-strength-wrap">
-          <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:2px;">
-            <span>Степень утоньшения:</span>
-            <b id="dem-hud-taper-strength-val" style="color: var(--accent);">60%</b>
-          </div>
-          <div class="form-group" style="margin-bottom: 6px;">
-            <select id="dem-hud-taper-dir-select" class="styled-select" style="padding: 3px 6px; font-size: 11px;">
-              <option value="crests" selected>⬇ Тоньше к вершинам (не слипаются)</option>
-              <option value="valleys">⬆ Тоньше в низинах</option>
-            </select>
-          </div>
-          <input type="range" id="dem-hud-taper-strength-slider" min="10" max="85" step="5" value="60" class="styled-range">
-        </div>
-
-        <label class="toggle-item" style="margin-top: 6px;">
-          <div><span style="font-size: 11px; font-weight: 600;">Волосяные линии на обрывах (0.4px)</span></div>
-          <input type="checkbox" id="dem-hud-toggle-cliff-hairlines" checked>
-          <span class="toggle-switch"></span>
-        </label>
-      </div>
-
-      <div class="dem-hud-grid-2" style="margin-top: 4px;">
         <div class="dem-hud-row" style="margin: 0;">
           <label for="dem-hud-ct-opacity">
-            <span>Прозрачность:</span>
+            <span>Яркость:</span>
             <b id="dem-hud-ct-opacity-val">85%</b>
           </label>
           <input type="range" id="dem-hud-ct-opacity" min="20" max="100" step="5" value="85" class="styled-range">
         </div>
-        <label class="toggle-item" style="margin: 0; align-items: center;">
-          <div><span style="font-size: 11px; font-weight: 700;">Подписи (Антиква)</span></div>
-          <input type="checkbox" id="dem-hud-toggle-labels" checked>
-          <span class="toggle-switch"></span>
-        </label>
       </div>
+
+      <!-- СПОЙЛЕР: Стиль и метод Танаки -->
+      <details class="dem-hud-spoiler" open style="margin-top: 8px;">
+        <summary class="dem-hud-spoiler-summary">
+          <span>🏯 Стиль 3D-Танака и объём</span>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <div class="form-group" style="margin: 0;">
+            <label for="dem-hud-contour-style-select">Стиль отображения:</label>
+            <select id="dem-hud-contour-style-select" class="styled-select">
+              <option value="standard" selected>Обычные изолинии</option>
+              <option value="tanaka">🏯 Метод Танаки (3D объём)</option>
+            </select>
+          </div>
+          <small class="hint-text" style="margin-top: 4px; display: block;">
+            Метод Танаки автоматически модулирует цвет и толщину линии по направлению падения солнечных лучей, создавая рельефный 3D-эффект.
+          </small>
+        </div>
+      </details>
+
+      <!-- СПОЙЛЕР: Цвет туши, смешивание и подписи -->
+      <details class="dem-hud-spoiler" style="margin-top: 6px;">
+        <summary class="dem-hud-spoiler-summary">
+          <span>🖋️ Цвет туши, наложение и отметки</span>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <div class="dem-hud-grid-2">
+            <div class="form-group" style="margin: 0;">
+              <label for="dem-hud-contour-palette">Палитра туши:</label>
+              <select id="dem-hud-contour-palette" class="styled-select">
+                <option value="sepia" selected>🖋️ Жжёная сепия</option>
+                <option value="custom">🎨 Свой цвет</option>
+              </select>
+            </div>
+            <div class="form-group" id="dem-hud-custom-color-wrap" style="margin: 0;" hidden>
+              <label for="dem-hud-contour-color">Цвет:</label>
+              <input type="color" id="dem-hud-contour-color" value="#b45309" class="styled-color-picker">
+            </div>
+          </div>
+
+          <div class="dem-hud-grid-2" style="margin-top: 6px;">
+            <div class="form-group" style="margin: 0;">
+              <label for="dem-hud-contour-blend-select">Смешивание:</label>
+              <select id="dem-hud-contour-blend-select" class="styled-select">
+                <option value="normal" selected>Normal (обычный)</option>
+                <option value="multiply">Multiply (тушь)</option>
+                <option value="overlay">Overlay (перекрытие)</option>
+                <option value="soft-light">Soft-Light (мягкий)</option>
+                <option value="difference">Difference (авто-контраст)</option>
+              </select>
+            </div>
+            <label class="toggle-item" style="margin: 0; align-self: end; padding-bottom: 2px;">
+              <div>
+                <span style="font-size: 11px; font-weight: 700;">Подписи отметок (м)</span>
+              </div>
+              <input type="checkbox" id="dem-hud-toggle-labels" checked>
+              <span class="toggle-switch"></span>
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <!-- СПОЙЛЕР: Утоньшение к вершинам и скалы -->
+      <details class="dem-hud-spoiler" style="margin-top: 6px;">
+        <summary class="dem-hud-spoiler-summary">
+          <span>⛰️ Утоньшение на высоте и скалы</span>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <label class="toggle-item" style="margin: 0;">
+            <div>
+              <span style="font-size: 11px; font-weight: 700;">Утоньшение линий по высоте</span>
+              <small class="hint-text">Имитация старинной картографической гравировки</small>
+            </div>
+            <input type="checkbox" id="dem-hud-toggle-taper" checked>
+            <span class="toggle-switch"></span>
+          </label>
+
+          <div id="dem-hud-taper-strength-wrap" class="dem-sub-dimmable" style="margin-top: 6px;">
+            <div class="dem-hud-grid-2">
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-taper-dir-select">Направление:</label>
+                <select id="dem-hud-taper-dir-select" class="styled-select">
+                  <option value="crests" selected>⬇ Тоньше к вершинам</option>
+                  <option value="valleys">⬆ Тоньше в низинах</option>
+                </select>
+              </div>
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-taper-strength-slider">
+                  <span>Степень:</span>
+                  <b id="dem-hud-taper-strength-val">60%</b>
+                </label>
+                <input type="range" id="dem-hud-taper-strength-slider" min="10" max="200" step="5" value="60" class="styled-range">
+              </div>
+            </div>
+          </div>
+
+          <label class="toggle-item" style="margin-top: 8px;">
+            <div>
+              <span style="font-size: 11px; font-weight: 700;">Волосяные линии обрывов (0.4 px)</span>
+              <small class="hint-text">Утоньшает слипшиеся горизонтали на вертикальных скалах</small>
+            </div>
+            <input type="checkbox" id="dem-hud-toggle-cliff-hairlines" checked>
+            <span class="toggle-switch"></span>
+          </label>
+        </div>
+      </details>
     </div>
+
   </div>
 </div>
-
 
 
   <script src="js/leaflet.js"></script>
