@@ -4176,5 +4176,366 @@
     }
   };
 
+// =========================================================================
+  // ВРЕМЕННАЯ СТУДИЯ ДНЯ И НОЧИ (ДЛЯ ТОНКОЙ НАСТРОЙКИ СВЕТА)
+  // Удалите этот блок, когда закончите настройку!
+  // =========================================================================
+  const sunStudioConfig = {
+    dawnDarkCutoff: -13.0,
+    dawnFastRise: 6.0,
+
+    // Ночь (мягче и светлее)
+    nightStarLightHex: '#6b80b8',  // звёздный свет (есть всегда)
+    nightMoonLightHex: '#b8d0ff',  // лунный свет
+    nightShadowHex: '#2a3560',     // ночные тени (было #0c0f1d — слишком чёрные)
+    nightSkyHex: '#243055',
+    nightBrightness: 0.85,
+    moonBoost: 0.15,
+    moonMinAltDeg: 12.0,           // не даём Луне давать слишком длинные тени
+    starElevDeg: 50.0,             // высота «звёздного» источника: выше = мягче тени
+    nightShadowSoftness: 0.45,     // 1.0 = как днём, 0.3 = очень мягкие ночные тени
+
+    // Рассвет
+    dawnGlowHex: '#ff8288',
+    dawnValleyHex: '#282b5e',
+    dawnLightHex: '#ffc999',
+
+    // Закат
+    duskGlowHex: '#eb4452',
+    duskValleyHex: '#221946',
+    duskLightHex: '#ff7733',
+
+    // День
+    dayLightHex: '#fff8eb',
+    dayShadowHex: '#485269'
+  };
+
+  // Перехватываем расчет света
+  const _origGetSunLighting = getSunLighting;
+  getSunLighting = function(centerLat, centerLng) {
+    if (cfg.sunMode === 'manual' || cfg.sunMode === 'swiss' || !window.SunCalc) {
+      return _origGetSunLighting(centerLat, centerLng);
+    }
+
+    const S = sunStudioConfig;
+    const dateForCalc = (cfg.sunMode === 'time') ? getEffectiveSunDate(centerLat, centerLng) : new Date();
+
+    // ---------- Солнце ----------
+    const sunPos = SunCalc.getPosition(dateForCalc, centerLat, centerLng);
+    const sunAltDeg = sunPos.altitude * (180 / Math.PI);
+    const sunAz = sunPos.azimuth + Math.PI;
+
+    const visualSunAltRad = (Math.max(7.0, sunAltDeg) * Math.PI) / 180;
+    const cosVisualAlt = Math.cos(visualSunAltRad);
+    const sunV = [Math.sin(sunAz) * cosVisualAlt, -Math.cos(sunAz) * cosVisualAlt, Math.sin(visualSunAltRad)];
+
+    let isMorning = false;
+    try {
+      const times = SunCalc.getTimes(dateForCalc, centerLat, centerLng);
+      if (times.solarNoon && !isNaN(times.solarNoon.getTime())) {
+        isMorning = dateForCalc.getTime() < times.solarNoon.getTime();
+      } else {
+        isMorning = (dateForCalc.getUTCHours() + centerLng / 15 + 24) % 24 < 12;
+      }
+    } catch (e) { isMorning = false; }
+
+    // ---------- Луна ----------
+    let moonUp = 0, moonAmt = 0;
+    let moonDir = [0.0, 0.0, 1.0];
+
+    if (SunCalc.getMoonPosition) {
+      const mp = SunCalc.getMoonPosition(dateForCalc, centerLat, centerLng);
+      const mAltDeg = mp.altitude * (180 / Math.PI);
+      const mAz = mp.azimuth + Math.PI;
+      const frac = SunCalc.getMoonIllumination
+        ? SunCalc.getMoonIllumination(dateForCalc).fraction
+        : 0.5;
+
+      moonUp = smoothstep(-1.0, 6.0, mAltDeg);
+      const altGain = 0.55 + 0.45 * Math.sin(Math.max(0.0, mp.altitude));
+      moonAmt = moonUp * lerp(0.12, 1.0, Math.pow(clamp(frac, 0, 1), 0.8)) * altGain;
+
+      const effAlt = (Math.max(S.moonMinAltDeg, mAltDeg) * Math.PI) / 180;
+      const cA = Math.cos(effAlt);
+      moonDir = [Math.sin(mAz) * cA, -Math.cos(mAz) * cA, Math.sin(effAlt)];
+    }
+
+    // ---------- Звёздный купол: направление ползёт вместе с азимутом (антисолнечная точка) ----------
+    const starAz = sunAz + Math.PI;
+    const starAlt = (S.starElevDeg * Math.PI) / 180;
+    const cS = Math.cos(starAlt);
+    const starV = normalizeVec3([Math.sin(starAz) * cS, -Math.cos(starAz) * cS, Math.sin(starAlt)]);
+
+    // ---------- Ночные цвета ----------
+    const starLight = hexToVec3(S.nightStarLightHex);
+    const moonLight = hexToVec3(S.nightMoonLightHex);
+    const nShaBase  = hexToVec3(S.nightShadowHex);
+    const nSkyBase  = hexToVec3(S.nightSkyHex);
+
+    const nLight = lerpVec3(starLight, moonLight, moonAmt);
+    const nSha   = lerpVec3(nShaBase, hexToVec3('#3a4a7c'), moonAmt * 0.45);
+    const nSky   = lerpVec3(nSkyBase, hexToVec3('#34457a'), moonAmt * 0.50);
+    const nK     = S.nightBrightness + S.moonBoost * moonAmt;
+
+    const dGlow  = hexToVec3(S.dawnGlowHex);
+    const dVal   = hexToVec3(S.dawnValleyHex);
+    const dLight = hexToVec3(S.dawnLightHex);
+    const sGlow  = hexToVec3(S.duskGlowHex);
+    const sVal   = hexToVec3(S.duskValleyHex);
+    const sLight = hexToVec3(S.duskLightHex);
+    const dayL   = hexToVec3(S.dayLightHex);
+    const dayS   = hexToVec3(S.dayShadowHex);
+    const daySky = [0.45, 0.58, 0.75];
+
+    const cutoff = S.dawnDarkCutoff;
+
+    const dawnStops = [
+      { a: cutoff - 4, light: nLight, shadow: nSha, sky: nSky, k: nK },
+      { a: cutoff,     light: nLight, shadow: nSha, sky: nSky, k: nK },
+      { a: cutoff + 3, light: lerpVec3(nLight, dLight, 0.3), shadow: lerpVec3(nSha, dVal, 0.4), sky: lerpVec3(nSky, [0.2, 0.22, 0.4], 0.6), k: lerp(nK, 0.72, 0.5) },
+      { a: -1.0,       light: dLight, shadow: dVal, sky: [0.5, 0.48, 0.68], k: 0.74 },
+      { a: 3.0,        light: lerpVec3(dLight, dayL, 0.5), shadow: lerpVec3(dVal, dayS, 0.5), sky: [0.48, 0.54, 0.72], k: 0.86 },
+      { a: 12.0,       light: dayL, shadow: dayS, sky: daySky, k: 0.95 }
+    ];
+
+    const duskStops = [
+      { a: -14, light: nLight, shadow: nSha, sky: nSky, k: nK },
+      { a: -8,  light: lerpVec3(nLight, sLight, 0.3), shadow: lerpVec3(nSha, sVal, 0.6), sky: lerpVec3(nSky, [0.18, 0.16, 0.35], 0.6), k: lerp(nK, 0.70, 0.5) },
+      { a: -2,  light: sLight, shadow: sVal, sky: [0.38, 0.30, 0.58], k: 0.72 },
+      { a: 2,   light: lerpVec3(sLight, dayL, 0.4), shadow: lerpVec3(sVal, dayS, 0.4), sky: [0.45, 0.44, 0.68], k: 0.80 },
+      { a: 12,  light: dayL, shadow: dayS, sky: daySky, k: 0.95 }
+    ];
+
+    const ramp = sampleRamp(isMorning ? dawnStops : duskStops, sunAltDeg);
+
+    // ---------- Терминатор и альпийское свечение ----------
+    let twClimb, twAmt, glowW, glowCol, valleyCol;
+    if (!isMorning) {
+      const p = smoothstep(3.0, -6.5, sunAltDeg);
+      twClimb = -0.15 + p * 1.35;
+      twAmt   = smoothstep(5.0, 1.0, sunAltDeg) * smoothstep(-13.0, -8.0, sunAltDeg);
+      glowW   = smoothstep(3.0, -0.5, sunAltDeg) * smoothstep(-9.0, -5.0, sunAltDeg);
+      glowCol   = sGlow;
+      valleyCol = sVal;
+    } else {
+      const p = smoothstep(cutoff + 6.0, 1.5, sunAltDeg);
+      twClimb = 1.20 - p * 1.35;
+      twAmt   = smoothstep(cutoff - 2.0, cutoff + 3.0, sunAltDeg) * smoothstep(6.0, 2.0, sunAltDeg);
+      glowW   = smoothstep(cutoff + 4.0, cutoff + 7.5, sunAltDeg) * smoothstep(4.0, 0.5, sunAltDeg);
+      glowCol   = dGlow;
+      valleyCol = dVal;
+    }
+
+    // ---------- Направление: Солнце -> (Луна | звёзды), переход раньше и одинаково утром/вечером ----------
+    const toNight = 1.0 - smoothstep(-10.0, 1.0, sunAltDeg);
+
+    // Луна перетягивает направление пропорционально реальной силе света
+    const moonSteer = clamp(moonAmt * 1.8, 0.0, 1.0);
+    const nightV = normalizeVec3(lerpVec3(starV, moonDir, moonSteer));
+    const finalLightVec = normalizeVec3(lerpVec3(sunV, nightV, toNight));
+
+    // Ночные литые тени мягче
+    const shadowMul = lerp(1.0, S.nightShadowSoftness, toNight);
+
+    return {
+      sunVec: finalLightVec,
+      lightColor: ramp.light,
+      shadowColor: ramp.shadow,
+      skyColor: ramp.sky,
+      alpenglowWeight: glowW,
+      sunIntensity: ramp.k,
+      warmCool: 0.85,
+      isSwiss: false,
+      twilightClimb: twClimb,
+      twilightAmt: twAmt,
+      glowColor: glowCol,
+      valleyColor: valleyCol,
+      shadowMul: shadowMul
+    };
+  };
+
+  // Создание плавающего окна студии в UI
+  setTimeout(() => {
+    if (document.getElementById('wm-sun-studio')) return;
+    const box = document.createElement('div');
+    box.id = 'wm-sun-studio';
+    box.innerHTML = `
+      <style>
+        #wm-sun-studio {
+          position: fixed; top: 12px; right: 12px; z-index: 99999;
+          width: 310px; max-height: 90vh; overflow-y: auto;
+          background: rgba(18, 22, 34, 0.94); backdrop-filter: blur(10px);
+          border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 12px;
+          box-shadow: 0 16px 40px rgba(0,0,0,0.6); color: #f1f5f9;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-size: 11.5px; padding: 12px;
+        }
+        #wm-sun-studio h4 { margin: 0 0 8px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+        #wm-sun-studio .ss-row { margin-bottom: 8px; }
+        #wm-sun-studio .ss-row label { display: flex; justify-content: space-between; margin-bottom: 2px; color: #94a3b8; font-weight: 600; }
+        #wm-sun-studio input[type=range] { width: 100%; margin: 2px 0; accent-color: #38bdf8; }
+        #wm-sun-studio .ss-presets { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+        #wm-sun-studio .ss-presets button {
+          flex: 1 1 28%; font-size: 10px; padding: 4px 2px; border: 1px solid rgba(255,255,255,0.15);
+          background: rgba(255,255,255,0.06); color: #fff; border-radius: 6px; cursor: pointer;
+        }
+        #wm-sun-studio .ss-presets button:hover { background: rgba(56, 189, 248, 0.25); border-color: #38bdf8; }
+        #wm-sun-studio .ss-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+        #wm-sun-studio .ss-color-box { background: rgba(0,0,0,0.3); padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); }
+        #wm-sun-studio .ss-color-box span { display: block; font-size: 10px; color: #94a3b8; margin-bottom: 2px; }
+        #wm-sun-studio input[type=color] { border: none; width: 100%; height: 22px; border-radius: 4px; cursor: pointer; background: transparent; }
+        #wm-sun-studio .ss-btn-copy {
+          width: 100%; padding: 8px; background: #0284c7; color: #fff; font-weight: bold;
+          border: none; border-radius: 6px; cursor: pointer; margin-top: 6px;
+        }
+        #wm-sun-studio .ss-btn-copy:hover { background: #0369a1; }
+      </style>
+      <h4>
+        <span>☀️ Студия света (День/Ночь)</span>
+        <button id="ss-btn-hide" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">✕</button>
+      </h4>
+
+      <!-- Плеер времени -->
+      <div class="ss-row">
+        <label><span>🕒 Солнечное время:</span><b id="ss-time-val" style="color:#38bdf8;">06:00</b></label>
+        <input type="range" id="ss-time-slider" min="0" max="24" step="0.1" value="6.0">
+      </div>
+
+      <!-- Быстрые кнопки -->
+      <div class="ss-presets">
+        <button data-h="2.0">🌙 Глухая ночь</button>
+        <button data-h="4.8">🌌 Тёмный час</button>
+        <button data-h="5.8">🌅 Первый луч</button>
+        <button data-h="8.0">☀️ Утро</button>
+        <button data-h="13.0">☀️ Полдень</button>
+        <button data-h="19.2">🌇 Закат</button>
+      </div>
+
+      <hr style="border:none; border-top:1px solid rgba(255,255,255,0.1); margin:8px 0;">
+
+      <!-- Длина тёмного часа -->
+      <div class="ss-row">
+        <label>
+          <span>⏳ Длина ночи перед рассветом:</span>
+          <b id="ss-cutoff-val" style="color:#f59e0b;">-13°</b>
+        </label>
+        <input type="range" id="ss-cutoff-slider" min="-30" max="-6" step="0.5" value="-13">
+        <small style="color:#64748b; font-size:9.5px; display:block;">Чем правее (ближе к -6°), тем дольше держится глухая ночь перед рассветом.</small>
+      </div>
+
+      <div class="ss-row">
+        <label><span>💡 Яркость ночи:</span><b id="ss-night-bright-val">22%</b></label>
+        <input type="range" id="ss-night-bright" min="5" max="80" step="1" value="22">
+      </div>
+
+      <!-- Цвета ночи -->
+      <div class="ss-grid">
+        <div class="ss-color-box">
+          <span>Ночной свет:</span>
+          <input type="color" id="ss-col-nlight" value="${sunStudioConfig.nightLightHex}">
+        </div>
+        <div class="ss-color-box">
+          <span>Ночные тени:</span>
+          <input type="color" id="ss-col-nsha" value="${sunStudioConfig.nightShadowHex}">
+        </div>
+      </div>
+
+      <!-- Цвета рассвета -->
+      <div class="ss-grid">
+        <div class="ss-color-box">
+          <span>Вершины рассвета:</span>
+          <input type="color" id="ss-col-dglow" value="${sunStudioConfig.dawnGlowHex}">
+        </div>
+        <div class="ss-color-box">
+          <span>Низины рассвета:</span>
+          <input type="color" id="ss-col-dval" value="${sunStudioConfig.dawnValleyHex}">
+        </div>
+      </div>
+
+      <!-- Цвета заката -->
+      <div class="ss-grid">
+        <div class="ss-color-box">
+          <span>Вершины заката:</span>
+          <input type="color" id="ss-col-sglow" value="${sunStudioConfig.duskGlowHex}">
+        </div>
+        <div class="ss-color-box">
+          <span>Низины заката:</span>
+          <input type="color" id="ss-col-sval" value="${sunStudioConfig.duskValleyHex}">
+        </div>
+      </div>
+
+      <button class="ss-btn-copy" id="ss-copy-btn">📋 Скопировать конфигурацию</button>
+    `;
+
+    document.body.appendChild(box);
+
+    const timeSlider = document.getElementById('ss-time-slider');
+    const timeVal = document.getElementById('ss-time-val');
+    const cutoffSlider = document.getElementById('ss-cutoff-slider');
+    const cutoffVal = document.getElementById('ss-cutoff-val');
+    const nightBright = document.getElementById('ss-night-bright');
+    const nightBrightVal = document.getElementById('ss-night-bright-val');
+
+    function sync() {
+      scheduleLiveHillshade();
+    }
+
+    timeSlider.addEventListener('input', (e) => {
+      const h = parseFloat(e.target.value);
+      const hours = Math.floor(h);
+      const mins = Math.floor((h - hours) * 60);
+      timeVal.textContent = `${String(hours).padStart(2,'0')}:${String(mins).padStart(2,'0')}`;
+      cfg.manualTimeHour = h;
+      cfg.sunMode = 'time';
+      sync();
+    });
+
+    document.querySelectorAll('#wm-sun-studio .ss-presets button').forEach(b => {
+      b.addEventListener('click', () => {
+        const h = parseFloat(b.dataset.h);
+        timeSlider.value = h;
+        timeSlider.dispatchEvent(new Event('input'));
+      });
+    });
+
+    cutoffSlider.addEventListener('input', (e) => {
+      sunStudioConfig.dawnDarkCutoff = parseFloat(e.target.value);
+      cutoffVal.textContent = sunStudioConfig.dawnDarkCutoff.toFixed(1) + '°';
+      sync();
+    });
+
+    nightBright.addEventListener('input', (e) => {
+      sunStudioConfig.nightBrightness = parseInt(e.target.value, 10) / 100;
+      nightBrightVal.textContent = e.target.value + '%';
+      sync();
+    });
+
+    function bindCol(id, prop) {
+      document.getElementById(id).addEventListener('input', (e) => {
+        sunStudioConfig[prop] = e.target.value;
+        sync();
+      });
+    }
+
+    bindCol('ss-col-nlight', 'nightLightHex');
+    bindCol('ss-col-nsha',   'nightShadowHex');
+    bindCol('ss-col-dglow',  'dawnGlowHex');
+    bindCol('ss-col-dval',   'dawnValleyHex');
+    bindCol('ss-col-sglow',  'duskGlowHex');
+    bindCol('ss-col-sval',   'duskValleyHex');
+
+    document.getElementById('ss-btn-hide').addEventListener('click', () => {
+      box.remove();
+    });
+
+    document.getElementById('ss-copy-btn').addEventListener('click', () => {
+      const exportJson = JSON.stringify(sunStudioConfig, null, 2);
+      navigator.clipboard.writeText(exportJson).then(() => {
+        const btn = document.getElementById('ss-copy-btn');
+        btn.textContent = '✅ Скопировано в буфер!';
+        setTimeout(() => btn.textContent = '📋 Скопировать конфигурацию', 2000);
+      });
+    });
+  }, 1000);
 
 })();
