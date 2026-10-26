@@ -78,8 +78,44 @@
   // =========================================================================
   // ИНИЦИАЛИЗАЦИЯ КАРТЫ LEAFLET
   // =========================================================================
+  // --- ПАРСИНГ КООРДИНАТ И ЗУМА ИЗ АДРЕСНОЙ СТРОКИ ---
+  function getInitialViewFromUrl() {
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+
+    // 1. Форматы хеша: #16/55.75124/37.61842 или #map=16/55.75124/37.61842
+    const hashMatch = hash.match(/#(?:map=)?([0-9.]+)\/(-?[0-9.]+)\/(-?[0-9.]+)/i);
+    if (hashMatch) {
+      const z = parseFloat(hashMatch[1]);
+      const lat = parseFloat(hashMatch[2]);
+      const lng = parseFloat(hashMatch[3]);
+      if (!isNaN(z) && !isNaN(lat) && !isNaN(lng)) {
+        return { c: [lat, lng], z: Math.round(z) };
+      }
+    }
+
+    // 2. Форматы параметров: ?lat=...&lng=...&z=... или #lat=...&lon=...&z=...
+    const fullParamsStr = (search ? search.substring(1) + '&' : '') + (hash ? hash.substring(1) : '');
+    const p = new URLSearchParams(fullParamsStr);
+    const lat = parseFloat(p.get('lat'));
+    const lng = parseFloat(p.get('lng') || p.get('lon'));
+    const z = parseFloat(p.get('z') || p.get('zoom'));
+
+    if (!isNaN(lat) && !isNaN(lng)) {
+      return { c: [lat, lng], z: !isNaN(z) ? Math.round(z) : 16 };
+    }
+
+    return null;
+  }
+
+  const urlView = getInitialViewFromUrl();
   let saved = null;
-  try { saved = JSON.parse(localStorage.getItem('wm_view')); } catch (e) {}
+  if (!urlView) {
+    try { saved = JSON.parse(localStorage.getItem('wm_view')); } catch (e) {}
+  }
+
+  const initialCenter = urlView ? urlView.c : (saved ? saved.c : [55.751244, 37.618423]);
+  const initialZoom = urlView ? urlView.z : (saved ? saved.z : 16);
 
   const map = L.map('map', { 
     zoomControl: false, 
@@ -93,7 +129,7 @@
     zoomAnimation: true,
     fadeAnimation: false,
     zoomAnimationThreshold: 4
-  }).setView(saved ? saved.c : [55.751244, 37.618423], saved ? saved.z : 16);
+  }).setView(initialCenter, initialZoom);
 
   // ДОБАВЬТЕ ЭТУ СТРОКУ СЮДА СРАЗУ ПОСЛЕ СОЗДАНИЯ КАРТЫ:
   WM.map = map;
@@ -528,36 +564,43 @@
   });
 
   WM.baseMapsCatalog = [
-    { id: 'satEsri', name: 'Спутник (Esri)', category: 'modern', layer: satEsri, testUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'satClarity', name: 'Спутник (Esri Clarity)', category: 'modern', layer: satClarity, testUrl: 'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'satGoogle', name: 'Спутник + Дороги (Google)', category: 'modern', layer: satGoogle, testUrl: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'satBing', name: 'Спутник (Bing)', category: 'modern', layer: satBing, testUrl: 'https://ecn.t{s}.tiles.virtualearth.net/tiles/a{q}.jpeg?g=1', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'satYandex', name: 'Спутник (Яндекс)', category: 'modern', layer: satYandex, testUrl: 'https://core-sat.maps.yandex.net/tiles?l=sat&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'cyclOSM', name: 'Тропы и грунтовки (CyclOSM)', category: 'modern', layer: cyclOSM, testUrl: 'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'openTopo', name: 'Топокарта OpenTopoMap', category: 'modern', layer: openTopo, testUrl: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'ggc', name: 'Топокарты ГГЦ 250-1000м', category: 'modern', layer: ggc, testUrl: 'https://tiles.nakarte.me/ggc1000/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'ggc2000', name: 'Топокарта ГГЦ 2 км', category: 'modern', layer: ggc2000, testUrl: 'https://tiles.nakarte.me/ggc2000/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'arbaletMO', name: 'Топокарта Арбалет (Москва и МО)', category: 'modern', layer: arbaletMO, testUrl: 'https://tiles.nakarte.me/ArbaletMO/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'genshtab1980', name: 'Топокарта Генштаб 1-2 км (1980-е)', category: 'modern', layer: genshtab1980, testUrl: 'https://russia3d.ru/maps/tiles/topomaper1-2km1980/webmercator/{z}/{x}/{y}.png', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'tfOutdoors', name: 'Thunderforest Outdoors', category: 'modern', layer: tfOutdoors, testUrl: 'https://{s}.tile.thunderforest.com/outdoors/{z}/{x}/{y}@2x.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'osmClassic', name: 'Схема OSM (Классика)', category: 'modern', layer: osmClassic, testUrl: 'https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'osmHot', name: 'Гуманитарная карта OSM ', category: 'modern', layer: osmHot, testUrl: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'schemeYandex', name: 'Схема (Яндекс)', category: 'modern', layer: schemeYandex, testUrl: 'https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&scale=1&lang=ru_RU', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'narodYandex', name: 'Народная карта (Яндекс)', category: 'modern', layer: narodYandex, testUrl: `https://{s}.core-nmaps-renderer-nmaps.maps.yandex.net/tile2?x={x}&y={y}&z={z}&l=mpmap&sl=${YANDEX_SL}&token=`, subdomains: ['01', '02', '03', '04'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'schemeGoogle', name: 'Схема (Google)', category: 'modern', layer: schemeGoogle, testUrl: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'schemeEsri', name: 'Схема (Esri Streets)', category: 'modern', layer: schemeEsri, testUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'schemeDark', name: 'Тёмная карта (Esri)', category: 'modern', layer: schemeDark, testUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'rkkaEtomesto', name: 'Карта РККА (ЭтоМесто)', category: 'historical', layer: rkkaEtomesto, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_rkka_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'vtk3v', name: 'ВТК 3 версты (Юго-Запад России)', category: 'historical', layer: vtk3v, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_3v_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 53.50, lng: 37.00, z: 10 } },
-    { id: 'mendeMoscow', name: 'Карта Московской губ. (1860)', category: 'historical', layer: mendeMoscow, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mos_1860_all_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
-    { id: 'mendeVladimir', name: 'Менде: Владимирская губ.', category: 'historical', layer: mendeVladimir, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_vladimir_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 56.13, lng: 40.40, z: 10 } },
-    { id: 'mendeNN', name: 'Менде: Нижегородская губ.', category: 'historical', layer: mendeNN, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_nn_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 56.32, lng: 44.00, z: 10 } },
+    // 1. Спутниковые карты
+    { id: 'satEsri', name: 'Спутник (Esri)', category: 'satellite', group: 'satellite', layer: satEsri, testUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'satClarity', name: 'Спутник (Esri Clarity)', category: 'satellite', group: 'satellite', layer: satClarity, testUrl: 'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'satGoogle', name: 'Спутник + Дороги (Google)', category: 'satellite', group: 'satellite', layer: satGoogle, testUrl: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'satBing', name: 'Спутник (Bing)', category: 'satellite', group: 'satellite', layer: satBing, testUrl: 'https://ecn.t{s}.tiles.virtualearth.net/tiles/a{q}.jpeg?g=1', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'satYandex', name: 'Спутник (Яндекс)', category: 'satellite', group: 'satellite', layer: satYandex, testUrl: 'https://core-sat.maps.yandex.net/tiles?l=sat&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+
+    // 2. Схемы
+    { id: 'schemeYandex', name: 'Схема (Яндекс)', category: 'scheme', group: 'scheme', layer: schemeYandex, testUrl: 'https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&scale=1&lang=ru_RU', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'narodYandex', name: 'Народная карта (Яндекс)', category: 'scheme', group: 'scheme', layer: narodYandex, testUrl: `https://{s}.core-nmaps-renderer-nmaps.maps.yandex.net/tile2?x={x}&y={y}&z={z}&l=mpmap&sl=${YANDEX_SL}&token=`, subdomains: ['01', '02', '03', '04'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'schemeGoogle', name: 'Схема (Google)', category: 'scheme', group: 'scheme', layer: schemeGoogle, testUrl: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', subdomains: ['0', '1', '2', '3'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'osmClassic', name: 'Схема OSM (Классика)', category: 'scheme', group: 'scheme', layer: osmClassic, testUrl: 'https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'osmHot', name: 'Гуманитарная карта OSM ', category: 'scheme', group: 'scheme', layer: osmHot, testUrl: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'schemeEsri', name: 'Схема (Esri Streets)', category: 'scheme', group: 'scheme', layer: schemeEsri, testUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'schemeDark', name: 'Тёмная карта (Esri)', category: 'scheme', group: 'scheme', layer: schemeDark, testUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+
+    // 3. Топографические карты
+    { id: 'cyclOSM', name: 'Тропы и грунтовки (CyclOSM)', category: 'topo', group: 'topo', layer: cyclOSM, testUrl: 'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'openTopo', name: 'Топокарта OpenTopoMap', category: 'topo', group: 'topo', layer: openTopo, testUrl: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'ggc', name: 'Топокарты ГГЦ 250-1000м', category: 'topo', group: 'topo', layer: ggc, testUrl: 'https://tiles.nakarte.me/ggc1000/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'ggc2000', name: 'Топокарта ГГЦ 2 км', category: 'topo', group: 'topo', layer: ggc2000, testUrl: 'https://tiles.nakarte.me/ggc2000/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'arbaletMO', name: 'Топокарта Арбалет (Москва и МО)', category: 'topo', group: 'topo', layer: arbaletMO, testUrl: 'https://tiles.nakarte.me/ArbaletMO/{z}/{x}/{-y}', isTms: true, testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'genshtab1980', name: 'Топокарта Генштаб 1-2 км (1980-е)', category: 'topo', group: 'topo', layer: genshtab1980, testUrl: 'https://russia3d.ru/maps/tiles/topomaper1-2km1980/webmercator/{z}/{x}/{y}.png', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'tfOutdoors', name: 'Thunderforest Outdoors', category: 'topo', group: 'topo', layer: tfOutdoors, testUrl: 'https://{s}.tile.thunderforest.com/outdoors/{z}/{x}/{y}@2x.png', subdomains: ['a', 'b', 'c'], testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+
+    // 4. Старинные и прочее
+    { id: 'rkkaEtomesto', name: 'Карта РККА (ЭтоМесто)', category: 'historical', group: 'historical', layer: rkkaEtomesto, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_rkka_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'vtk3v', name: 'ВТК 3 версты (Юго-Запад России)', category: 'historical', group: 'historical', layer: vtk3v, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_3v_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 53.50, lng: 37.00, z: 10 } },
+    { id: 'mendeMoscow', name: 'Карта Московской губ. (1860)', category: 'historical', group: 'historical', layer: mendeMoscow, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mos_1860_all_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 55.75, lng: 37.62, z: 10 } },
+    { id: 'mendeVladimir', name: 'Менде: Владимирская губ.', category: 'historical', group: 'historical', layer: mendeVladimir, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_vladimir_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 56.13, lng: 40.40, z: 10 } },
+    { id: 'mendeNN', name: 'Менде: Нижегородская губ.', category: 'historical', group: 'historical', layer: mendeNN, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_nn_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 56.32, lng: 44.00, z: 10 } },
     { id: 'mendeTver', name: 'Менде: Тверская губ.', category: 'historical', layer: mendeTver, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_tver_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 56.85, lng: 35.90, z: 10 } },
-    { id: 'mendeYaroslavl', name: 'Менде: Ярославская губ.', category: 'historical', layer: mendeYaroslavl, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_yaroslavl_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 57.62, lng: 39.87, z: 10 } },
-    { id: 'mendeRyazan', name: 'Менде: Рязанская губ.', category: 'historical', layer: mendeRyazan, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_ryazan_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 54.62, lng: 39.73, z: 10 } },
-    { id: 'mendeTambov', name: 'Менде: Тамбовская губ.', category: 'historical', layer: mendeTambov, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_tambov_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 52.72, lng: 41.44, z: 10 } },
-    { id: 'mendePenza', name: 'Менде: Пензенская губ.', category: 'historical', layer: mendePenza, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_penza_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 53.20, lng: 45.00, z: 10 } },
-    { id: 'mendeSimbirsk', name: 'Менде: Симбирская губ.', category: 'historical', layer: mendeSimbirsk, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_simbirsk_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 54.32, lng: 48.38, z: 10 } }
+    { id: 'mendeYaroslavl', name: 'Менде: Ярославская губ.', category: 'historical', group: 'historical', layer: mendeYaroslavl, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_yaroslavl_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 57.62, lng: 39.87, z: 10 } },
+    { id: 'mendeRyazan', name: 'Менде: Рязанская губ.', category: 'historical', group: 'historical', layer: mendeRyazan, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_ryazan_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 54.62, lng: 39.73, z: 10 } },
+    { id: 'mendeTambov', name: 'Менде: Тамбовская губ.', category: 'historical', group: 'historical', layer: mendeTambov, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_tambov_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 52.72, lng: 41.44, z: 10 } },
+    { id: 'mendePenza', name: 'Менде: Пензенская губ.', category: 'historical', group: 'historical', layer: mendePenza, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_penza_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 53.20, lng: 45.00, z: 10 } },
+    { id: 'mendeSimbirsk', name: 'Менде: Симбирская губ.', category: 'historical', group: 'historical', layer: mendeSimbirsk, testUrl: 'https://russia3d.ru/maps/tiles/etomesto_mende_simbirsk_mb/mercator/{z}/{x}/{y}.png', testPoint: { lat: 54.32, lng: 48.38, z: 10 } }
   ];
 
    function getDefaultDisabledBaseMaps() {
@@ -582,6 +625,130 @@
       localStorage.setItem('wm_disabled_base_maps_ver', BASE_MAPS_DEFAULTS_VER);
     } catch (e) {}
   }
+
+  // Категории базовых карт
+  const BASE_CATEGORIES = {
+    satellite: { title: '🛰️ Спутниковые', order: 1 },
+    scheme: { title: '🗺️ Схемы', order: 2 },
+    topo: { title: '⛰️ Топографические', order: 3 },
+    historical: { title: '📜 Прочее (исторические)', order: 4 }
+  };
+
+  // Определение категории для наложений
+  function getOverlayCategory(name) {
+    if (name.includes('Wikimapia')) return { key: 'wikimapia', title: '🌐 Wikimapia', order: 1 };
+    if (name.includes('Рельеф') || name.includes('отмывка') || name.includes('Горизонтали') || name.includes('Тени') || name.includes('Гипсометрия')) {
+      return { key: 'relief', title: '🏔️ Рельеф', order: 2 };
+    }
+    if (name.includes('KML') || name.includes('Наложение') || name.includes('План') || name.startsWith('📜') || name.includes('Слой:')) {
+      return { key: 'custom', title: '🗺️ Пользовательские (KML/Слои)', order: 4 };
+    }
+    return { key: 'places', title: '🌿 Находки и объекты', order: 3 };
+  }
+
+  function getBaseMapCategory(name) {
+    const item = WM.baseMapsCatalog.find(m => m.name === name);
+    const cat = item ? (item.group || item.category) : 'historical';
+    return BASE_CATEGORIES[cat] || BASE_CATEGORIES.historical;
+  }
+
+  // Расширенный контроллер слоев с поддержкой категорий
+  const GroupedLayersControl = L.Control.Layers.extend({
+    _update() {
+      L.Control.Layers.prototype._update.call(this);
+
+      const isGroupingEnabled = localStorage.getItem('wm_group_layers') !== 'false';
+      if (!isGroupingEnabled) return this;
+
+      // Группировка базовых слоев
+      this._groupContainer(this._baseLayersList, (label) => {
+        const text = label.querySelector('span')?.textContent?.trim() || '';
+        return getBaseMapCategory(text);
+      }, 'base');
+
+      // Группировка оверлеев
+      this._groupContainer(this._overlaysList, (label) => {
+        const text = label.querySelector('span')?.textContent?.trim() || '';
+        return getOverlayCategory(text);
+      }, 'overlay');
+
+      return this;
+    },
+
+    _groupContainer(container, getCategoryFn, type) {
+      if (!container) return;
+      const labels = Array.from(container.children).filter(el => el.tagName === 'LABEL');
+      if (!labels.length) return;
+
+      const groups = new Map();
+
+      labels.forEach(lbl => {
+        const cat = getCategoryFn(lbl);
+        const key = cat.key || 'other';
+        if (!groups.has(key)) {
+          groups.set(key, { ...cat, labels: [] });
+        }
+        groups.get(key).labels.push(lbl);
+      });
+
+      // Очищаем контейнер и наполняем спойлерами
+      container.innerHTML = '';
+
+      const sortedGroups = Array.from(groups.values()).sort((a, b) => (a.order || 99) - (b.order || 99));
+
+      sortedGroups.forEach(grp => {
+        const details = document.createElement('details');
+        details.className = 'wm-layers-group';
+        
+        // Восстановление состояния спойлера (раскрыт/свернут)
+        const storageKey = `wm_layer_grp_${type}_${grp.key || grp.title}`;
+        const hasActiveLayer = grp.labels.some(l => {
+          const inp = l.querySelector('input');
+          return inp && inp.checked;
+        });
+
+        // По умолчанию спойлер открыт, если в нем активная карта или ранее был открыт
+        const savedState = localStorage.getItem(storageKey);
+        const isOpen = savedState !== null ? (savedState === 'true') : (hasActiveLayer || true);
+        details.open = isOpen;
+
+        details.addEventListener('toggle', () => {
+          try { localStorage.setItem(storageKey, details.open ? 'true' : 'false'); } catch (e) {}
+        });
+
+        const summary = document.createElement('summary');
+        summary.className = 'wm-layers-group-summary';
+
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'wm-layers-group-title';
+        titleSpan.textContent = grp.title;
+
+        const countBadge = document.createElement('span');
+        countBadge.className = 'wm-layers-group-count';
+        const checkedCount = grp.labels.filter(l => l.querySelector('input')?.checked).length;
+        countBadge.textContent = type === 'overlay' ? (checkedCount ? `(${checkedCount}/${grp.labels.length})` : `(${grp.labels.length})`) : `(${grp.labels.length})`;
+        if (checkedCount && type === 'overlay') countBadge.classList.add('has-active');
+
+        const chevron = document.createElement('span');
+        chevron.className = 'wm-layers-group-chevron';
+        chevron.textContent = '▼';
+
+        const rightWrap = document.createElement('span');
+        rightWrap.style.cssText = 'display:inline-flex; align-items:center; gap:4px;';
+        rightWrap.append(countBadge, chevron);
+
+        summary.append(titleSpan, rightWrap);
+        details.appendChild(summary);
+
+        const listDiv = document.createElement('div');
+        listDiv.className = 'wm-layers-group-items';
+        grp.labels.forEach(lbl => listDiv.appendChild(lbl));
+        details.appendChild(listDiv);
+
+        container.appendChild(details);
+      });
+    }
+  });
 
   function rebuildBaseLayersControl() {
     let disabledList = [];
@@ -620,10 +787,22 @@
       enabledBaseLayers[m.name] = m.layer;
     });
 
+    // Динамически догружаем в список наложений пользовательские слои KML/Изображения (если созданы)
+    const effectiveOverlays = { ...overlayLayers };
+    if (WM.imageOverlay && WM.imageOverlay.getAllOverlays) {
+      const customOverlays = WM.imageOverlay.getAllOverlays();
+      customOverlays.forEach(ov => {
+        const ovName = `Слой: ${ov.name || 'Карта'}`;
+        if (ov.layer) {
+          effectiveOverlays[ovName] = ov.layer;
+        }
+      });
+    }
+
     if (layersControl) {
       map.removeControl(layersControl);
     }
-    layersControl = L.control.layers(enabledBaseLayers, overlayLayers, { position: 'topright' }).addTo(map);
+    layersControl = new GroupedLayersControl(enabledBaseLayers, effectiveOverlays, { position: 'topright' }).addTo(map);
     WM.layersControl = layersControl;
   }
   WM.rebuildBaseLayersControl = rebuildBaseLayersControl;
@@ -1341,16 +1520,27 @@
   map.on('moveend zoomend', () => {
     scheduleRender();
 
-    // ДОБАВИТЬ СЮДА: гарантированное обновление актуального зума и координат
     if (WM.ui && WM.ui.updateInfoHudUI) {
       WM.ui.updateInfoHudUI();
     }
 
     clearTimeout(moveTimer);
     moveTimer = setTimeout(() => WM.loader.update(), 250);
+
+    const c = map.getCenter();
+    const z = Math.round(map.getZoom());
+
+    // Сохранение в localStorage
     try {
-      const c = map.getCenter();
-      localStorage.setItem('wm_view', JSON.stringify({ c: [c.lat, c.lng], z: map.getZoom() }));
+      localStorage.setItem('wm_view', JSON.stringify({ c: [c.lat, c.lng], z }));
+    } catch (e) {}
+
+    // --- ОБНОВЛЕНИЕ АДРЕСНОЙ СТРОКИ БЕЗ ПЕРЕЗАГРУЗКИ И БЕЗ ЗАСОРЕНИЯ ИСТОРИИ ---
+    try {
+      const newHash = `#${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`;
+      if (window.location.hash !== newHash) {
+        history.replaceState(history.state, '', newHash);
+      }
     } catch (e) {}
   });
 
