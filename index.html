@@ -137,7 +137,7 @@
       </div>
       <div class="spoof-alert-actions">
         <button id="btn-i-am-here" class="spoof-action-btn pin" type="button" title="Привязать моё положение к центру перекрестия на карте">
-          <span class="spoof-btn-icon">🧲</span><span class="spoof-btn-text"> Тут</span>
+          <span class="spoof-btn-icon">👣</span><span class="spoof-btn-text"> Тут</span>
         </button>
         <button id="btn-spoof-probe" class="spoof-action-btn probe" type="button" title="Запросить текущий сигнал GPS и проверить, прекратилось ли глушение">
           <span class="spoof-btn-icon">🔄</span><span class="spoof-btn-text"> Тест</span>
@@ -166,6 +166,8 @@
   <div id="crosshair" aria-hidden="true"></div>
   <button id="btn-i-am-here-float" class="btn-i-am-here" hidden title="Перенести моё местоположение в центр перекрестия">🧲 Я тут</button>
 
+  <div id="gps-dist-fixed-badge" class="wm-gps-dist-badge col-badge over-crosshair" hidden></div>
+
   <div id="info-hud" class="info-hud" hidden>
     <div class="info-hud-header" id="info-hud-header" title="Нажмите для сворачивания / разворачивания">
       <span class="info-hud-title">📊 Инфо</span>
@@ -178,7 +180,7 @@
     <button id="hover-pill" class="hover-pill" hidden></button>
     <button id="pdr-step-pill" class="pdr-step-pill" hidden type="button" title="Автономный шагомер PDR активен (нажмите для быстрых настроек)">
       <span class="pdr-pill-pulse"></span>
-      <span class="pdr-pill-icon">🧲</span>
+      <span class="pdr-pill-icon">👣</span>
       <span class="pdr-pill-text">Шагомер:</span>
       <b id="pdr-pill-steps" class="pdr-pill-steps">0 ш.</b>
       <span id="pdr-pill-dist" class="pdr-pill-dist">(0 м)</span>
@@ -212,7 +214,7 @@
     <button id="btn-download-area" class="floating-btn" title="Скачать область">📥</button>
     <button id="btn-location" class="floating-btn" title="Моя геопозиция">🛰️</button>
     <button id="btn-track-record" class="floating-btn" title="Запись трека (GPS Logger)">⏺️</button>
-    <button id="btn-manual-pdr" class="floating-btn" title="Поместить точку GPS сюда">🧲</button>
+    <button id="btn-manual-pdr" class="floating-btn" title="Поместить точку GPS сюда">👣</button>
     <button id="btn-motion-toggle" class="floating-btn" title="Хвост и траектория движения">🐾</button>
     <button id="btn-gps-dist" class="floating-btn" title="Расстояние от центра до GPS">🧭</button>
     <button id="btn-rays-toggle" class="floating-btn" title="Азимуты Солнца и Луны">✨</button>
@@ -720,6 +722,16 @@
                 </div>
                 <div id="map-check-summary" class="map-check-summary" hidden></div>
 
+                <!-- Тумблер группировки карт по категориям -->
+                <label class="toggle-item" style="margin-bottom: 10px;">
+                  <div>
+                    <span style="font-weight:600; display:block;">Группировать карты по категориям</span>
+                    <small class="hint-text">Отображать спойлеры (Спутники, Схемы, Топо, Рельеф, Свои KML) в выпадающем списке карт</small>
+                  </div>
+                  <input type="checkbox" id="toggle-group-layers" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+
                 <div class="quick-swap-settings-box">
                   <label class="toggle-item">
                     <div>
@@ -748,9 +760,9 @@
                 <hr class="style-divider" style="margin: 10px 0;">
                 <div class="toggles-list" id="modern-maps-list"></div>
 
-                <details class="spoiler sub-spoiler" open style="margin-top: 10px;">
+                <details class="spoiler sub-spoiler" style="margin-top: 10px;">
                   <summary class="spoiler-title sub-spoiler-title">
-                    <span>📜 Старинные карты (<span id="historical-maps-count">11</span>)</span>
+                    <span>📜 Старинные и редкие карты (<span id="historical-maps-count">17</span>)</span>
                     <span class="chevron">▼</span>
                   </summary>
                   <div class="spoiler-body toggles-list" id="historical-maps-list" style="padding-top: 10px;"></div>
@@ -1043,8 +1055,8 @@
         <!-- НОВЫЙ ВЛОЖЕННЫЙ СПОЙЛЕР: НАВИГАЦИЯ ПРИ ГЛУШЕНИИ И PDR -->
         <!-- ОБНОВЛЁННЫЙ СПОЙЛЕР: НАВИГАЦИЯ БЕЗ GPS И ШАГОМЕР (PDR) -->
         <details class="spoiler" id="spoiler-pdr-settings">
-          <summary class="spoiler-title sub-spoiler-title">
-            <span>🛡️ Навигация без GPS и шагомер (PDR)</span>
+          <summary class="spoiler-title">
+            <span>🛡️ㅤНавигация без GPS и шагомер (PDR)</span>
             <span class="chevron">▼</span>
           </summary>
 
@@ -1143,7 +1155,7 @@
 
               <label class="toggle-item">
                 <div>
-                  <span style="font-weight:600; display:block;">Кнопка «Поместить GPS сюда (🧲)» на карте</span>
+                  <span style="font-weight:600; display:block;">Кнопка «Поместить GPS сюда (👣)» на карте</span>
                   <small class="hint-text">Плавающая кнопка на экране для мгновенной привязки точки к перекрестию. По долгому нажатию доступны быстрые настройки режима без GPS</small>
                 </div>
                 <input type="checkbox" id="toggle-ui-manualpdr" checked>
@@ -2236,6 +2248,39 @@
                   <hr class="style-divider" style="margin: 8px 0;">
                   <div style="font-size: 12.5px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">Отображать в меню:</div>
 
+                  <hr class="style-divider" style="margin: 10px 0 6px;">
+
+                  <!-- ВЛОЖЕННЫЙ СПОЙЛЕР ДЛЯ PIE МЕНЮ -->
+                  <details class="spoiler sub-spoiler" id="spoiler-pie-menu-settings" style="margin-top: 6px;">
+                    <summary class="spoiler-title sub-spoiler-title">
+                      <span>🎯 Настройка веерного меню (Pie Menu)</span>
+                      <span class="chevron">▼</span>
+                    </summary>
+                    <div class="spoiler-body toggles-list" style="padding-top: 8px;">
+                      <label class="toggle-item">
+                        <div>
+                          <span style="font-weight:600; display:block;">Дублировать кнопки быстрого меню</span>
+                          <small class="hint-text">По умолчанию включено: в веере показываются те же кнопки, что и в основном меню</small>
+                        </div>
+                        <input type="checkbox" id="toggle-pie-sync" checked>
+                        <span class="toggle-switch"></span>
+                      </label>
+
+                      <div id="pie-custom-items-wrap" hidden style="margin-top: 4px;">
+                        <hr class="style-divider" style="margin: 8px 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                          <div style="font-size: 12px; font-weight: 700; color: var(--text-muted);">Кнопки специально для веера:</div>
+                          <div class="map-bulk-actions">
+                            <button type="button" id="btn-pie-select-all" class="btn-link">Все</button>
+                            <span style="color:var(--text-muted);">·</span>
+                            <button type="button" id="btn-pie-deselect-all" class="btn-link">Снять все</button>
+                          </div>
+                        </div>
+                        <div id="pie-custom-items-list" class="toggles-list" style="gap: 8px;"></div>
+                      </div>
+                    </div>
+                  </details>
+
                   <label class="toggle-item">
                     <span>📋 Объекты в зоне (список)</span>
                     <input type="checkbox" id="toggle-qm-item-objects" checked>
@@ -2307,7 +2352,7 @@
 
                   <!-- Чекбокс включения в быстром меню (по умолчанию выключен) -->
                   <label class="toggle-item">
-                    <span>🧲 Поместить точку GPS сюда</span>
+                    <span>👣 Поместить точку GPS сюда</span>
                     <input type="checkbox" id="toggle-qm-item-manualpdr">
                     <span class="toggle-switch"></span>
                   </label>
@@ -3692,7 +3737,7 @@
     <div class="modal-box modal-box-large pdr-quick-modal-box">
       <div class="modal-header">
         <div class="pdr-quick-title-wrap">
-          <span class="pdr-quick-icon">🧲</span>
+          <span class="pdr-quick-icon">👣</span>
           <div class="pdr-quick-header-text">
             <h3>Режим без GPS (PDR)</h3>
             <span class="pdr-quick-subtitle">Быстрые настройки и калибровка</span>
@@ -4574,7 +4619,7 @@
                   <span>Плотность теней:</span>
                   <b id="dem-hud-shadow-opacity-val">60%</b>
                 </label>
-                <input type="range" id="dem-hud-shadow-opacity" min="10" max="95" step="5" value="60" class="styled-range">
+                <input type="range" id="dem-hud-shadow-opacity" min="10" max="195" step="5" value="60" class="styled-range">
               </div>
             </div>
           </div>
@@ -5113,6 +5158,7 @@
   <script src="js/placeInsight.js"></script>
   <script src="js/tracker.js"></script>
   <script src="js/demRelief.js"></script>
+  <script src="js/emojiSvg.js"></script>
   <script src="js/main.js"></script>
 
 
