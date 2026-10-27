@@ -16123,7 +16123,10 @@ body.wm-ui-hidden .dem-relief-hud {
   border: none !important;
 }
 
+/* Бейджи треков на карте в стандартном виде */
 .wm-track-badge {
+  position: absolute;
+  transform: translate(-50%, -100%); /* Висит над конечной точкой трека */
   background: var(--bg-glass-strong);
   border: 1.5px solid var(--track-c, #ef4444);
   color: var(--text-main);
@@ -16135,10 +16138,28 @@ body.wm-ui-hidden .dem-relief-hud {
   white-space: nowrap;
   cursor: pointer;
   transition: transform 0.15s ease;
+  will-change: transform;
 }
 
 .wm-track-badge:hover {
-  transform: scale(1.08);
+  transform: translate(-50%, -105%) scale(1.05);
+}
+
+/* Компактный вид при zoom < 12 */
+body.zoom-low .wm-track-badge {
+  transform: translate(-50%, -50%) !important; /* Центрируем точку точно в координатах конца трека */
+  padding: 0 !important;
+  width: 10px !important;
+  height: 10px !important;
+  min-width: 10px !important;
+  border-radius: 50% !important;
+  border: 2px solid #ffffff !important;
+  background: var(--track-c, #ef4444) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45) !important;
+}
+
+body.zoom-low .wm-track-badge span {
+  display: none !important;
 }
 
 /* Попап трека */
@@ -16561,60 +16582,109 @@ body.wm-ui-hidden .dem-relief-hud {
    АДАПТИВНЫЙ КОМПАКТНЫЙ ВИД ПРИ ОТДАЛЕНИИ (ZOOM < 12 и ZOOM 12-14)
    ========================================================================= */
 
-/* --- ПРИ ЗУМЕ < 15 (Среднее отдаление) --- */
+/* =========================================================================
+   АДАПТИВНЫЙ КОМПАКТНЫЙ ВИД ПРИ ОТДАЛЕНИИ (ZOOM < 12 и ZOOM 12-14)
+   С СТРОГИМ СОХРАНЕНИЕМ ГЕОГРАФИЧЕСКОЙ ТОЧКИ ПРИВЯЗКИ
+   ========================================================================= */
+
+/* --- 1. СРЕДНИЙ ЗУМ (12 <= zoom < 15) --- */
+/* Пользовательские заметки: скрываем текст, оставляем эмодзи-облачко */
 body.zoom-mid .wm-marker-label {
-  display: none !important; /* Прячем длинные подписи заметок, оставляем только эмодзи */
+  display: none !important;
 }
 body.zoom-mid .wm-marker-pin-wrap {
-  transform: translateX(-50%) scale(0.85);
+  /* Масштабируем строго от точки острия (50% 100%) */
+  transform: translateX(-50%) scale(0.85) !important;
+  transform-origin: 50% 100% !important;
 }
+
+/* Линейка: уменьшаем промежуточные плюсики (+) и бейджи узлов */
 body.zoom-mid .wm-ruler-midpoint-inner {
-  transform: scale(0.75); /* Уменьшаем промежуточные плюсики линейки */
+  transform: scale(0.75);
+}
+body.zoom-mid .wm-ruler-vertex-badge {
+  font-size: 9px !important;
+  padding: 1px 4px !important;
+  bottom: 18px !important;
 }
 
-/* --- ПРИ ЗУМЕ < 12 (Дальний обзор: точки-кругляшки вместо огромных пинов) --- */
-body.zoom-low .wm-marker-bubble {
-  min-width: 0 !important;
-  max-width: none !important;
-  padding: 3px !important;
-  border-radius: 50% !important; /* Превращаем в круглую точку */
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4) !important;
-}
-body.zoom-low .wm-marker-label,
-body.zoom-low .wm-marker-tail {
-  display: none !important; /* Прячем стрелку-каплю и текст */
-}
-body.zoom-low .wm-marker-emoji {
-  font-size: 13px !important;
-  line-height: 1 !important;
-}
+
+/* --- 2. ДАЛЬНИЙ ЗУМ (zoom < 12) --- */
+
+/* ПОЛЬЗОВАТЕЛЬСКИЕ МЕТКИ:
+   Оставляем якорь Leaflet [21, 56] в силе, но смещаем сам пин ровно в остриё,
+   превращая его в четкую точку-мишень с эмодзи или цветной центр */
 body.zoom-low .wm-marker-pin-wrap {
-  transform: translateX(-50%) scale(0.75) !important;
+  bottom: 0 !important;
+  left: 50% !important;
+  transform: translate(-50%, 50%) !important; /* Центрируем прямо над координатой */
+  transform-origin: 50% 50% !important;
 }
 
-/* Линейка на дальнем зуме: прячем текстовые плашки и плюсики, оставляем только цветные узлы */
+body.zoom-low .wm-marker-bubble {
+  min-width: 14px !important;
+  max-width: 14px !important;
+  width: 14px !important;
+  height: 14px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  border: 2px solid #ffffff !important;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5) !important;
+}
+
+body.zoom-low .wm-marker-label,
+body.zoom-low .wm-marker-tail,
+body.zoom-low .wm-marker-emoji {
+  display: none !important; /* На сверхдальнем масштабе только лаконичная цветная точка */
+}
+
+
+/* ЛИНЕЙКА (ИЗМЕРЕНИЯ):
+   Скрываем текст дистанций, плюсики добавления и превращаем узлы в аккуратные микро-точки */
 body.zoom-low .wm-ruler-vertex-badge,
 body.zoom-low .wm-ruler-midpoint-inner,
 body.zoom-low .wm-ruler-tick-label {
   display: none !important;
 }
-body.zoom-low .wm-ruler-vertex-dot {
-  width: 9px !important;
-  height: 9px !important;
-  border-width: 2px !important;
+
+/* Оболочка узла центрируется без смещений */
+body.zoom-low .wm-ruler-vertex-wrap {
+  width: 16px !important;
+  height: 16px !important;
 }
 
-/* Трекер и общие треки: на дальнем зуме скрываем огромные флажки, оставляем цветные точки */
-body.zoom-low .wm-track-badge span {
-  display: none !important;
+body.zoom-low .wm-ruler-vertex-dot {
+  width: 8px !important;
+  height: 8px !important;
+  border-width: 2px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
 }
-body.zoom-low .wm-track-badge {
+
+/* При наведении курсора точка слегка подрастает */
+body.zoom-low .wm-ruler-vertex-wrap:hover .wm-ruler-vertex-dot {
+  transform: scale(1.4) !important;
+}
+
+/* Бейджи сохранённых треков линейки на дальнем зуме (превращаются в аккуратные круглые капсулы) */
+body.zoom-low .wm-ruler-track-badge {
   padding: 0 !important;
   width: 10px !important;
   height: 10px !important;
   min-width: 10px !important;
   border-radius: 50% !important;
   border-width: 2px !important;
+}
+body.zoom-low .wm-ruler-track-badge span {
+  display: none !important;
+}
+
+
+.wm-ruler-track-badge {
+  transform: translate(-50%, -100%); /* Висит над последней точкой трека */
+  /* остальное без изменений */
+}
+body.zoom-low .wm-ruler-track-badge {
+  transform: translate(-50%, -50%) !important; /* На зуме < 12 садится строго в центр точки */
 }
 
 /* Фиксированная плашка над перекрестием в центре экрана */
