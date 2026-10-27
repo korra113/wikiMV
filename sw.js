@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v92'; // Обновлено для применения новых модулей
+const SHELL_CACHE = 'wm-shell-v93'; // Обновлено для применения новых модулей
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -65,6 +65,7 @@ const ASSETS_TO_CACHE = [
   'js/placeInsight.js',
   'js/tracker.js',
   'js/demRelief.js', // <-- ДОБАВЛЕНО: модуль 3D-рельефа и WebGL-отмывки
+  'js/emojiSvg.js', // <-- ДОБАВИТЬ ЭТУ СТРОКУ
   'js/main.js'
 ];
 
