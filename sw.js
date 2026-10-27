@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v93'; // Обновлено для применения новых модулей
+const SHELL_CACHE = 'wm-shell-v94'; // Обновлено для применения новых модулей
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -47,6 +47,7 @@ const ASSETS_TO_CACHE = [
   'js/loader.js',
   'js/view.js',
   'js/picker.js',
+  'js/tz.js',           // <-- ДОБАВЛЕНО СЮДА
   'js/ui.js',
   'js/markers.js',
   'js/sharedMarkers.js',
@@ -64,8 +65,8 @@ const ASSETS_TO_CACHE = [
   'js/water.js',
   'js/placeInsight.js',
   'js/tracker.js',
-  'js/demRelief.js', // <-- ДОБАВЛЕНО: модуль 3D-рельефа и WebGL-отмывки
-  'js/emojiSvg.js', // <-- ДОБАВИТЬ ЭТУ СТРОКУ
+  'js/demRelief.js',
+  'js/emojiSvg.js',
   'js/main.js'
 ];
 
@@ -183,7 +184,8 @@ self.addEventListener('fetch', (event) => {
     url.includes('etomesto.com') ||
     url.includes('etomesto.ru') ||
     url.includes('google.com/vt') ||
-    url.includes('openstreetmap.fr') ||
+    url.includes('openstreetmap.') ||      // <-- Охватывает .org, .fr, .de и т.д.
+    url.includes('tile.osm.org') ||        // <-- Зеркала OSM
     url.includes('opentopomap.org') ||
     url.includes('tiles.nakarte.me') ||
     url.includes('tile.thunderforest.com') ||
@@ -193,7 +195,8 @@ self.addEventListener('fetch', (event) => {
     url.includes('yandex.net') ||
     url.includes('wikimapia.org/?x=') ||
     url.includes('wikimapia.org/x=') ||
-    // ДОБАВИТЬ ДЛЯ РАБОТЫ 3D-СЛОЯ DEM:
+    // Слои 3D DEM рельефа:
+    url.includes('mapterhorn') ||          // <-- ДОБАВЛЕНО для 3D рельефа Mapterhorn
     url.includes('elevation-tiles-prod') ||
     url.includes('terrarium') ||
     url.includes('s3.amazonaws.com');
