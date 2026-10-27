@@ -4542,14 +4542,18 @@
         </summary>
         <div class="dem-hud-spoiler-body">
           <div class="dem-hud-row">
-            <span class="dem-hud-lbl">Художественный тон:</span>
+            <span class="dem-hud-lbl">Художественный фильтр / тон:</span>
             <div class="dem-tone-chips" style="margin-top: 4px;">
+              <button type="button" class="dem-tone-chip" data-tone="none">⚪ Выкл</button>
               <button type="button" class="dem-tone-chip active" data-tone="imhof">🇨🇭 Имхоф</button>
               <button type="button" class="dem-tone-chip" data-tone="slate">🏔️ Сланец</button>
-              <button type="button" class="dem-tone-chip" data-tone="day">☀️ День</button>
-              <button type="button" class="dem-tone-chip" data-tone="sunrise">🌅 Восход</button>
-              <button type="button" class="dem-tone-chip" data-tone="sunset">🌇 Закат</button>
-              <button type="button" class="dem-tone-chip" data-tone="moon">🌙 Ночь</button>
+              <button type="button" class="dem-tone-chip" data-tone="vintage">📜 Винтаж</button>
+              <button type="button" class="dem-tone-chip" data-tone="amber">🌅 Янтарь</button>
+              <button type="button" class="dem-tone-chip" data-tone="emerald">🌲 Хвоя</button>
+              <button type="button" class="dem-tone-chip" data-tone="monochrome">✒️ Монохром</button>
+              <button type="button" class="dem-tone-chip" data-tone="sandstone">🏜️ Песчаник</button>
+              <button type="button" class="dem-tone-chip" data-tone="glacier">❄️ Ледник</button>
+              <button type="button" class="dem-tone-chip" data-tone="volcano">🌋 Базальт</button>
             </div>
           </div>
 
@@ -4612,7 +4616,7 @@
                   <span>Дальность луча:</span>
                   <b id="dem-hud-shadow-reach-val">100%</b>
                 </label>
-                <input type="range" id="dem-hud-shadow-reach" min="20" max="250" step="10" value="100" class="styled-range">
+                <input type="range" id="dem-hud-shadow-reach" min="20" max="100" step="10" value="100" class="styled-range">
               </div>
               <div class="dem-hud-row" style="margin: 0;">
                 <label for="dem-hud-shadow-opacity">
@@ -4661,11 +4665,18 @@
         </summary>
         <div class="dem-hud-spoiler-body">
           <div class="dem-hud-row">
-            <span class="dem-hud-lbl">Сглаживание ступеней рельефа:</span>
-            <div class="dem-smooth-buttons" style="margin-top: 4px;">
-              <button type="button" class="dem-smooth-btn" data-smooth="none" title="Резкие карьеры и дороги">Выкл</button>
-              <button type="button" class="dem-smooth-btn" data-smooth="gauss" title="Мягкий Гаусс">Гаусс</button>
-              <button type="button" class="dem-smooth-btn active" data-smooth="bilateral" title="Сглаживает ступени, сохраняя гребни">Билатерал</button>
+            <span class="dem-hud-lbl">Художественный фильтр / тон:</span>
+            <div class="dem-tone-chips" style="margin-top: 4px;">
+              <button type="button" class="dem-tone-chip" data-tone="none">⚪ Выкл</button>
+              <button type="button" class="dem-tone-chip active" data-tone="imhof">🇨🇭 Имхоф</button>
+              <button type="button" class="dem-tone-chip" data-tone="slate">🏔️ Сланец</button>
+              <button type="button" class="dem-tone-chip" data-tone="vintage">📜 Винтаж</button>
+              <button type="button" class="dem-tone-chip" data-tone="amber">🌅 Янтарь</button>
+              <button type="button" class="dem-tone-chip" data-tone="emerald">🌲 Хвоя</button>
+              <button type="button" class="dem-tone-chip" data-tone="monochrome">✒️ Монохром</button>
+              <button type="button" class="dem-tone-chip" data-tone="sandstone">🏜️ Песчаник</button>
+              <button type="button" class="dem-tone-chip" data-tone="glacier">❄️ Ледник</button>
+              <button type="button" class="dem-tone-chip" data-tone="volcano">🌋 Базальт</button>
             </div>
           </div>
 
@@ -4792,7 +4803,7 @@
           <label class="toggle-item" style="margin: 0;">
             <div>
               <span style="font-size: 11.5px; font-weight: 700;">Включить штрихи (Hachures)</span>
-              <small class="hint-text">Линии крутизны рельефа по Леману и Дюфуру</small>
+              <small class="hint-text">Линии рельефа вдоль горизонталей или по склонам</small>
             </div>
             <input type="checkbox" id="dem-hud-toggle-hachure">
             <span class="toggle-switch"></span>
@@ -4803,9 +4814,10 @@
               <div class="form-group" style="margin: 0;">
                 <label for="dem-hud-hachure-type-select">Тип штриховки:</label>
                 <select id="dem-hud-hachure-type-select" class="styled-select">
-                  <option value="flow" selected>🖋️ По кривизне Гессе (Дюрер)</option>
-                  <option value="classic">〰️ Контурная (классика)</option>
-                  <option value="lehmann">📐 Линии стока (Леман)</option>
+                  <option value="contour" selected>〰️ Вдоль горизонталей (очерчивание)</option>
+                  <option value="hybrid">☯️ Гибридный (холмы — очерчивание, обрывы — по склону)</option>
+                  <option value="flow">🖋️ Изогнутые по линии стока (Дюрер)</option>
+                  <option value="lehmann">📐 Леман (толщина по крутизне)</option>
                   <option value="rock">🏔️ Скалы (Felszeichnung)</option>
                 </select>
               </div>
@@ -4813,6 +4825,20 @@
                 <label for="dem-hud-hachure-color">Цвет туши:</label>
                 <input type="color" id="dem-hud-hachure-color" value="#1c1917" class="styled-color-picker">
               </div>
+            </div>
+
+            <!-- Режим наложения туши штриховки -->
+            <div class="form-group" style="margin-top: 6px; margin-bottom: 0;">
+              <label for="dem-hud-hachure-blend-select">Режим наложения (смешивания):</label>
+              <select id="dem-hud-hachure-blend-select" class="styled-select">
+                <option value="multiply" selected>Multiply (оттиск туши на карте)</option>
+                <option value="normal">Normal (обычное перекрытие)</option>
+                <option value="overlay">Overlay (контрастное перекрытие)</option>
+                <option value="softlight">Soft-Light (мягкое вплавление)</option>
+                <option value="burn">Color Burn (глубокое затемнение)</option>
+                <option value="screen">Screen (осветление для ночи)</option>
+                <option value="difference">Difference (инверсный автоконтраст)</option>
+              </select>
             </div>
 
             <div class="dem-hud-grid-2" style="margin-top: 6px;">
@@ -4825,11 +4851,20 @@
               </div>
               <div class="dem-hud-row" style="margin: 0;">
                 <label for="dem-hud-hachure-density-slider">
-                  <span>Частота:</span>
+                  <span>Масштаб сетки:</span>
                   <b id="dem-hud-hachure-density-val">100%</b>
                 </label>
                 <input type="range" id="dem-hud-hachure-density-slider" min="50" max="250" step="10" value="100" class="styled-range">
               </div>
+            </div>
+
+            <!-- Слайдер прореживания штрихов -->
+            <div class="dem-hud-row" style="margin-top: 6px;">
+              <label for="dem-hud-hachure-thinning-slider">
+                <span>Прореживание (убрать часть штрихов):</span>
+                <b id="dem-hud-hachure-thinning-val" style="color: var(--accent);">0%</b>
+              </label>
+              <input type="range" id="dem-hud-hachure-thinning-slider" min="0" max="85" step="5" value="0" class="styled-range">
             </div>
 
             <div class="dem-hud-row" style="margin-top: 6px;">
@@ -4846,6 +4881,101 @@
                 <b id="dem-hud-hachure-lightmod-val">60%</b>
               </label>
               <input type="range" id="dem-hud-hachure-lightmod-slider" min="0" max="100" step="5" value="60" class="styled-range">
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <!-- СПОЙЛЕР: Карандашная обводка рельефа -->
+      <details class="dem-hud-spoiler" id="spoiler-hud-outline">
+        <summary class="dem-hud-spoiler-summary">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span>✏️ Карандашная обводка (Outline)</span>
+            <span id="dem-hud-outline-status-badge" class="dem-hud-badge-mini">Выкл</span>
+          </div>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <label class="toggle-item" style="margin: 0;">
+            <div>
+              <span style="font-size: 11.5px; font-weight: 700;">Включить обводку рельефа</span>
+              <small class="hint-text">Художественная прорисовка хребтов, обрывов и оврагов карандашом/тушью</small>
+            </div>
+            <input type="checkbox" id="dem-hud-toggle-outline">
+            <span class="toggle-switch"></span>
+          </label>
+
+          <div id="dem-hud-outline-sub" class="dem-sub-dimmable is-disabled" style="margin-top: 6px;">
+            <div class="dem-hud-grid-2">
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-outline-type-select">Акцент прорисовки:</label>
+                <select id="dem-hud-outline-type-select" class="styled-select">
+                  <option value="all" selected>🏔️ Все формы (хребты, обрывы, овраги)</option>
+                  <option value="ridges">⛰️ Хребты и пики (Ridges)</option>
+                  <option value="valleys">🕳️ Овраги и тальвеги (Ravines)</option>
+                  <option value="cliffs">🧗 Обрывы и перепады (Cliffs)</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-outline-color">Цвет грифеля:</label>
+                <input type="color" id="dem-hud-outline-color" value="#1c1917" class="styled-color-picker">
+              </div>
+            </div>
+
+            <div class="dem-hud-grid-2" style="margin-top: 6px;">
+              <div class="form-group" style="margin: 0;">
+                <label for="dem-hud-outline-blend-select">Смешивание:</label>
+                <select id="dem-hud-outline-blend-select" class="styled-select">
+                  <option value="multiply" selected>Multiply (оттиск на бумаге)</option>
+                  <option value="normal">Normal (обычный)</option>
+                  <option value="overlay">Overlay (контрастный)</option>
+                  <option value="softlight">Soft-Light (мягкий)</option>
+                  <option value="burn">Color Burn (травление)</option>
+                  <option value="screen">Screen (для тёмных карт)</option>
+                  <option value="difference">Difference (автоконтраст)</option>
+                </select>
+              </div>
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-outline-width-slider">
+                  <span>Толщина линии:</span>
+                  <b id="dem-hud-outline-width-val" style="color: var(--accent);">1.2 px</b>
+                </label>
+                <input type="range" id="dem-hud-outline-width-slider" min="0.4" max="3.5" step="0.1" value="1.2" class="styled-range">
+              </div>
+            </div>
+
+            <div class="dem-hud-grid-2" style="margin-top: 6px;">
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-outline-roughness-slider">
+                  <span>Рваность грифеля:</span>
+                  <b id="dem-hud-outline-roughness-val">40%</b>
+                </label>
+                <input type="range" id="dem-hud-outline-roughness-slider" min="0" max="100" step="5" value="40" class="styled-range">
+              </div>
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-outline-threshold-slider">
+                  <span>Порог отсечки:</span>
+                  <b id="dem-hud-outline-threshold-val">35%</b>
+                </label>
+                <input type="range" id="dem-hud-outline-threshold-slider" min="10" max="80" step="5" value="35" class="styled-range">
+              </div>
+            </div>
+
+            <div class="dem-hud-grid-2" style="margin-top: 6px;">
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-outline-opacity-slider">
+                  <span>Плотность штриха:</span>
+                  <b id="dem-hud-outline-opacity-val">85%</b>
+                </label>
+                <input type="range" id="dem-hud-outline-opacity-slider" min="10" max="100" step="5" value="85" class="styled-range">
+              </div>
+              <div class="dem-hud-row" style="margin: 0;">
+                <label for="dem-hud-outline-lightmod-slider">
+                  <span>Ослабление на свету:</span>
+                  <b id="dem-hud-outline-lightmod-val">50%</b>
+                </label>
+                <input type="range" id="dem-hud-outline-lightmod-slider" min="0" max="100" step="5" value="50" class="styled-range">
+              </div>
             </div>
           </div>
         </div>
@@ -5077,6 +5207,34 @@
         </div>
       </details>
 
+      <!-- СПОЙЛЕР: Карандашная текстура и нажим руки -->
+      <details class="dem-hud-spoiler" open style="margin-top: 6px;">
+        <summary class="dem-hud-spoiler-summary">
+          <span>✏️ Текстура карандаша и живой нажим</span>
+          <span class="chevron">▼</span>
+        </summary>
+        <div class="dem-hud-spoiler-body">
+          <div class="dem-hud-row" style="margin: 0 0 6px 0;">
+            <label for="dem-hud-contour-roughness-slider">
+              <span>Рваность / Карандашный грифель:</span>
+              <b id="dem-hud-contour-roughness-val" style="color: var(--accent);">0%</b>
+            </label>
+            <input type="range" id="dem-hud-contour-roughness-slider" min="0" max="100" step="5" value="0" class="styled-range">
+          </div>
+
+          <div class="dem-hud-row" style="margin: 0;">
+            <label for="dem-hud-contour-pressure-slider">
+              <span>Неровность нажима руки (жирнее в низинах):</span>
+              <b id="dem-hud-contour-pressure-val" style="color: var(--accent);">0%</b>
+            </label>
+            <input type="range" id="dem-hud-contour-pressure-slider" min="0" max="100" step="5" value="0" class="styled-range">
+          </div>
+          <small class="hint-text" style="margin-top: 4px; display: block;">
+            Имитирует ручную графику тушью или мягким карандашом с естественной вариацией нажима пера.
+          </small>
+        </div>
+      </details>
+
       <!-- СПОЙЛЕР: Утоньшение к вершинам и скалы -->
       <details class="dem-hud-spoiler" style="margin-top: 6px;">
         <summary class="dem-hud-spoiler-summary">
@@ -5134,7 +5292,9 @@
   <script src="js/geo.js"></script>
   <script src="js/cache.js"></script>
   <script src="js/geomag.js"></script>
+  <script src="js/tz.js"></script> <!-- ПЕРЕНЕСТИ СЮДА -->
 
+  
   <script src="js/api.js"></script>
   <script src="js/loader.js"></script>
   <script src="js/view.js"></script>
@@ -5160,6 +5320,7 @@
   <script src="js/demRelief.js"></script>
   <script src="js/emojiSvg.js"></script>
   <script src="js/main.js"></script>
+
 
 
 </body>
