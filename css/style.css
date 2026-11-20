@@ -9184,12 +9184,379 @@ body.sheet-open .measure-hud {
 }
 
 .measure-track-color-dot {
-  width: 10px;
-  height: 10px;
-  min-width: 10px;
+  position: relative;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
   border-radius: 50%;
   background: #0284c7;
   box-shadow: 0 0 0 1.5px var(--bg-primary), 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.2s ease, opacity 0.2s ease;
+  flex-shrink: 0;
+}
+
+/* Невидимая расширенная область нажатия для удобства на смартфоне */
+.measure-track-color-dot::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+
+.measure-track-color-dot:hover {
+  transform: scale(1.18);
+}
+
+.measure-track-color-dot:active {
+  transform: scale(0.9);
+}
+/* Выравнивание элементов и кнопок Вкл/Выкл в шапках спойлеров 3D HUD */
+.dem-hud-spoiler-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dem-hud-spoiler-left > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dem-hud-spoiler-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dem-hud-spoiler-right .dem-hud-switch-btn {
+  padding: 2px 8px;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+/* Отключённые кнопки в быстром меню */
+.qm-tile.is-disabled {
+  opacity: 0.45;
+  filter: grayscale(1);
+  cursor: not-allowed;
+}
+
+.qm-tile.is-disabled:active {
+  transform: none;
+}
+
+/* Отключённые сектора в веерном (Pie) меню */
+.pie-item-group.is-disabled {
+  opacity: 0.42;
+  filter: grayscale(1);
+}
+
+
+
+/* =========================================================================
+   СВЕТОВОЙ КРУГ (ПОЛЯРНЫЙ ГОРИЗОНТ СОЛНЦА И ЛУНЫ)
+   ========================================================================= */
+.sky-circle-hud {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1650;
+  width: min(370px, calc(100vw - 20px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  background: var(--bg-primary);
+  color: var(--text-main);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  user-select: none;
+}
+
+.sky-circle-hud[hidden] {
+  display: none !important;
+}
+
+.sc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sc-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sc-title-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.sc-title {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.sc-coords-sub {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+}
+
+.sc-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sc-mini-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sc-mini-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.sc-close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sc-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sc-day-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 2px 4px;
+}
+
+.sc-arrow-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 11px;
+  padding: 3px 6px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.sc-arrow-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sc-day-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  min-width: 78px;
+  text-align: center;
+}
+
+.sc-body-filter {
+  display: inline-flex;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.sc-filter-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.sc-filter-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.sc-dial-wrap {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.sc-svg {
+  width: min(275px, 68vw);
+  height: min(275px, 68vw);
+  touch-action: none;
+  cursor: crosshair;
+  overflow: visible;
+}
+
+.sc-time-bar {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 9px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sc-time-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sc-time-lbl {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.sc-time-val {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.sc-quick-snaps {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.sc-snap-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sc-snap-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sc-time-slider {
+  width: 100%;
+  margin: 0;
+}
+
+.sc-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.sc-info-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 8px;
+  font-size: 10.5px;
+  line-height: 1.42;
+}
+
+.sc-info-card[hidden] {
+  display: none !important;
+}
+
+.sc-info-card.sun {
+  border-left: 3px solid #f59e0b;
+}
+
+.sc-info-card.moon {
+  border-left: 3px solid #38bdf8;
+}
+.inat-vision-result-card.is-clickable {
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.inat-vision-result-card.is-clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+}
+
+.inat-vision-result-card.is-clickable:active {
+  transform: scale(0.99);
+}
+
+.inat-vision-open-hint {
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.sc-card-head {
+  font-weight: 800;
+  font-size: 11px;
+  margin-bottom: 2px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sc-card-line {
+  color: var(--text-muted);
+}
+
+.sc-card-line b {
+  color: var(--text-main);
+}
+
+[data-theme="night-vision"] .sky-circle-hud {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
+}
+/* Состояние скрытого измерения (серый круг) */
+.measure-track-color-dot.is-hidden {
+  background-color: #94a3b8 !important;
+  opacity: 0.75;
+  box-shadow: 0 0 0 1.5px var(--bg-primary), inset 0 0 0 1.5px rgba(255, 255, 255, 0.45);
 }
 
 .measure-hud-select {
@@ -12024,7 +12391,9 @@ body.wm-ui-hidden .visual-compass-hud {
 #modal-inat-quick {
   z-index: 3200 !important;
 }
-
+#modal-inat-details {
+  z-index: 3300 !important;
+}
 .inat-qhub-modal-box {
   max-width: 440px !important;
   width: 95vw;
@@ -14673,14 +15042,16 @@ body.wm-ui-hidden .dem-relief-hud {
   padding-bottom: 6px;
   gap: 8px;
   flex-shrink: 0;
+  width: 100%;
 }
+
 
 .dem-hud-title-wrap {
   display: flex;
   align-items: center;
-  gap: 6px;
   min-width: 0;
   flex: 1;
+  overflow: hidden;
 }
 
 .dem-hud-icon {
@@ -14696,15 +15067,80 @@ body.wm-ui-hidden .dem-relief-hud {
   white-space: nowrap;
 }
 
-.dem-hud-switches {
-  display: flex;
-  gap: 4px;
+/* Стрелки прокрутки кнопок шапки 3D HUD */
+.dem-hud-scroll-arrow {
+  width: 18px;
+  height: 24px;
+  min-width: 18px;
+  padding: 0;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+  user-select: none;
+  transition: all 0.15s ease;
 }
 
+.dem-hud-scroll-arrow:hover:not(:disabled) {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.dem-hud-scroll-arrow:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.dem-hud-scroll-arrow:disabled,
+.dem-hud-scroll-arrow.disabled {
+  opacity: 0.25;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Ночной режим (красный монохром) */
+[data-theme="night-vision"] .dem-hud-scroll-arrow {
+  background: #120303;
+  border-color: #3b0707;
+  color: #ef4444;
+}
+[data-theme="night-vision"] .dem-hud-scroll-arrow:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+}
+
+.dem-hud-switches {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  scrollbar-width: none;
+  padding: 2px 2px 2px 0;
+}
+
+.dem-hud-switches::-webkit-scrollbar {
+  display: none;
+}
+
+/* Кнопки не сжимаются при нехватке места */
 .dem-hud-switch-btn {
-  padding: 2.5px 7px;
-  font-size: 10px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 3.5px 9px;
+  font-size: 10.5px;
   font-weight: 700;
   border-radius: 6px;
   border: 1px solid var(--border-strong);
@@ -14712,6 +15148,7 @@ body.wm-ui-hidden .dem-relief-hud {
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.15s ease;
+  user-select: none;
 }
 
 .dem-hud-switch-btn.active {
@@ -14720,6 +15157,7 @@ body.wm-ui-hidden .dem-relief-hud {
   border-color: var(--accent);
   box-shadow: 0 1px 4px rgba(2, 132, 199, 0.35);
 }
+
 
 .dem-hud-head-actions {
   display: flex;
@@ -16705,6 +17143,1163 @@ body.wm-ui-hidden #gps-dist-fixed-badge {
   display: none !important;
 }
 
+
+
+
+
+
+
+
+
+
+
+/* =========================================================================
+   ИНСТРУМЕНТ: ДАЛЬНОСТЬ ВИДИМОСТИ (VIEWSHED)
+   ========================================================================= */
+
+.wm-viewshed-div-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.wm-viewshed-observer-pin {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+}
+
+.wm-viewshed-dot {
+  font-size: 20px;
+  line-height: 1;
+  z-index: 2;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45));
+}
+
+.wm-viewshed-pulse {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.4);
+  animation: wmGpsPulse 1.8s infinite ease-out;
+  z-index: 1;
+}
+
+.wm-viewshed-badge {
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-glass-strong);
+  border: 1px solid #10b981;
+  color: #10b981;
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 6px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+/* Ночной монохром */
+[data-theme="night-vision"] .wm-viewshed-pulse {
+  background: rgba(239, 68, 68, 0.4);
+}
+[data-theme="night-vision"] .wm-viewshed-badge {
+  background: #120303;
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+/* Сегментированный переключатель источника зоны видимости */
+.viewshed-origin-segmented {
+  display: flex;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 2px;
+  gap: 2px;
+}
+
+.viewshed-origin-btn {
+  flex: 1;
+  padding: 5px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.viewshed-origin-btn.active {
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+}
+
+.wm-viewshed-observer-pin.is-draggable {
+  cursor: grab;
+}
+
+.wm-viewshed-observer-pin.is-draggable:active {
+  cursor: grabbing;
+}
+
+/* =========================================================================
+   СТИЛИ ДЛЯ ПАНЕЛИ И ПОПАПА VIEWSHED v2
+   ========================================================================= */
+
+/* Адаптация кнопки вызова шестерёнки */
+.wmvs-gear {
+  touch-action: manipulation;
+  cursor: pointer;
+  border: 1px solid var(--border-strong, #374151) !important;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.wmvs-gear:hover {
+  transform: scale(1.06);
+}
+.wmvs-gear:active {
+  transform: scale(0.94);
+}
+
+/* Стилизация попапа с графиком анализа препятствий */
+.leaflet-popup-content canvas {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* Ночной режим (красный монохром) */
+[data-theme="night-vision"] .wmvs-gear {
+  background: rgba(18, 3, 3, 0.94) !important;
+  color: #ef4444 !important;
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.35) !important;
+}
+
+[data-theme="night-vision"] .wmvs-panel {
+  background: rgba(10, 1, 1, 0.96) !important;
+  color: #f87171 !important;
+  border: 1px solid #ef4444 !important;
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.35) !important;
+}
+
+[data-theme="night-vision"] .wmvs-panel h4 {
+  color: #ef4444 !important;
+}
+
+[data-theme="night-vision"] .wmvs-panel select,
+[data-theme="night-vision"] .wmvs-panel input[type="datetime-local"],
+[data-theme="night-vision"] .wmvs-panel button.s {
+  background: #180303 !important;
+  color: #f87171 !important;
+  border-color: #5c0f0f !important;
+}
+
+[data-theme="night-vision"] .wmvs-status {
+  background: #120202 !important;
+  color: #fca5a5 !important;
+}
+
+[data-theme="night-vision"] .wm-viewshed-observer-pin .wm-viewshed-dot {
+  filter: drop-shadow(0 0 6px #ef4444);
+}
+
+/* =========================================================================
+   ПОПАП ПРОВЕРКИ ВИДИМОСТИ ЦЕЛИ VIEWSHED v2
+   ========================================================================= */
+.wm-viewshed-leaflet-popup .leaflet-popup-content-wrapper {
+  background: var(--bg-glass-strong, rgba(255, 255, 255, 0.95)) !important;
+  color: var(--text-main, #0f172a) !important;
+  border-radius: var(--radius-md, 12px) !important;
+  border: 1.5px solid var(--border-strong, #cbd5e1) !important;
+  box-shadow: var(--shadow-float, 0 8px 24px rgba(0, 0, 0, 0.2)) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 4px;
+}
+
+.wm-viewshed-leaflet-popup .leaflet-popup-content {
+  margin: 8px 10px !important;
+  font-size: 11.5px !important;
+  line-height: 1.45 !important;
+}
+
+.wm-viewshed-leaflet-popup .leaflet-popup-tip {
+  background: var(--bg-glass-strong, rgba(255, 255, 255, 0.95)) !important;
+}
+
+[data-theme="dark"] .wm-viewshed-leaflet-popup .leaflet-popup-content-wrapper,
+[data-theme="dark"] .wm-viewshed-leaflet-popup .leaflet-popup-tip {
+  background: var(--bg-glass-strong, rgba(17, 24, 39, 0.96)) !important;
+  border-color: var(--border, #374151) !important;
+  color: var(--text-main, #f9fafb) !important;
+}
+
+[data-theme="night-vision"] .wm-viewshed-leaflet-popup .leaflet-popup-content-wrapper,
+[data-theme="night-vision"] .wm-viewshed-leaflet-popup .leaflet-popup-tip {
+  background: rgba(18, 3, 3, 0.96) !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+/* ==========================================================================
+   VIEWSHED v2 PRO: СТИЛИ СЕГМЕНТОВ И КАРТОЧЕК
+   ========================================================================== */
+
+/* Сегментный селектор типа цели */
+.viewshed-target-kind-segmented {
+  display: flex;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border, #334155);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.vs-tkind-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 2px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.vs-tkind-btn span {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.vs-tkind-btn small {
+  font-size: 9px;
+  opacity: 0.75;
+}
+
+.vs-tkind-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-main, #f8fafc);
+}
+
+.vs-tkind-btn.active {
+  background: var(--accent, #10b981);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35);
+}
+
+.vs-tkind-btn.active small {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Сегментный селектор качества расчёта */
+.viewshed-quality-segmented {
+  display: flex;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border, #334155);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.vs-qual-btn {
+  flex: 1;
+  padding: 5px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.vs-qual-btn:hover {
+  color: var(--text-main, #f8fafc);
+}
+
+.vs-qual-btn.active {
+  background: var(--bg-secondary, #1e293b);
+  color: var(--accent, #10b981);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+
+/* Быстрые чипы высоты цели */
+.viewshed-chips-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.vs-preset-chip {
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 12px;
+  border: 1px solid var(--border, #334155);
+  background: var(--bg-primary, #0f172a);
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.vs-preset-chip:hover {
+  border-color: var(--accent, #10b981);
+  color: var(--text-main, #f8fafc);
+}
+
+.vs-preset-chip.active {
+  background: var(--accent, #10b981);
+  border-color: var(--accent, #10b981);
+  color: #ffffff;
+}
+
+/* Кнопка интерактивного зонда препятствий */
+.vs-probe-main-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(6, 182, 212, 0.08));
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.vs-probe-main-btn:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(6, 182, 212, 0.15));
+  border-color: var(--accent, #10b981);
+  transform: translateY(-1px);
+}
+
+.vs-probe-main-btn.active {
+  background: var(--accent, #10b981);
+  border-color: var(--accent, #10b981);
+  animation: pulse-border 1.5s infinite;
+}
+
+.vs-probe-main-btn.active .vs-probe-texts b,
+.vs-probe-main-btn.active .vs-probe-texts small,
+.vs-probe-main-btn.active .vs-probe-arrow {
+  color: #ffffff !important;
+}
+
+.vs-probe-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.vs-probe-texts {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.vs-probe-texts b {
+  font-size: 11.5px;
+  color: var(--text-main, #f8fafc);
+}
+
+.vs-probe-texts small {
+  font-size: 9.5px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.vs-probe-arrow {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--accent, #10b981);
+}
+
+/* Быстрые кнопки астрономического времени */
+.viewshed-time-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.vs-tq {
+  padding: 3px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--border, #334155);
+  background: var(--bg-secondary, #1e293b);
+  color: var(--text-main, #f8fafc);
+  cursor: pointer;
+}
+
+.vs-tq:hover {
+  border-color: var(--accent, #10b981);
+}
+
+.viewshed-info-card {
+  padding: 8px 10px;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border, #334155);
+  border-radius: 6px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-muted, #94a3b8);
+}
+
+/* =========================================================================
+   СЛОЙ ВЫСОТЫ ДЕРЕВЬЕВ И ЛЕСНОГО ПОКРОВА (META/WRI 1M CANOPY HEIGHT)
+   ========================================================================= */
+
+.leaflet-wm-canopy-pane-pane {
+  pointer-events: none !important;
+}
+
+.wm-canopy-tile {
+  image-rendering: auto;
+}
+
+/* Цветовые палитры для сплошной маски деревьев */
+.wm-canopy-mask.tint-emerald {
+  filter: hue-rotate(280deg) saturate(1.85) brightness(0.92);
+}
+
+.wm-canopy-mask.tint-forest {
+  filter: hue-rotate(250deg) saturate(2.4) brightness(0.72);
+}
+
+.wm-canopy-mask.tint-amber {
+  filter: hue-rotate(345deg) saturate(2.2);
+}
+
+.wm-canopy-mask.tint-red {
+  filter: hue-rotate(120deg) saturate(2.5) contrast(1.15);
+}
+
+.wm-canopy-mask.tint-viridis {
+  filter: none;
+}
+
+/* Поддержка ночного монохромного режима */
+[data-theme="night-vision"] .leaflet-wm-canopy-pane-pane {
+  filter: url(#wm-night-vision-filter) !important;
+}
+
+.wm-viewshed-badge.status-mode {
+  background: #f59e0b !important;
+  color: #000000 !important;
+  font-weight: 800 !important;
+  border-color: #ffffff !important;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.8) !important;
+  animation: pulse-busy 0.8s infinite alternate ease-in-out;
+  white-space: nowrap;
+}
+
+@keyframes pulse-busy {
+  from { transform: translateX(-50%) scale(0.95); opacity: 0.85; }
+  to   { transform: translateX(-50%) scale(1.05); opacity: 1.0; }
+}
+
+
+
+
+
+
+
+
+
+/* ========================================================================= */
+/* СТИЛИ МОДУЛЯ ОТРЯДА И ЧАТА                                                */
+/* ========================================================================= */
+.squad-window {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 400px;
+  max-width: calc(100vw - 24px);
+  height: 530px;
+  max-height: calc(100vh - 80px);
+  background: var(--bg-primary, #1e293b);
+  border: 1.5px solid var(--border, #334155);
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55), var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  z-index: 2500; /* Поверх большинства HUD */
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: height 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+              top 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+              bottom 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+              border-radius 0.2s ease;
+}
+
+/* Свёрнутое состояние: ПРИЖАТО ПО ЦЕНТРУ К НИЖНЕМУ КРАЮ */
+.squad-window.minimized {
+  top: auto !important;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
+  transform: translate(-50%, 0) !important;
+  height: 44px !important;
+  width: 320px !important;
+  max-width: calc(100vw - 32px) !important;
+  border-radius: 22px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.squad-win-header {
+  height: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-secondary, #0f172a);
+  border-bottom: 1px solid var(--border, #334155);
+  cursor: pointer;
+  user-select: none;
+}
+
+.squad-win-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+
+
+
+
+
+.squad-status-dot {
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  border-radius: 50%;
+  background: #64748b;
+}
+
+.squad-status-dot.online { background: #10b981; }
+.squad-status-dot.offline { background: #ef4444; }
+
+.squad-win-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main, #f8fafc);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.squad-status-text {
+  font-size: 10px;
+  color: var(--text-muted, #94a3b8);
+  white-space: nowrap;
+}
+
+.squad-win-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.squad-unread-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.squad-win-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted, #94a3b8);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.squad-win-btn:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.squad-win-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary, #1e293b);
+}
+
+.squad-not-connected-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.squad-connected-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.squad-win-toggles-bar {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-secondary, #0f172a);
+  border-bottom: 1px solid var(--border, #334155);
+}
+
+.squad-mini-toggle {
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+}
+
+.squad-members-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border, #334155);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.squad-members-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted, #94a3b8);
+}
+
+.squad-member-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 12px;
+  font-size: 11px;
+  background: var(--bg-secondary, #0f172a);
+  border: 1px solid;
+  color: var(--text-main, #f8fafc);
+  cursor: default;
+}
+
+.squad-member-chip.has-coords {
+  cursor: pointer;
+}
+
+.squad-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+/* Кнопка исключения участника создателем */
+.squad-member-kick-btn {
+  background: none;
+  border: none;
+  color: var(--danger, #ef4444);
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  padding: 0 0 0 4px;
+  line-height: 1;
+}
+.squad-member-kick-btn:hover {
+  transform: scale(1.2);
+}
+
+.squad-chat-messages {
+  flex: 1;
+  padding: 8px 10px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.squad-msg-bubble {
+  background: var(--bg-secondary, #0f172a);
+  border-left: 3px solid;
+  padding: 6px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.squad-msg-bubble.me {
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.squad-msg-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.squad-msg-author {
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.squad-msg-time {
+  font-size: 9.5px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.squad-msg-edit-btn {
+  background: none;
+  border: none;
+  font-size: 10px;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+/* Перенос длинных слов, сообщений и ссылок */
+.squad-msg-text {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-main, #f8fafc);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.squad-msg-text a {
+  color: var(--accent, #38bdf8);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+/* Интерактивная плашка координат в сообщении */
+.squad-coord-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(2, 132, 199, 0.14);
+  color: var(--accent, #38bdf8);
+  border: 1px solid var(--accent, #38bdf8);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: middle;
+  margin: 2px 0;
+  transition: all 0.14s ease;
+}
+.squad-coord-badge:hover {
+  background: var(--accent, #0284c7);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+.squad-coord-badge:active {
+  transform: scale(0.95);
+}
+
+.squad-chat-input-bar {
+  padding: 6px 10px 8px;
+  background: var(--bg-secondary, #0f172a);
+  border-top: 1px solid var(--border, #334155);
+}
+
+.squad-chat-counter {
+  font-size: 9.5px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.squad-cancel-edit {
+  font-size: 10px;
+  color: var(--accent, #38bdf8);
+  cursor: pointer;
+}
+
+.squad-chat-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.squad-chat-inp {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+/* Кнопка отправки координат центра карты */
+.squad-chat-coords-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+.squad-chat-coords-btn:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.squad-chat-send-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  flex-shrink: 0;
+  height: 32px;
+}
+
+/* Маркеры участников на карте */
+.wm-squad-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 6px rgba(0,0,0,0.5);
+}
+
+.wm-squad-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.wm-squad-pin-badge {
+  background: rgba(15, 23, 42, 0.88);
+  color: #fff;
+  border: 1px solid var(--sq-color);
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.wm-squad-pin-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  margin-top: 2px;
+}
+
+/* Мобильная адаптация: центрированное модальное окно на смартфонах */
+@media (max-width: 480px) {
+  .squad-window {
+    top: 50% !important;
+    left: 50% !important;
+    bottom: auto !important;
+    right: auto !important;
+    transform: translate(-50%, -50%) !important;
+    width: calc(100vw - 20px) !important;
+    max-width: 380px !important;
+    height: 72vh !important;
+    max-height: calc(100vh - 80px) !important;
+  }
+  .squad-window.minimized {
+    top: auto !important;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
+    left: 50% !important;
+    transform: translate(-50%, 0) !important;
+    width: calc(100vw - 32px) !important;
+    max-width: 320px !important;
+    height: 44px !important;
+  }
+}
+/* =========================================================================
+   КАСТОМНЫЙ COLOR PICKER (2D BOX + HSL СЛАЙДЕРЫ + HEX/NUM INPUTS)
+   ========================================================================= */
+
+/* Найдите #modal-color-picker в style.css и замените z-index на 100005: */
+#modal-color-picker {
+  z-index: 100005 !important; /* Выше окна TreeEditor (z-index: 99999) */
+  background: transparent !important;
+}
+.color-picker-modal-box {
+  max-width: 340px !important;
+  width: 95vw;
+  padding: 14px 16px !important;
+  box-sizing: border-box;
+  user-select: none;
+  animation: qmBoxPop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 1. Квадрат 2D (насыщенность / яркость) */
+.cp-sv-box {
+  position: relative;
+  width: 100%;
+  height: 170px;
+  border-radius: var(--radius-sm, 8px);
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.cp-sv-white {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, #ffffff, transparent);
+}
+
+.cp-sv-black {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, #000000, transparent);
+}
+
+.cp-sv-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  will-change: left, top;
+}
+
+/* 2. Слайдеры HSL */
+.cp-sliders-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.cp-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cp-slider-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-muted);
+  width: 14px;
+}
+
+.cp-range {
+  flex: 1;
+  height: 10px;
+  border-radius: 5px;
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid var(--border-strong);
+}
+
+.cp-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #1e293b;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: grab;
+}
+
+.cp-range::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.15);
+}
+
+.cp-hue-range {
+  background: linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%);
+}
+
+.cp-num-badge {
+  font-size: 10.5px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-weight: 700;
+  color: var(--text-main);
+  width: 38px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* 3. Цифровые поля и превью */
+.cp-inputs-card {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  align-items: center;
+}
+
+.cp-preview-duo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.cp-swatch-box {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  box-shadow: inset 0 0 2px rgba(0,0,0,0.2);
+}
+
+.cp-swatch-arrow {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.cp-fields-grid {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cp-field {
+  flex: 1.2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cp-field label, .cp-field-mini label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.cp-input {
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  padding: 5px 6px !important;
+  height: 28px !important;
+  text-transform: uppercase;
+}
+
+.cp-field-group {
+  display: flex;
+  gap: 4px;
+  flex: 1.4;
+}
+
+.cp-field-mini {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cp-input-num {
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+  font-size: 11px !important;
+  padding: 5px 2px !important;
+  text-align: center;
+  height: 28px !important;
+  -moz-appearance: textfield;
+}
+
+.cp-input-num::-webkit-outer-spin-button,
+.cp-input-num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* 4. Быстрые палитры */
+.cp-presets-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.cp-preset-chip {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.12s ease;
+  padding: 0;
+}
+
+.cp-preset-chip:hover {
+  transform: scale(1.22);
+}
+
+.cp-preset-chip:active {
+  transform: scale(0.9);
+}
+
+/* Поддержка ночного режима (красный монохром) */
+[data-theme="night-vision"] .color-picker-modal-box {
+  background: #050101 !important;
+  border-color: #ef4444 !important;
+}
+[data-theme="night-vision"] .cp-inputs-card {
+  background: #120303 !important;
+  border-color: #3b0707 !important;
+}
+[data-theme="night-vision"] .cp-input,
+[data-theme="night-vision"] .cp-input-num {
+  background: #050101 !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
 /* =========================================================================
    НОЧНАЯ ТЕМА ДЛЯ МОДУЛЯ ТРЕКОВ
    ========================================================================= */
@@ -16880,7 +18475,239 @@ body.wm-ui-hidden #gps-dist-fixed-badge {
   color: var(--accent);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
+/* =========================================================================
+   ПРОФИЛЬ РЕЛЬЕФА В ПАНЕЛЯХ ЛИНЕЙКИ (3D АДАПТАЦИЯ)
+   ========================================================================= */
 
+.quick-measure-hud.has-profile {
+  max-width: 420px;
+}
+
+.measure-hud.has-profile {
+  max-width: 430px;
+}
+
+.measure-profile-panel {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  padding: 6px 0 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  animation: progressFadeIn 0.18s ease-out;
+}
+
+.measure-profile-panel.qm-profile-panel {
+  padding: 2px 0 8px;
+  margin-bottom: 6px;
+}
+
+.mp-chart-col {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mp-chart-wrap {
+  position: relative;
+  width: 100%;
+  height: 86px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.mp-profile-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.mp-grid-line {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3, 3;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.6;
+}
+
+.mp-probe-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.7);
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.mp-probe-dot {
+  position: absolute;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2.5px solid #f59e0b;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+  transform: translate(-50%, -50%);
+}
+
+.mp-chart-axis {
+  position: absolute;
+  left: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--text-muted);
+  background: var(--bg-glass);
+  padding: 0 3px;
+  border-radius: 3px;
+  pointer-events: none;
+  line-height: 1.25;
+}
+
+.mp-chart-axis.top {
+  top: 3px;
+}
+
+.mp-chart-axis.bottom {
+  bottom: 3px;
+}
+
+.mp-chart-loading {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--bg-glass-strong);
+  padding: 1px 5px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.mp-info-col {
+  width: 132px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2px;
+  font-size: 10.5px;
+  line-height: 1.25;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  box-sizing: border-box;
+}
+
+@media (max-width: 370px) {
+  .mp-info-col {
+    width: 116px;
+    padding: 4px 6px;
+    font-size: 10px;
+  }
+}
+
+.mp-info-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.mp-info-lbl {
+  color: var(--text-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.mp-info-val {
+  color: var(--text-main);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-info-val.up { color: #ef4444; }
+.mp-info-val.down { color: #10b981; }
+.mp-info-val.flat { color: var(--text-muted); }
+
+.mp-info-divider {
+  border-top: 1px dashed var(--border-strong);
+  margin: 2px 0;
+}
+
+.mp-info-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+}
+
+.mp-info-delta {
+  font-size: 9px;
+  color: var(--accent);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mp-3d-pill {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+/* Маркер точки профиля на карте */
+.wm-measure-probe-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.wm-measure-probe-marker {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2.5px solid #ffffff;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.45), 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="night-vision"] .mp-probe-line {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+}
+
+[data-theme="night-vision"] .mp-probe-dot,
+[data-theme="night-vision"] .wm-measure-probe-marker {
+  border-color: #ef4444;
+}
+
+[data-theme="night-vision"] .wm-measure-probe-marker {
+  background: #ef4444;
+  border-color: #ffffff;
+}
 /* Оформление в ночной теме */
 [data-theme="night-vision"] .pdr-quick-test-card {
   border-color: #ef4444;
