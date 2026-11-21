@@ -265,20 +265,39 @@
   <button id="btn-hide-ui" class="floating-btn hide-ui-fab" title="Скрыть интерфейс" hidden>👁️</button>
 
   <!-- Плавающие круглые кнопки управления -->
-  <nav class="floating-controls" id="ui-floating-controls">
-    <button id="btn-rays-toggle" class="floating-btn" title="Азимуты Солнца и Луны">✨</button>
-    <button id="btn-mode-toggle" class="floating-btn" title="Режим карты">✛</button>
-    <button id="btn-measure" class="floating-btn" title="Линейка (измерение расстояний)">📏</button>
-    <button id="btn-quick-measure" class="floating-btn" title="Быстрое измерение (2 точки)">📐</button>
-    <button id="btn-add-marker" class="floating-btn" title="Добавить метку">📍</button>
-    <button id="btn-location" class="floating-btn" title="Моя геопозиция">🛰️</button>
-    <button id="btn-track-record" class="floating-btn" title="Запись трека (GPS Logger)">⏺️</button>
-    <button id="btn-gps-dist" class="floating-btn" title="Расстояние от центра до GPS">🧭</button>
-    <button id="btn-motion-toggle" class="floating-btn" title="Хвост и траектория движения">🐾</button>
-    <button id="btn-manual-pdr" class="floating-btn" title="Поместить точку GPS сюда">👣</button>
-    <button id="btn-download-area" class="floating-btn" title="Скачать область">📥</button>
-    <button id="btn-theme-toggle" class="floating-btn" title="Сменить тему">🌙</button>
-    <button id="btn-settings" class="floating-btn" title="Настройки">⚙️</button>
+  <nav class="floating-controls" id="ui-floating-controls" aria-label="Инструменты карты">
+    <button type="button" id="fc-scroll-up" class="fc-scroll-arrow fc-scroll-up" title="Прокрутить вверх" hidden aria-label="Прокрутить вверх">
+      <svg width="14" height="9" viewBox="0 0 14 9" fill="none">
+        <path d="M2 7L7 2L12 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+
+    <div class="fc-scroll-viewport" id="fc-scroll-viewport">
+      <div class="fc-scroll-list" id="fc-scroll-list">
+        <button id="btn-rays-toggle" class="floating-btn" title="Азимуты Солнца и Луны">✨</button>
+        <button id="btn-mode-toggle" class="floating-btn" title="Режим карты">✛</button>
+        <button id="btn-measure" class="floating-btn" title="Линейка (измерение расстояний)">📏</button>
+        <button id="btn-quick-measure" class="floating-btn" title="Быстрое измерение (2 точки)">📐</button>
+        <button id="btn-add-marker" class="floating-btn" title="Добавить метку">📍</button>
+        <button id="btn-location" class="floating-btn" title="Моя геопозиция">🛰️</button>
+        <button id="btn-track-record" class="floating-btn" title="Запись трека (GPS Logger)">⏺️</button>
+        <button id="btn-gps-dist" class="floating-btn" title="Расстояние от центра до GPS">🧭</button>
+        <button id="btn-motion-toggle" class="floating-btn" title="Хвост и траектория движения">🐾</button>
+        <button id="btn-manual-pdr" class="floating-btn" title="Поместить точку GPS сюда">👣</button>
+        <button id="btn-download-area" class="floating-btn" title="Скачать область">📥</button>
+        <button id="btn-theme-toggle" class="floating-btn" title="Сменить тему">🌙</button>
+      </div>
+    </div>
+
+    <button type="button" id="fc-scroll-down" class="fc-scroll-arrow fc-scroll-down" title="Прокрутить вниз" hidden aria-label="Прокрутить вниз">
+      <svg width="14" height="9" viewBox="0 0 14 9" fill="none">
+        <path d="M2 2L7 7L12 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+
+    <div class="fc-settings-pinned">
+      <button id="btn-settings" class="floating-btn" title="Настройки">⚙️</button>
+    </div>
   </nav>
 
   <!-- Модальное окно поиска -->
@@ -835,12 +854,19 @@
 
                 <details class="spoiler sub-spoiler" id="spoiler-layers-panel-sections" style="margin-top: 10px;">
                   <summary class="spoiler-title sub-spoiler-title">
-                    <span>👁️ Разделы и кнопка OSM в панели слоёв</span>
+                    <span>👁️ Спойлеры и разделы в меню слоёв</span>
                     <span class="chevron">▼</span>
                   </summary>
-                  <div class="spoiler-body toggles-list" id="layers-panel-vis-list" style="padding-top: 10px;"></div>
+                  <div class="spoiler-body" style="padding-top: 10px;">
+                    <div class="guide-tip-box" style="margin-top: 0; margin-bottom: 10px;">
+                      <div class="guide-tip-title">🔒 Строгое отключение</div>
+                      <p style="margin: 0; font-size: 11.5px; line-height: 1.4;">
+                        Если спойлер скрыт из меню слоёв, все относящиеся к нему слои и карты строго выключаются и не могут быть активированы до возврата спойлера.
+                      </p>
+                    </div>
+                    <div class="toggles-list" id="layers-panel-vis-list"></div>
+                  </div>
                 </details>
-
                 <hr class="style-divider" style="margin: 10px 0;">
                 <div class="toggles-list" id="modern-maps-list"></div>
 
@@ -2813,7 +2839,7 @@
                   <span class="toggle-switch"></span>
                 </label>
                 <label class="toggle-item">
-                  <span>Счетчик запросов (лимит ключа)</span>
+                  <span>Кнопка обновления карты</span>
                   <input type="checkbox" id="toggle-ui-limit" checked>
                   <span class="toggle-switch"></span>
                 </label>
@@ -9438,6 +9464,21 @@
           </div>
         </details>
 
+        <!-- 7. ИНСПЕКТОР И СЕТЕВОЙ ЖУРНАЛ СЛОЁВ -->
+      <div class="dem-hud-card-inner" style="margin-top: 4px; padding: 9px 10px; border: 1.5px dashed var(--accent); background: rgba(56, 189, 248, 0.06);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+          <div style="min-width: 0;">
+            <div style="font-size: 11.5px; font-weight: 800; color: var(--accent);">🛰️ Инспектор слоёв и сетевой журнал</div>
+            <div style="font-size: 10px; color: var(--text-muted); line-height: 1.3; margin-top: 2px;">
+              Что сейчас на экране (Рельеф, Вода/Волны, OSM, Лес), откуда скачано, лимиты кэша и ошибки
+            </div>
+          </div>
+          <button type="button" id="btn-open-layer-inspector" class="btn btn-primary" style="font-size: 11px; padding: 7px 11px; white-space: nowrap;">
+            🔍 Открыть
+          </button>
+        </div>
+      </div>
+
     </div><!-- /#dem-hud-body-tools -->
   </div><!-- /.dem-hud-body -->
 </div><!-- /#dem-relief-hud -->
@@ -9602,6 +9643,7 @@
   <script src="js/leaflet.js"></script>
   <script src="js/tile-retry.js"></script>
   <script src="js/config.js"></script>
+  <script src="js/layerInspector.js"></script>
   <script src="js/geo.js"></script>
   <script src="js/cache.js"></script>
   <script src="js/geomag.js"></script>
@@ -9658,7 +9700,7 @@
   <script src="js/colorPicker.js"></script>
   <script src="js/offlineArea.js"></script>
   <script src="js/terrainOverlays.js"></script>
-  
+
   <script src="js/appProfiles.js"></script>
   <script src="js/main.js"></script>
 
