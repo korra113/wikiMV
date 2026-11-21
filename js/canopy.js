@@ -5,6 +5,7 @@
  */
 (function () {
   const WM = window.WM = window.WM || {};
+  const TILE_DPR = Math.min(Math.max(1, window.devicePixelRatio || 1), 2);
 
   const COMMON_TILE_OPTIONS = {
     keepBuffer: 1,
@@ -584,7 +585,7 @@ const CANOPY_SPECIES_PROVIDERS = [
     },
 
     conifer: {
-      sizeScale: 1.55,          // общий масштаб крон елей (не трогает лиственные)
+      sizeScale: 1.35,          // общий масштаб крон елей (не трогает лиственные)
       heightRatio: 2.05,        // вытянутость ели вверх (yTip = -heightRatio * r)
       widthRatio: 0.66,         // ширина основания ели (hwMax = widthRatio * r)
       tierCountBias: 0,         // сдвиг числа ярусов (-1 .. +2)
@@ -927,7 +928,7 @@ const CANOPY_SPECIES_PROVIDERS = [
       const geo = CANOPY_DEV_CONFIG.geometry;
 
       let tuftRadiusRatio = cl.tuftRadiusRatio;
-      let autoDenseThinning = cl.autoDenseThinning;
+      let thinZoomWeight = 0.75;
       let innerStrokeRate = cl.innerStrokeRate;
       let crownBaseMeters = geo.crownBaseMeters;
 
@@ -936,22 +937,21 @@ const CANOPY_SPECIES_PROVIDERS = [
 
       if (z <= 12) {
         tuftRadiusRatio = 0.56 * tuftMul;
-        autoDenseThinning = 0.30;
+        thinZoomWeight = 0.75;
       } else if (z === 13) {
         tuftRadiusRatio = 0.49 * tuftMul;
-        autoDenseThinning = 0.23;
+        thinZoomWeight = 0.65;
       } else if (z === 14 || z === 15) {
         tuftRadiusRatio = 0.42 * tuftMul;
-        autoDenseThinning = 0.14;
+        thinZoomWeight = 0.50;
         innerStrokeRate = clamp(0.50 * rateMul, 0, 1);
         crownBaseMeters = 7.0;
       } else if (z >= 16) {
         tuftRadiusRatio = 0.42 * tuftMul;
-        autoDenseThinning = 0.10;
+        thinZoomWeight = 0.40;
         innerStrokeRate = clamp(0.50 * rateMul, 0, 1);
         crownBaseMeters = 5.5;
       }
-
       // Доля скрытых елей массива по зуму: 11 -> 0.62, 12 -> 0.52, 13 -> 0.42, 16 -> 0.64
       const hideMul = (cm.hideRate ?? 0.64) / 0.64;
       let baseHideRate;
@@ -966,7 +966,7 @@ const CANOPY_SPECIES_PROVIDERS = [
       }
       const coniferHideRate = clamp(baseHideRate * hideMul, 0.0, 0.92);
 
-      return { tuftRadiusRatio, autoDenseThinning, innerStrokeRate, crownBaseMeters, coniferHideRate };
+      return { tuftRadiusRatio, thinZoomWeight, innerStrokeRate, crownBaseMeters, coniferHideRate };
     }
 
     function opts() {
@@ -1422,23 +1422,40 @@ const CANOPY_SPECIES_PROVIDERS = [
       return clamp(17.0 + (z - 12) * 1.6, 14.0, 23.0);
     }
 
+    function getDeviceVisualScale() {
+      const dpr = window.devicePixelRatio || 1;
+      const hasTouch = (navigator.maxTouchPoints || 0) > 1;
+      const isCoarse = typeof window.matchMedia === 'function'
+        ? window.matchMedia('(pointer: coarse)').matches
+        : true;
+      if (!hasTouch || !isCoarse || dpr < 1.5) return 1.0;
+
+      const minSide = Math.min(window.screen.width || 1024, window.screen.height || 768);
+      // Телефоны (~326–460 PPI): крупнее крона и шаг сетки
+      if (minSide <= 500) return 1.28;
+      // Планшеты / iPad (~264–326 PPI): выравниваем с десктопным монитором (~96–110 PPI)
+      if (minSide <= 1100) return 1.22;
+      return 1.0;
+    }
+
     function getGridMetric(z, density, ty, scale = 1.0) {
       const tileLat = (ty !== undefined)
         ? Math.atan(Math.sinh(Math.PI - (2.0 * Math.PI * (ty + 0.5)) / (1 << z))) * (180.0 / Math.PI)
         : (WM.map ? WM.map.getCenter().lat : 55.0);
       const mpp = (156543.03392 * Math.cos(tileLat * Math.PI / 180)) / (1 << z);
 
-      const baseCrownSz = getBaseCrownSize(z) * scale;
+      const devScale = getDeviceVisualScale();
+      const baseCrownSz = getBaseCrownSize(z) * scale * devScale;
       
-      // Коэффициент перекрытия 1.20 (как на любимом вами зуме 12, но «чуточку поплотнее»)
+      // Коэффициент перекрытия 1.20
       const targetPackingRatio = 1.20;
       
       // Шаг ячейки сетки высчитывается от размера кроны и плотности
       const targetCellPx = (baseCrownSz / targetPackingRatio) / Math.sqrt(Math.max(0.2, density));
 
-      // Число ячеек N динамически меняется от 12 до 21 (нет просадки FPS и нет каши)
-      const N = clamp(Math.round(TILE / targetCellPx), 11, 21);
-      return { N, cell: TILE / N, mpp, baseCrownSz };
+      // На крупных планшетах/телефонах с devScale > 1.2 на высоких зумах разрешаем N от 9
+      const N = clamp(Math.round(TILE / targetCellPx), 9, 21);
+      return { N, cell: TILE / N, mpp, baseCrownSz, devScale };
     }
 
     function hash2(a, b, s) {
@@ -1801,7 +1818,7 @@ const CANOPY_SPECIES_PROVIDERS = [
       // Получаем параметры с учётом текущего зума
       const zoomParams = getZoomAdaptiveParams(z);
 
-      const { N, cell, mpp, baseCrownSz } = getGridMetric(z, o.density, ty, o.scale);
+      const { N, cell, mpp, baseCrownSz, devScale } = getGridMetric(z, o.density, ty, o.scale);
       const minVal = o.minH * Q;
 
       const effectiveForestThreshold = (z <= 11) ? Math.min(o.forestOnlyThreshold, 0.25) : o.forestOnlyThreshold;
@@ -1863,12 +1880,12 @@ const CANOPY_SPECIES_PROVIDERS = [
 
           // --- АДАПТИВНОЕ ПРОРЕЖИВАНИЕ МАССИВА ПО ЗУМУ ---
           if (o.autoDense && isDeepMassif) {
-            const thinRate = zoomParams.autoDenseThinning;
+            const thinRate = clamp(o.autoDenseThinning * zoomParams.thinZoomWeight, 0.0, 0.85);
             if (thinRate > 0.005 && hash2(cx, cy, 7) < thinRate) continue;
           }
 
-          const effectiveEdgeScale = Math.max(1.05, o.edgeScale * 1.15);
-          const effectiveMassifScale = Math.min(1.35, Math.max(1.05, o.massifScale * 1.15));
+          const effectiveEdgeScale = o.edgeScale;
+          const effectiveMassifScale = o.autoDense ? o.massifScale : o.edgeScale;
           const autoScaleMul = isDeepMassif ? effectiveMassifScale : effectiveEdgeScale;
 
           const realH = avgHeights[j * N + i] || 12.0;
@@ -1880,7 +1897,7 @@ const CANOPY_SPECIES_PROVIDERS = [
           let crownPx = baseCrownSz * Math.max(0.40, sizeRatio) * autoScaleMul;
           crownPx *= 0.94 + 0.12 * hash2(cx, cy, 11);
 
-          crownPx = clamp(crownPx, 8.0 * o.scale, 50.0 * o.scale);
+          crownPx = clamp(crownPx, 8.0 * o.scale * devScale, 50.0 * o.scale * devScale);
 
          const baseX = i * cell + rowShift;
           const baseY = j * cell;
@@ -2029,8 +2046,7 @@ const CANOPY_SPECIES_PROVIDERS = [
         hasRealSpecies = !!speciesGrid;
       }
 
-      const cacheKey = `${z}/${tx}/${ty}|${o.style}|${o.density}|${o.scale}|${o.minH}|${o.forestOnlyThreshold}|ad:${o.autoDense}|ads:${o.autoDenseScale}|adt:${o.autoDenseThinning}|cl:${o.clustering}|vr:${o.variety}|species:${hasRealSpecies ? 1 : 0}|cr:${o.clearRoads && roadSegs ? 1 : 0}|crv:${o.clearRivers && riverData ? 1 : 0}`;
-
+      const cacheKey = `${z}/${tx}/${ty}|${o.style}|${o.density}|${o.scale}|${o.minH}|${o.forestOnlyThreshold}|ad:${o.autoDense}|ads:${o.autoDenseScale}|es:${o.edgeScale}|ms:${o.massifScale}|adt:${o.autoDenseThinning}|cl:${o.clustering}|vr:${o.variety}|species:${hasRealSpecies ? 1 : 0}|cr:${o.clearRoads && roadSegs ? 1 : 0}|crv:${o.clearRivers && riverData ? 1 : 0}`;
 
       if (tileTreesCache.has(cacheKey)) {
         const cached = tileTreesCache.get(cacheKey);
@@ -2700,13 +2716,16 @@ const CANOPY_SPECIES_PROVIDERS = [
 
     function newSprite(L, Rr, Up, D) {
       const cv = document.createElement('canvas');
-      cv.width = Math.max(2, Math.ceil(L + Rr));
-      cv.height = Math.max(2, Math.ceil(Up + D));
+      const wCss = Math.max(2, Math.ceil(L + Rr));
+      const hCss = Math.max(2, Math.ceil(Up + D));
+      cv.width = Math.round(wCss * TILE_DPR);
+      cv.height = Math.round(hCss * TILE_DPR);
       const ctx = cv.getContext('2d');
+      ctx.scale(TILE_DPR, TILE_DPR);
       ctx.translate(L, Up);
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
-      return { cv, ctx, ax: L, ay: Up, bytes: cv.width * cv.height * 4 };
+      return { cv, ctx, ax: L, ay: Up, wCss, hCss, bytes: cv.width * cv.height * 4 };
     }
 
     function hatchLines(ctx, cx, cy, R, gap, ang, seed) {
@@ -3830,12 +3849,12 @@ const CANOPY_SPECIES_PROVIDERS = [
     // =========================================================================
     // КЭШ СПРАЙТОВ
     // =========================================================================
-    const SPRITE_BYTES_LIMIT = 10 * 1024 * 1024; // 10 МБ вместо 48 МБ
-    const MAX_SPRITE_COUNT = 1200;               // не более 1200 <canvas> в памяти
+    const SPRITE_BYTES_LIMIT = 10 * 1024 * 1024 * TILE_DPR * TILE_DPR;
+    const MAX_SPRITE_COUNT = 1200;             // не более 1200 <canvas> в памяти
     let spriteBytes = 0;
     const spriteCache = new Map();
 
-    
+
   function buildSprite(t, tuft, st, o, P) {
       const U = P.U;
       const w = t.b;
@@ -4179,8 +4198,9 @@ const CANOPY_SPECIES_PROVIDERS = [
       const ox = ((worldOriginX % TILE) + TILE) % TILE;
       const oy = ((worldOriginY % TILE) + TILE) % TILE;
 
-      const cW = ctx.canvas.width;
-      const cH = ctx.canvas.height;
+      const logicalSize = TILE + PAD * 2;
+      const cW = logicalSize;
+      const cH = logicalSize;
 
       ctx.save();
       ctx.globalCompositeOperation = 'source-atop';
@@ -4289,7 +4309,7 @@ const CANOPY_SPECIES_PROVIDERS = [
       // «скрытые» ели массива: остаётся только подлесок
       if (tuft && t.kind === 'conifer' && CANOPY_DEV_CONFIG.coniferMerge.enabled && conMergeVariant(t) < 0) return;
       const sp = getSprite(t, tuft, st, o, P);
-      ctx.drawImage(sp.cv, Math.round(it.x - sp.ax), Math.round(it.y - sp.ay));
+      ctx.drawImage(sp.cv, Math.round(it.x - sp.ax), Math.round(it.y - sp.ay), sp.wCss, sp.hCss);
     }
     let _isAreaLoading = false;
     let _loadingTilesCount = 0;
@@ -4390,7 +4410,10 @@ const CANOPY_SPECIES_PROVIDERS = [
       render(canvas, coords, onLoaded) {
         const o = opts();
         const ctx = canvas.getContext('2d');
+        const logicalSize = TILE + PAD * 2;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.setTransform(TILE_DPR, 0, 0, TILE_DPR, 0, 0);
 
         const z = coords.z, tx = coords.x, ty = coords.y;
         const P = prepareLighting(currentLighting(), o);
@@ -4456,7 +4479,7 @@ const CANOPY_SPECIES_PROVIDERS = [
             return;
           }
 
-          const { raw, blur } = getRoadMaskCanvases(canvas.width, canvas.height);
+          const { raw, blur } = getRoadMaskCanvases(logicalSize, logicalSize);
           const rCtx = raw.getContext('2d');
           rCtx.clearRect(0, 0, raw.width, raw.height);
           rCtx.fillStyle = '#000';
@@ -4486,7 +4509,7 @@ const CANOPY_SPECIES_PROVIDERS = [
           ctx.save();
           ctx.globalCompositeOperation = 'destination-out';
           ctx.globalAlpha = opacity;
-          ctx.drawImage(maskToDraw, 0, 0);
+          ctx.drawImage(maskToDraw, 0, 0, logicalSize, logicalSize);
           ctx.restore();
         };
 
@@ -4619,7 +4642,7 @@ const CANOPY_SPECIES_PROVIDERS = [
         trimMap(packCache, aggressive ? 16 : 28);
         trimMap(shadowCache, aggressive ? 16 : 28);
         trimMap(paletteCache, aggressive ? 250 : 600);
-        const maxB = aggressive ? (2 * 1024 * 1024) : (4 * 1024 * 1024);
+        const maxB = (aggressive ? (2 * 1024 * 1024) : (4 * 1024 * 1024)) * TILE_DPR * TILE_DPR;
         const maxC = aggressive ? 300 : 600;
         while ((spriteBytes > maxB || spriteCache.size > maxC) && spriteCache.size > 0) {
           const k0 = spriteCache.keys().next().value;
@@ -4801,8 +4824,8 @@ const CANOPY_SPECIES_PROVIDERS = [
     createTile(coords, done) {
       const tile = document.createElement('canvas');
       const size = 256 + PAD * 2;
-      tile.width = size;
-      tile.height = size;
+      tile.width = Math.round(size * TILE_DPR);
+      tile.height = Math.round(size * TILE_DPR);
       tile.style.zIndex = coords.y;
 
       const triggerRedraw = () => {
