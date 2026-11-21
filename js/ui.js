@@ -9068,7 +9068,7 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
     // Синхронизация селектора источника DEM
     const selSource = $('dem-source-select');
     if (selSource) {
-      selSource.value = cfg.demSource || 'mapterhorn';
+      selSource.value = cfg.demSource || 'fabdem';
       selSource.onchange = (e) => {
         WM.demRelief.setConfig({ demSource: e.target.value });
       };
@@ -10990,7 +10990,7 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
           }
           if ($('dem-hud-contour-style-select')) $('dem-hud-contour-style-select').value = demCfg.contourStyle || 'standard';
           if ($('dem-hud-contour-smooth-select')) $('dem-hud-contour-smooth-select').value = demCfg.contourSmoothing || 'chaikin';
-          if ($('dem-source-select')) $('dem-source-select').value = demCfg.demSource || 'mapterhorn';
+          if ($('dem-source-select')) $('dem-source-select').value = demCfg.demSource || 'fabdem';
           if ($('toggle-dem-hillshade')) $('toggle-dem-hillshade').checked = localStorage.getItem('wm_dem_hillshade_enabled') === 'true';
 
           if ($('dem-hud-hachure-type-select')) $('dem-hud-hachure-type-select').value = demCfg.hachureType || 'contour';
@@ -11506,7 +11506,7 @@ for (const [key, domId] of Object.entries(QM_ITEM_CHECKBOX_MAP)) {
           }
 
          if (WM.demRelief) {
-          const newSource = $('dem-source-select') ? $('dem-source-select').value : 'mapterhorn';
+          const newSource = $('dem-source-select') ? $('dem-source-select').value : 'fabdem';
           const newCtBlend = $('dem-contour-blend-select') ? $('dem-contour-blend-select').value : 'normal';
           const demPatch = { demSource: newSource, contourBlendMode: newCtBlend };
 
