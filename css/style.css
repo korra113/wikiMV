@@ -2941,27 +2941,247 @@ body.sheet-open .wm-mv-offscreen-pointer {
   box-shadow: var(--shadow-float);
 }
 
-/* Плавающие кнопки */
+/* Вытянутая вертикальная панель инструментов справа */
 .floating-controls {
   position: absolute;
-  right: calc(14px + env(safe-area-inset-right, 0px));
+  right: calc(10px + env(safe-area-inset-right, 0px));
   bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  width: 44px;
+  max-height: calc(100dvh - 196px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
-  flex-wrap: wrap-reverse;    /* Переносит кнопки во второй ряд СЛЕВА от первого */
-  justify-content: flex-end;  /* Прижимает кнопки к нижнему краю */
-  align-content: flex-end;    /* Прижимает столбцы к правому краю экрана */
-  gap: 10px;
+  align-items: stretch;
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  overflow: hidden;
   z-index: 1000;
-  /* Ограничиваем высоту, чтобы кнопки физически не доходили до поиска и слоев карт: */
-  max-height: calc(100vh - 185px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-  pointer-events: none;       /* Чтобы зазор между двумя колонками не блокировал карту */
+  pointer-events: auto;
+  user-select: none;
 }
 
-/* Возвращаем кликабельность самим кнопкам */
-.floating-controls > * {
-  pointer-events: auto;
+.floating-controls.is-dragging {
+  cursor: grabbing;
 }
+
+/* Прокручиваемая область между стрелками */
+.fc-scroll-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  transition: max-height 0.22s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.16s ease;
+}
+
+.fc-scroll-down svg {
+  transition: transform 0.2s ease;
+}
+
+/* Свёрнутое состояние: скрываем список, убираем лишнюю рамку и переворачиваем стрелку вверх */
+.floating-controls.fc-collapsed .fc-scroll-viewport {
+  flex: 0 0 auto !important;
+  max-height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.floating-controls.fc-collapsed .fc-scroll-down {
+  border-top: none;
+}
+
+.floating-controls.fc-collapsed .fc-scroll-down svg {
+  transform: rotate(180deg);
+}
+.fc-scroll-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.fc-scroll-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.floating-controls.fc-only-settings .fc-scroll-viewport {
+  display: none;
+}
+
+/* Тонкий центрированный разделитель между кнопками */
+.fc-sep {
+  display: block;
+  height: 1px;
+  width: 24px;
+  margin: 0 auto;
+  background: var(--border);
+  opacity: 0.85;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+/* Плоские стрелки прокрутки сверху и снизу */
+.fc-scroll-arrow {
+  width: 100%;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: none;
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  touch-action: none;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+.fc-scroll-up {
+  border-bottom: 1px solid var(--border);
+}
+.fc-scroll-down {
+  border-top: 1px solid var(--border);
+}
+.fc-scroll-arrow:hover:not(.is-disabled) {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.fc-scroll-arrow:active:not(.is-disabled) {
+  background: var(--accent-bg);
+}
+.fc-scroll-arrow.is-disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+/* Закреплённая кнопка настроек внизу прямоугольника */
+.fc-settings-pinned {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-strong);
+  background: var(--bg-secondary);
+}
+.floating-controls.fc-only-settings .fc-settings-pinned {
+  border-top: none;
+}
+
+/* Кнопки внутри прямоугольника */
+.floating-controls .floating-btn {
+  width: 100%;
+  height: 40px;
+  min-height: 40px;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  font-size: 19px;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+  position: relative;
+  touch-action: pan-y; /* Разрешает вертикальный свайп при касании прямо по кнопке */
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+.floating-controls .floating-btn:hover {
+  background: var(--accent-bg);
+}
+.floating-controls .floating-btn:active {
+  transform: scale(0.92);
+}
+
+/* Активные состояния внутри панели (без вылезающих теней и кругов) */
+.floating-controls .floating-btn.active,
+.floating-controls #btn-mode-toggle.active,
+.floating-controls #btn-motion-toggle.active,
+.floating-controls #btn-manual-pdr.active {
+  background: var(--accent-bg) !important;
+  color: var(--accent) !important;
+  border: none !important;
+  box-shadow: inset 3px 0 0 var(--accent) !important;
+}
+
+.floating-controls #btn-location.following {
+  background: var(--accent-bg) !important;
+  color: var(--accent) !important;
+  border: none !important;
+  box-shadow: inset 3px 0 0 var(--accent) !important;
+  animation: none;
+}
+
+/* Индикатор поиска GPS, вписанный внутрь прямоугольной ячейки */
+.floating-controls #btn-location.searching::before {
+  inset: 4px;
+  border-radius: 7px;
+  padding: 2px;
+}
+.floating-controls #btn-location.searching::after {
+  inset: 3px;
+  border-radius: 8px;
+}
+
+.floating-controls #btn-track-record.recording {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #ef4444 !important;
+  border: none !important;
+  box-shadow: inset 3px 0 0 #ef4444 !important;
+  animation: none;
+}
+.floating-controls #btn-track-record.paused {
+  background: rgba(245, 158, 11, 0.16) !important;
+  color: #d97706 !important;
+  border: none !important;
+  box-shadow: inset 3px 0 0 #f59e0b !important;
+}
+
+/* Ночной монохромный режим для панели */
+[data-theme="night-vision"] .floating-controls {
+  background: rgba(18, 3, 3, 0.94) !important;
+  border-color: #3b0707 !important;
+}
+[data-theme="night-vision"] .fc-scroll-arrow,
+[data-theme="night-vision"] .fc-settings-pinned {
+  background: #0d0202 !important;
+  border-color: #3b0707 !important;
+  color: #ef4444 !important;
+}
+[data-theme="night-vision"] .fc-sep {
+  background: #3b0707 !important;
+}
+[data-theme="night-vision"] .floating-controls .floating-btn {
+  background: transparent !important;
+  border: none !important;
+}
+[data-theme="night-vision"] .floating-controls .floating-btn.active,
+[data-theme="night-vision"] .floating-controls #btn-mode-toggle.active,
+[data-theme="night-vision"] .floating-controls #btn-motion-toggle.active,
+[data-theme="night-vision"] .floating-controls #btn-manual-pdr.active,
+[data-theme="night-vision"] .floating-controls #btn-location.following {
+  background: rgba(239, 68, 68, 0.18) !important;
+  color: #ff4444 !important;
+  box-shadow: inset 3px 0 0 #ef4444 !important;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -15506,7 +15726,15 @@ body.wm-ui-hidden .dem-relief-hud {
 /* =========================================================================
    СПОЙЛЕРЫ КАТЕГОРИЙ В МЕНЮ ВЫБОРА КАРТ (LEAFLET LAYER CONTROL)
    ========================================================================= */
-
+/* Оставляем один общий скролл на .leaflet-control-layers-expanded,
+   отключая встроенный скролл Leaflet на внутреннем списке */
+.leaflet-control-layers-expanded .leaflet-control-layers-list,
+.leaflet-control-layers-expanded .leaflet-control-layers-scrollbar {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  padding-right: 0 !important;
+}
 .leaflet-control-layers-expanded {
   max-width: 270px !important;
   max-height: 75vh;
