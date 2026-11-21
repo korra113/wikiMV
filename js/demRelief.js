@@ -2,13 +2,33 @@
   const WM = window.WM = window.WM || {};
 
   const DEM_SOURCES = {
+    fabdem: {
+      id: 'fabdem',
+      name: 'FABDEM (GEE 30m без лесов и зданий)',
+      urls: [
+        'https://forests.sylar1907942.workers.dev/tiles/fabdem/{z}/{x}/{y}',
+        'https://functions.yandexcloud.net/d4e8q0lca1vlcb5n35hs?type=fabdem&z={z}&x={x}&y={y}',
+        'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+
+      ]
+    },
+    copernicus: {
+      id: 'copernicus',
+      name: 'Copernicus GLO-30 (GEE 30m)',
+      urls: [
+        'https://forests.sylar1907942.workers.dev/tiles/copernicus/{z}/{x}/{y}',
+        'https://functions.yandexcloud.net/d4e8q0lca1vlcb5n35hs?type=copernicus&z={z}&x={x}&y={y}',
+        'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+
+      ]
+    },
     mapterhorn: {
       id: 'mapterhorn',
       name: 'Mapterhorn (Copernicus 30m + LiDAR)',
       urls: [
         'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
         'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
-        'https://tile.nextzen.org/tilezen/elevation/v1/terrarium/{z}/{x}/{y}.png'
+
       ]
     },
     aws: {
@@ -16,7 +36,7 @@
       name: 'AWS Terrarium (Mapzen / Nextzen)',
       urls: [
         'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
-        'https://tile.nextzen.org/tilezen/elevation/v1/terrarium/{z}/{x}/{y}.png'
+
       ]
     }
   };
@@ -66,11 +86,14 @@
   const WaterTokens = {
     waterTpl: null,
     _initPromise: null,
+    _lastRefreshTs: 0,
 
     getCached() {
-      if (WM.canopyTokens?.templates?.water) {
-        this.waterTpl = WM.canopyTokens.templates.water;
-        return this.waterTpl;
+      if (this.waterTpl) return this.waterTpl;
+      const canopyTpl = WM.canopyTokens?.templates?.water;
+      if (canopyTpl) {
+        this.waterTpl = canopyTpl;
+        return canopyTpl;
       }
       try {
         const raw = localStorage.getItem('wm_gee_tokens');
@@ -79,35 +102,123 @@
           const t = data?.templates || data;
           if (t?.water && (!data.expiresAt || Date.now() < data.expiresAt)) {
             this.waterTpl = t.water;
-            return this.waterTpl;
+            return t.water;
           }
         }
       } catch (e) {}
-      return this.waterTpl;
+      return null;
     },
 
-    async ensure() {
-      const cached = this.getCached();
-      if (cached) return cached;
+    invalidate() {
+      this.waterTpl = null;
+      if (WM.canopyTokens?.templates?.water) {
+        delete WM.canopyTokens.templates.water;
+      }
+    },
+
+    async ensure(force = false) {
+      if (!force) {
+        const cached = this.getCached();
+        if (cached) return cached;
+      }
+      if (force && Date.now() - this._lastRefreshTs < 60000) {
+        return this.waterTpl || null;
+      }
       if (this._initPromise) return this._initPromise;
 
       this._initPromise = (async () => {
+        this._lastRefreshTs = Date.now();
         for (const url of WATER_GEE_TOKEN_SOURCES) {
           try {
             const ctl = new AbortController();
             const tm = setTimeout(() => ctl.abort(), 3500);
-            const res = await fetch(url, { signal: ctl.signal });
+            const res = await fetch(url, { signal: ctl.signal, cache: force ? 'no-store' : 'default' });
             clearTimeout(tm);
             if (!res.ok) continue;
             const data = await res.json();
             const t = data?.templates || data;
+            if (t?.fabdem) GeeDemTokens.templates.fabdem = t.fabdem;
+            if (t?.copernicus) GeeDemTokens.templates.copernicus = t.copernicus;
+            if (WM.canopyTokens?.templates && t) {
+              Object.assign(WM.canopyTokens.templates, t);
+            }
             if (t?.water) {
               this.waterTpl = t.water;
-              if (WM.canopyTokens?.templates) {
-                WM.canopyTokens.templates.water = t.water;
-              }
               return t.water;
             }
+          } catch (e) {}
+        }
+        return null;
+      })();
+
+      try {
+        return await this._initPromise;
+      } finally {
+        this._initPromise = null;
+      }
+    }
+  };
+
+  const GeeDemTokens = {
+    templates: { fabdem: null, copernicus: null },
+    _initPromise: null,
+    _lastRefreshTs: 0,
+
+    getCached(type) {
+      const canopyTpl = WM.canopyTokens?.templates?.[type];
+      if (canopyTpl) {
+        this.templates[type] = canopyTpl;
+        return canopyTpl;
+      }
+      try {
+        const raw = localStorage.getItem('wm_gee_tokens');
+        if (raw) {
+          const data = JSON.parse(raw);
+          const t = data?.templates || data;
+          if (t?.[type] && (!data.expiresAt || Date.now() < data.expiresAt)) {
+            this.templates[type] = t[type];
+            return t[type];
+          }
+        }
+      } catch (e) {}
+      return this.templates[type] || null;
+    },
+
+    invalidate(type) {
+      this.templates[type] = null;
+      if (WM.canopyTokens?.templates?.[type]) {
+        delete WM.canopyTokens.templates[type];
+      }
+    },
+
+    async ensure(type, force = false) {
+      if (!force) {
+        const cached = this.getCached(type);
+        if (cached) return cached;
+      }
+      if (force && Date.now() - this._lastRefreshTs < 60000) {
+        return this.templates[type] || null;
+      }
+      if (this._initPromise) return this._initPromise;
+
+      this._initPromise = (async () => {
+        this._lastRefreshTs = Date.now();
+        for (const url of WATER_GEE_TOKEN_SOURCES) {
+          try {
+            const ctl = new AbortController();
+            const tm = setTimeout(() => ctl.abort(), 3500);
+            const res = await fetch(url, { signal: ctl.signal, cache: force ? 'no-store' : 'default' });
+            clearTimeout(tm);
+            if (!res.ok) continue;
+            const data = await res.json();
+            const t = data?.templates || data;
+            if (t?.fabdem) this.templates.fabdem = t.fabdem;
+            if (t?.copernicus) this.templates.copernicus = t.copernicus;
+            if (t?.water) WaterTokens.waterTpl = t.water;
+            if (WM.canopyTokens?.templates) {
+              Object.assign(WM.canopyTokens.templates, t);
+            }
+            if (t?.[type]) return t[type];
           } catch (e) {}
         }
         return null;
@@ -191,14 +302,18 @@
     }
   };
 
-  function detectProviderFromUrl(url) {
+ function detectProviderFromUrl(url) {
     if (!url) return 'unknown';
+    if (/fabdem/i.test(url)) return 'fabdem';
+    if (/copernicus/i.test(url)) return 'copernicus';
+    if (/earthengine\.googleapis\.com/i.test(url)) {
+      return (cfg.demSource === 'copernicus') ? 'copernicus' : 'fabdem';
+    }
     if (/mapterhorn\.com/i.test(url)) return 'mapterhorn';
     if (/elevation-tiles-prod/i.test(url)) return 'aws';
     if (/nextzen\.org/i.test(url)) return 'nextzen';
     return 'unknown';
   }
-
   const baseWaterMaskCache = new Map();     // key: `${targetZ}:${tx}:${ty}` -> Uint8Array(65536)
   const baseWaterMaskInFlight = new Map();  // key: `${targetZ}:${tx}:${ty}` -> Promise<Uint8Array|null>
 
@@ -389,6 +504,16 @@
 
         // Пустой 404 кэшируем ТОЛЬКО если ни одно зеркало не упало по сети/таймауту
         if (sawConfirmed404 && !hadNetworkOrServerErr) {
+          // Пробуем взять ближайший доступный родительский зум по сети (до z8)
+          if (targetZ > 8) {
+            const parentMask = await fetchBaseWaterMask(targetZ - 1, tx >> 1, ty >> 1, forceRefresh);
+            if (parentMask && !parentMask._isEmpty404) {
+              const sliced = sliceMaskForZoom(parentMask, { z: targetZ, x: tx, y: ty }, targetZ - 1);
+              if (baseWaterMaskCache.size > 64) baseWaterMaskCache.delete(baseWaterMaskCache.keys().next().value);
+              baseWaterMaskCache.set(baseKey, sliced);
+              return sliced;
+            }
+          }
           const empty = new Uint8Array(256 * 256);
           empty._hasWater = false;
           empty._isEmpty404 = true;
@@ -441,7 +566,7 @@ async function reloadMissingTiles(opts = {}) {
   }
   if (!WM.map) return 0;
 
-  const srcKey = cfg.demSource || 'mapterhorn';
+  const srcKey = cfg.demSource || 'fabdem';
   const tasks = [];
   let successfullyRestored = 0;
 
@@ -735,8 +860,8 @@ async function reloadMissingTiles(opts = {}) {
   };
 
   const DEFAULT_CONFIG = {
-    demSource: 'aws',
-    demDeblock: true,        // авто-сглаживание блочных/квантованных DEM-тайлов
+    demSource: 'fabdem',
+    demDeblock: true,       // авто-сглаживание блочных/квантованных DEM-тайлов
     demDeblockSigmaM: 60,  
     hillshadeEnabled: true,
     blendMode: 'normal',
@@ -5198,9 +5323,11 @@ async function reloadMissingTiles(opts = {}) {
       throw new Error('Empty dimensions');
     }
 
-    if (!fromCache && isImageMostlyTransparent(bmp)) {
+    if (isImageMostlyTransparent(bmp)) {
       if (typeof bmp.close === 'function') bmp.close();
-      throw new Error('Empty transparent tile');
+      const err = new Error('Empty transparent tile');
+      err.isEmptyTile = true;
+      throw err;
     }
 
     // Сохраняем как 256x256 (AWS), так и нативные 512x512 (Mapterhorn) без прореживания!
@@ -5248,6 +5375,9 @@ async function reloadMissingTiles(opts = {}) {
   // Максимальный нативный зум по хосту. Если ошибся в большую сторону — ничего страшного,
   // потолок дообучится по 404; в меньшую — потеряешь детализацию (проверь по докам).
   const DEM_URL_MAXZ = [
+    [/earthengine\.googleapis\.com/i, 14],
+    [/\/tiles\/(?:fabdem|copernicus)\//i, 14],
+    [/type=(?:fabdem|copernicus)/i, 14],
     [/mapterhorn\.com/i, 17],
     [/elevation-tiles-prod/i, 15],
     [/nextzen\.org/i, 15]
@@ -5321,6 +5451,7 @@ async function reloadMissingTiles(opts = {}) {
 
   function classifyDemError(err) {
     if (!err) return 'transient';
+    if (err.isEmptyTile) return 'absent'; // спускаемся на зум ниже!
     const st = err.status;
     if (st === 404 || st === 410) return 'absent';
     if (st === 403 || st === 429 || st >= 500) return 'transient';
@@ -5369,8 +5500,10 @@ async function reloadMissingTiles(opts = {}) {
     _probeCtx.clearRect(0, 0, 16, 16);
     _probeCtx.drawImage(bmp, 0, 0, 16, 16);
     const d = _probeCtx.getImageData(0, 0, 16, 16).data;
-    for (let i = 3; i < d.length; i += 4) {
-      if (d[i] >= 30) return false;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 30) continue;
+      const h = (d[i] * 256 + d[i + 1] + d[i + 2] / 256) - 32768;
+      if (h >= -1000) return false;
     }
     return true;
   }
@@ -5839,7 +5972,7 @@ async function reloadMissingTiles(opts = {}) {
   }
 
   async function loadPaddedDemTile(coords) {
-    const srcKey = cfg.demSource || 'mapterhorn';
+    const srcKey = cfg.demSource || 'fabdem';
     const cacheKey = `${srcKey}:${coords.z}:${coords.x}:${coords.y}`;
 
     const cachedPadded = getPaddedDemCache(cacheKey);
@@ -5992,7 +6125,7 @@ async function reloadMissingTiles(opts = {}) {
   // ------------------------------
 
   async function loadDemTileWithFallback(coords, noBorderFetch = false) {
-    const srcKey = cfg.demSource || 'mapterhorn';
+    const srcKey = cfg.demSource || 'fabdem';
     const origKey = `${srcKey}:${coords.z}:${coords.x}:${coords.y}`;
 
     const cachedOrig = getDemMemoryCache(origKey);
@@ -6000,11 +6133,31 @@ async function reloadMissingTiles(opts = {}) {
     if (demInFlightPromises.has(origKey)) return demInFlightPromises.get(origKey);
 
     const promise = (async () => {
-      const srcObj = DEM_SOURCES[srcKey] || DEM_SOURCES.mapterhorn;
-      const templates = srcObj.urls;
+      const srcObj = DEM_SOURCES[srcKey] || DEM_SOURCES.fabdem;
+      let templates = srcObj.urls.slice();
+
+      // Для GEE-источников подставляем прямой URL из gee-tokens на 1-е место
+      const isGeeSrc = (srcKey === 'fabdem' || srcKey === 'copernicus');
+      let geeDirectTpl = null;
+      if (isGeeSrc) {
+        if (navigator.onLine !== false) {
+          geeDirectTpl = await GeeDemTokens.ensure(srcKey);
+          if (geeDirectTpl) templates.unshift(geeDirectTpl);
+        }
+
+        // FABDEM покрывает только 60°S–80°N: за пределами сразу идём на AWS/Nextzen
+        if (srcKey === 'fabdem') {
+          const n = Math.PI - (2 * Math.PI * (coords.y + 0.5)) / Math.pow(2, coords.z);
+          const tileLat = Math.atan(Math.sinh(n)) * (180 / Math.PI);
+          if (tileLat > 80 || tileLat < -60) {
+            templates = templates.filter(u => !/earthengine\.googleapis\.com|fabdem/i.test(u));
+          }
+        }
+      }
+
       const primaryTpl = templates[0];
       const origZ = coords.z;
-      const minFallbackZ = Math.max(5, Math.min(origZ, 17) - 6);
+      const minFallbackZ = 5; // Спуск до любого ближайшего доступного зума (вплоть до z5)
 
       let degraded = false;
       let hadProviderError = false;
@@ -6044,9 +6197,14 @@ async function reloadMissingTiles(opts = {}) {
                     nb = null;
                   }
                 }
-                if (!nb || nb._isEmptyFallback) { borderMissing = true; return null; }
+                if (!nb || nb._isEmptyFallback) {
+                  // Если сосед честно отсутствует (404), просто клемпим край без деградации кэша;
+                  // деградацией считаем только реальный сетевой сбой (nb._degraded)
+                  if (!nb || nb._degraded) borderMissing = true;
+                  return null;
+                }
                 const nbW = nb.naturalWidth || nb.width || 256;
-                if (nbW !== imgW) { borderMissing = true; return null; }
+                if (nbW !== imgW) return null;
                 if (nb._degraded) borderMissing = true;
                 return nb;
               };
@@ -6158,20 +6316,29 @@ async function reloadMissingTiles(opts = {}) {
                 tplDegraded = true;
               } else {
                 const kind = classifyDemError(err);
+                const isGeeDirect = /earthengine\.googleapis\.com/i.test(tpl);
+
+                // Токен GEE считаем протухшим ТОЛЬКО при 401/403 (а не при 404!)
+                if (isGeeDirect && (err?.status === 401 || err?.status === 403)) {
+                  epFail(tpl, 'network');
+                  GeeDemTokens.invalidate(srcKey);
+                  GeeDemTokens.ensure(srcKey, true);
+                  hadProviderError = true;
+                  break;
+                }
+
                 if (kind === 'absent') {
-                  // 404/410: на этом зуме нет данных (например, нет LiDAR) — спускаемся на зум ниже
+                  // 404/410 или пустой прозрачный тайл: запоминаем и спускаемся на зум ниже
                   demMarkAbsent(tpl, curZ, curX, curY, 300000);
                   cs.miss++;
                 } else if (kind === 'bad') {
                   demMarkAbsent(tpl, curZ, curX, curY, 120000);
+                  cs.miss++;
                   hadProviderError = true;
-                  break; // переходим к следующему провайдеру
                 } else {
-                  // Сетевой сброс (ERR_CONNECTION_CLOSED) или таймаут:
-                  // сразу выходим из цикла зумов этого провайдера и уходим на резерв (AWS)
                   epFail(tpl, kind);
                   hadProviderError = true;
-                  break;
+                  break; // при обрыве сети / 5xx сразу переходим к следующему зеркалу/провайдеру
                 }
               }
             }
@@ -8028,7 +8195,7 @@ async function reloadMissingTiles(opts = {}) {
     // ВКЛАДКА 2: РЕЛЬЕФ & ТОЧНОСТЬ
     // -------------------------------------------------------------
     const selSource = document.getElementById('dem-hud-source-select');
-    if (selSource) selSource.value = cfg.demSource || 'mapterhorn';
+    if (selSource) selSource.value = cfg.demSource || 'fabdem';
 
     const btnZAuto = document.getElementById('dem-hud-zfactor-auto-btn');
     if (btnZAuto) btnZAuto.classList.toggle('active', !!cfg.zFactorAuto);
@@ -10038,7 +10205,7 @@ async function reloadMissingTiles(opts = {}) {
 
     const currentZ = Math.round(WM.map.getZoom());
     const cappedZ = Math.max(5, Math.min(currentZ, 17));
-    const srcKey = cfg.demSource || 'mapterhorn';
+    const srcKey = cfg.demSource || 'fabdem';
 
     const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, lat));
     const sinLat = Math.sin(clampedLat * RAD_DEG);
@@ -10137,7 +10304,7 @@ async function reloadMissingTiles(opts = {}) {
   // Прямая выборка матрицы высот для одного тайла (в 20-30x быстрее для TreeEngine.buildPack)
   function sampleTileGrid(z, tx, ty, gStep, gN, padN) {
     if (z < 5 || z > 17) return null;
-    const srcKey = cfg.demSource || 'mapterhorn';
+    const srcKey = cfg.demSource || 'fabdem';
     const cv = getPaddedDemCache(`${srcKey}:${z}:${tx}:${ty}`);
     if (!cv || cv._isEmptyFallback) return null;
 
@@ -10730,7 +10897,7 @@ function getCachedWaterMask(z, tx, ty) {
   }
 
   function getCachedDemTileWithChildren(coords) {
-    const srcKey = cfg.demSource || 'mapterhorn';
+    const srcKey = cfg.demSource || 'fabdem';
     const direct = getDemMemoryCache(`${srcKey}:${coords.z}:${coords.x}:${coords.y}`);
     if (direct && !direct._isEmptyFallback) return direct;
 
@@ -10841,16 +11008,26 @@ function getCachedWaterMask(z, tx, ty) {
     },
 
     getActiveSourceInfo() {
-      const srcKey = cfg.demSource || 'mapterhorn';
-      const srcObj = DEM_SOURCES[srcKey] || DEM_SOURCES.mapterhorn;
-      const providers = srcObj.urls.map((tpl, idx) => {
+      const srcKey = cfg.demSource || 'fabdem';
+      const srcObj = DEM_SOURCES[srcKey] || DEM_SOURCES.fabdem;
+      const urls = srcObj.urls.slice();
+      if (srcKey === 'fabdem' || srcKey === 'copernicus') {
+        const direct = GeeDemTokens.getCached(srcKey);
+        if (direct) urls.unshift(direct);
+      }
+      const providers = urls.map((tpl, idx) => {
         const id = detectProviderFromUrl(tpl);
         const st = epState(tpl);
+        const label =
+          /earthengine\.googleapis\.com/i.test(tpl) ? `GEE Direct (${srcKey.toUpperCase()})` :
+          /workers\.dev/i.test(tpl) ? `Cloudflare (${srcKey.toUpperCase()})` :
+          /yandexcloud\.net/i.test(tpl) ? `Yandex Proxy (${srcKey.toUpperCase()})` :
+          id === 'mapterhorn' ? 'Mapterhorn (Copernicus 30m + LiDAR)' :
+          id === 'aws' ? 'AWS Terrarium' :
+          id === 'nextzen' ? 'Nextzen' : tpl;
         return {
           id,
-          name: id === 'mapterhorn'
-            ? 'Mapterhorn (Copernicus 30m + LiDAR)'
-            : (id === 'aws' ? 'AWS Terrarium' : (id === 'nextzen' ? 'Nextzen' : tpl)),
+          name: label,
           priority: idx + 1,
           maxZ: demUrlMaxZ(tpl),
           paused: epIsOpen(tpl),
@@ -11828,7 +12005,7 @@ WM.demInspector = {
     const tx = Math.floor(point.x / tileSize);
     const ty = Math.floor(point.y / tileSize);
 
-    const srcKey = cfg.demSource || 'mapterhorn';
+    const srcKey = cfg.demSource || 'fabdem';
     const cacheKey = `${srcKey}:${z}:${tx}:${ty}`;
     const cv = paddedDemMemoryCache.get(cacheKey);
 
@@ -12520,7 +12697,7 @@ window.renderCanopyHudUI = renderHudUI;
     // Быстрый поиск DEM-массива один раз на тайл (без mapRef.unproject в цикле)
     function createTileDemSampler(coords) {
       const z = coords.z;
-      const srcKey = cfg.demSource || 'mapterhorn';
+      const srcKey = cfg.demSource || 'fabdem';
       const cappedZ = Math.max(5, Math.min(z, 17));
       const shift = z - cappedZ;
       const tx = coords.x >> shift;
