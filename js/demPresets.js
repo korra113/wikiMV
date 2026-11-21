@@ -14,7 +14,7 @@
   "version": 2,
   "createdAt": "2026-11-20T18:11:53.316Z",
   "demRelief": {
-    "demSource": "mapterhorn",
+    "demSource": "fabdem",
     "demDeblock": true,
     "hillshadeEnabled": true,
     "contoursEnabled": false,
@@ -392,12 +392,12 @@
 },
 
     {
-  "id": "profile_1795197745902_439",
+  "id": "profile_1795221330944_120",
   "name": "Стандартный стиль (+Лес)",
   "version": 2,
-  "createdAt": "2026-11-20T18:02:25.902Z",
+  "createdAt": "2026-11-21T00:35:30.944Z",
   "demRelief": {
-    "demSource": "mapterhorn",
+    "demSource": "fabdem",
     "demDeblock": true,
     "hillshadeEnabled": true,
     "contoursEnabled": false,
@@ -538,7 +538,7 @@
       "treesEnabled": true,
       "treeStyle": "real",
       "treeDensity": 1.25,
-      "treeScale": 1.5,
+      "treeScale": 1.7,
       "treeColor": "#0d0a07",
       "treeStrokeColor": "#0d0a07",
       "treeOpacity": 0.95,
@@ -575,7 +575,7 @@
       "treeClearRoadsOpacity": 0.95,
       "treeClearRoadsSoftness": 0.7,
       "treeAutoDenseScale": 2.5,
-      "treeAutoDenseThinning": 0.1,
+      "treeAutoDenseThinning": 0.3,
       "treeEdgeScale": 1.1,
       "treeMassifScale": 1.1,
       "customColors": true,
@@ -831,7 +831,7 @@
   "version": 2,
   "createdAt": "2026-11-19T21:54:10.893Z",
   "demRelief": {
-    "demSource": "mapterhorn",
+    "demSource": "fabdem",
     "demDeblock": true,
     "hillshadeEnabled": true,
     "contoursEnabled": false,
@@ -1238,7 +1238,7 @@
   "version": 2,
   "createdAt": "2026-11-19T22:21:51.401Z",
   "demRelief": {
-    "demSource": "mapterhorn",
+    "demSource": "fabdem",
     "demDeblock": true,
     "hillshadeEnabled": true,
     "contoursEnabled": false,
@@ -1722,7 +1722,7 @@
   "version": 2,
   "createdAt": "2026-11-19T22:38:29.971Z",
   "demRelief": {
-    "demSource": "mapterhorn",
+    "demSource": "fabdem",
     "demDeblock": true,
     "hillshadeEnabled": true,
     "contoursEnabled": true,
@@ -2083,7 +2083,7 @@
   "version": 2,
   "createdAt": "2026-11-20T18:42:12.916Z",
   "demRelief": {
-    "demSource": "mapterhorn",
+    "demSource": "fabdem",
     "demDeblock": true,
     "hillshadeEnabled": true,
     "contoursEnabled": true,
@@ -2473,7 +2473,7 @@
   "version": 2,
   "createdAt": "2026-11-20T18:41:30.600Z",
   "demRelief": {
-    "demSource": "mapterhorn",
+    "demSource": "fabdem",
     "demDeblock": true,
     "hillshadeEnabled": true,
     "contoursEnabled": true,
@@ -2861,7 +2861,7 @@
   "version": 2,
   "createdAt": "2026-11-20T18:58:17.641Z",
   "demRelief": {
-    "demSource": "mapterhorn",
+    "demSource": "fabdem",
     "demDeblock": true,
     "hillshadeEnabled": true,
     "contoursEnabled": true,
