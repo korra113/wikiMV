@@ -1840,7 +1840,7 @@ function enforceHiddenLayerSpoilers(visArg) {
       return !disabledList.includes(m.name) && vis[cat] !== false;
     });
 
-    const activeBaseMapName = localStorage.getItem('wm_base_layer') || 'Схема (Яндекс)';
+    const activeBaseMapName = localStorage.getItem('wm_base_layer') || 'Схема OSM (Классика)';
     const isNoBase = activeBaseMapName === 'Без карты-подложки' || enabledMaps.length === 0;
 
     if (isNoBase) {
@@ -2464,7 +2464,8 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
 
    // --- НАЧАЛО ВСТАВКИ №1 ---
   const isFirstReliefLaunch =
-    !localStorage.getItem('wm_default_3d_preset_v1') &&
+    !localStorage.getItem('wm_app_profile_v1') &&
+    !localStorage.getItem('wm_view') &&
     !localStorage.getItem('wm_dem_relief');
   window._wmIsFirstLaunch = isFirstReliefLaunch;
 
@@ -2562,12 +2563,7 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
   // --- НАЧАЛО ВСТАВКИ №2 ---
   // Когда все модули (дороги, декор, облака, лес, обзор) уже инициализированы,
   // применяем пресет «Стандартный стиль» целиком и фиксируем флаг первого запуска
-  if (default3dPreset && WM.demPresets) {
-    WM.demPresets.applyProfile(default3dPreset, { silent: true });
-    try {
-      localStorage.setItem('wm_default_3d_preset_v1', '1');
-    } catch (e) {}
-  }
+
   syncViewshedControlState();
   syncWikimapiaControlState();
 
