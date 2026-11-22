@@ -436,6 +436,7 @@
 
           map._stop();
           map.dragging.disable();
+          document.body.classList.add('leaflet-touching');
           e.preventDefault();
           return;
         }
@@ -494,14 +495,7 @@
               map._move(currentCenter, currentZoom, { pinch: true, round: false });
 
               // Проверяем: если текущий округлённый зум отличается от того, для которого нарисованы тайлы
-              const targetIntZoom = Math.round(currentZoom);
-              if (map._tileZoom !== targetIntZoom && Math.abs(currentZoom - targetIntZoom) < 0.25) {
-                map.eachLayer(l => {
-                  if (l._update && l instanceof L.GridLayer && l.options.updateWhenZooming !== false) {
-                    l._update();
-                  }
-                });
-              }
+
             });
           }
           return;
@@ -549,6 +543,7 @@
 
         if (isDoubleTapDragging) {
           isDoubleTapDragging = false;
+          document.body.classList.remove('leaflet-touching');
           map.dragging.enable();
           suppressClickUntil = Date.now() + 500;
           lastTapTime = 0;
