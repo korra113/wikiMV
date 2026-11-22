@@ -16,7 +16,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup Java 21
         uses: actions/setup-java@v4
@@ -27,22 +27,26 @@ jobs:
       # 1. Раскладываем веб-ассеты по правильным папкам
       - name: Prepare Web Assets
         run: |
+          rm -rf www
           mkdir -p www/css www/js
           cp index.html manifest.json sw.js icon-*.png www/ 2>/dev/null || true
-          cp -r images www/ 2>/dev/null || true
+          [ -d images ] && cp -r images www/ 2>/dev/null || true
+          [ -d fonts ] && cp -r fonts www/ 2>/dev/null || true
+          [ -d data ] && cp -r data www/ 2>/dev/null || true
 
           [ -d css ] && cp -r css/* www/css/ 2>/dev/null || true
           [ -d js ] && cp -r js/* www/js/ 2>/dev/null || true
 
           cp *.css www/css/ 2>/dev/null || true
           cp *.js www/js/ 2>/dev/null || true
+          rm -f www/js/sw.js
           cp sw.js www/sw.js 2>/dev/null || true
 
       # 2. Инициализация Capacitor и Android проекта
       - name: Setup Project and Capacitor
         run: |
-          echo '{"name": "wikimapia-app", "version": "1.0.9"}' > package.json
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets @capacitor/app
+          echo '{"name": "wikimapia-app", "version": "1.2.0"}' > package.json
+          npm install @capacitor/core@^7 @capacitor/cli@^7 @capacitor/android@^7 @capacitor/app@^7 @capacitor/assets@^3
 
           mkdir -p assets
           cp icon-512.png assets/icon-only.png
@@ -58,6 +62,9 @@ jobs:
             "server": {
               "cleartext": true,
               "androidScheme": "https"
+            },
+            "android": {
+              "allowMixedContent": true
             }
           }
           EOF
@@ -65,33 +72,39 @@ jobs:
           npx cap add android
           npx capacitor-assets generate --android --iconBackgroundColor "#111827"
 
-          # Прописываем версию 1.0.9 и versionCode 90
+          # Прописываем версию 1.2.0 и versionCode 120
           python3 - << 'EOF'
+          import re
+
           path = "android/app/build.gradle"
           with open(path, "r", encoding="utf-8") as f:
               content = f.read()
 
-          content = content.replace('versionCode 1', 'versionCode 90')
-          content = content.replace('versionName "1.0"', 'versionName "1.0.9"')
+          content = re.sub(r'versionCode\s*=?\s*1\b', 'versionCode 120', content, count=1)
+          content = re.sub(r'versionName\s*=?\s*"1\.0"', 'versionName "1.2.0"', content, count=1)
 
           with open(path, "w", encoding="utf-8") as f:
               f.write(content)
           EOF
 
-          # Настройка AndroidManifest.xml: разрешения + регистрация Foreground Service
+          # Настройка AndroidManifest.xml: разрешения, largeHeap + регистрация Foreground Service
           python3 - << 'EOF'
           path = "android/app/src/main/AndroidManifest.xml"
           with open(path, "r", encoding="utf-8") as f:
               content = f.read()
 
+          if 'android:largeHeap' not in content and '<application' in content:
+              content = content.replace('<application', '<application\n        android:largeHeap="true"', 1)
+
           # 1. Разрешения перед </manifest>
-          permissions = """    <!-- Геолокация -->
+          permissions = """    <!-- Сеть и геолокация -->
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
               <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
               <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
               <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
-              <!-- Фоновая служба геолокации и уведомления (Android 9 - 14+) -->
+              <!-- Фоновая служба геолокации и уведомления (Android 9 - 15+) -->
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -134,6 +147,105 @@ jobs:
           EOF
 
           # Создаем отдельный класс фоновой службы TrackingForegroundService.java
+          cat << 'EOF' > android/app/src/main/java/com/wikimapia/viewer/TrackingForegroundService.java
+          package com.wikimapia.viewer;
+
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.app.Service;
+          import android.content.Intent;
+          import android.content.pm.ServiceInfo;
+          import android.os.Build;
+          import android.os.IBinder;
+          import androidx.core.app.NotificationCompat;
+
+          public class TrackingForegroundService extends Service {
+              private static final String CHANNEL_ID = "wikimv_tracking_channel";
+              private static final int NOTIFICATION_ID = 2001;
+
+              @Override
+              public void onCreate() {
+                  super.onCreate();
+                  createNotificationChannel();
+              }
+
+              @Override
+              public int onStartCommand(Intent intent, int flags, int startId) {
+                  Intent openIntent = new Intent(this, MainActivity.class);
+                  openIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                      pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
+                  }
+                  PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, openIntent, pendingFlags);
+
+                  int iconRes = getApplicationInfo().icon != 0
+                          ? getApplicationInfo().icon
+                          : android.R.drawable.ic_menu_mylocation;
+
+                  Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                          .setContentTitle("WikiMV")
+                          .setContentText("Фоновая запись GPS-трека и шагомера активна")
+                          .setSmallIcon(iconRes)
+                          .setContentIntent(pendingIntent)
+                          .setOngoing(true)
+                          .setSilent(true)
+                          .setPriority(NotificationCompat.PRIORITY_LOW)
+                          .build();
+
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                          startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+                      } else {
+                          startForeground(NOTIFICATION_ID, notification);
+                      }
+                  } catch (SecurityException e) {
+                      try {
+                          startForeground(NOTIFICATION_ID, notification);
+                      } catch (Exception ignored) {
+                          stopSelf();
+                      }
+                  }
+
+                  return START_STICKY;
+              }
+
+              @Override
+              public void onDestroy() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                      stopForeground(STOP_FOREGROUND_REMOVE);
+                  } else {
+                      stopForeground(true);
+                  }
+                  super.onDestroy();
+              }
+
+              @Override
+              public IBinder onBind(Intent intent) {
+                  return null;
+              }
+
+              private void createNotificationChannel() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      NotificationChannel channel = new NotificationChannel(
+                              CHANNEL_ID,
+                              "Запись GPS-трека",
+                              NotificationManager.IMPORTANCE_LOW
+                      );
+                      channel.setDescription("Уведомление о фоновой записи трека и навигации PDR");
+                      channel.setShowBadge(false);
+                      NotificationManager nm = getSystemService(NotificationManager.class);
+                      if (nm != null) {
+                          nm.createNotificationChannel(channel);
+                      }
+                  }
+              }
+          }
+          EOF
+
+          # Создаем MainActivity.java
           cat << 'EOF' > android/app/src/main/java/com/wikimapia/viewer/MainActivity.java
           package com.wikimapia.viewer;
 
@@ -146,8 +258,10 @@ jobs:
           import android.webkit.JavascriptInterface;
           import android.webkit.ServiceWorkerClient;
           import android.webkit.ServiceWorkerController;
+          import android.webkit.ServiceWorkerWebSettings;
           import android.webkit.WebResourceRequest;
           import android.webkit.WebResourceResponse;
+          import android.webkit.WebSettings;
           import android.content.Intent;
           import android.net.Uri;
           import android.app.NotificationManager;
@@ -183,6 +297,15 @@ jobs:
                   super.onCreate(savedInstanceState);
 
                   if (bridge != null && bridge.getWebView() != null) {
+                      WebSettings webSettings = bridge.getWebView().getSettings();
+                      webSettings.setDomStorageEnabled(true);
+                      webSettings.setDatabaseEnabled(true);
+                      webSettings.setMediaPlaybackRequiresUserGesture(false);
+                      webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                          webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                      }
+
                       CookieManager cookieManager = CookieManager.getInstance();
                       cookieManager.setAcceptCookie(true);
                       cookieManager.setAcceptThirdPartyCookies(bridge.getWebView(), true);
@@ -326,6 +449,12 @@ jobs:
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                       try {
                           ServiceWorkerController swController = ServiceWorkerController.getInstance();
+                          ServiceWorkerWebSettings swSettings = swController.getServiceWorkerWebSettings();
+                          swSettings.setAllowContentAccess(true);
+                          swSettings.setAllowFileAccess(true);
+                          swSettings.setBlockNetworkLoads(false);
+                          swSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+
                           swController.setServiceWorkerClient(new ServiceWorkerClient() {
                               @Override
                               public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) {
@@ -474,7 +603,7 @@ jobs:
             --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
             --key-pass pass:${{ secrets.KEY_PASSWORD }} \
             --ks-key-alias ${{ secrets.KEY_ALIAS }} \
-            --out app/build/outputs/apk/release/wikiMV_1.0.9.apk \
+            --out app/build/outputs/apk/release/wikiMV_1.2.0.apk \
             app/build/outputs/apk/release/aligned.apk
 
       # 5. Проверка манифеста и версии прямо в логах GitHub
@@ -482,11 +611,11 @@ jobs:
         run: |
           cd android
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
-          $BUILD_TOOLS/aapt dump badging app/build/outputs/apk/release/wikiMV_1.0.9.apk | grep -E "package: name|sdkVersion"
+          $BUILD_TOOLS/aapt dump badging app/build/outputs/apk/release/wikiMV_1.2.0.apk | grep -E "package: name|sdkVersion"
 
       # 6. Выгрузка готового APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: WikiMV_1.0.9
-          path: android/app/build/outputs/apk/release/wikiMV_1.0.9.apk
+          name: WikiMV_1.2.0
+          path: android/app/build/outputs/apk/release/wikiMV_1.2.0.apk
