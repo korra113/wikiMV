@@ -306,12 +306,13 @@
     }
   };
 
- function detectProviderFromUrl(url) {
+ function detectProviderFromUrl(url, preferredSrc = null) {
     if (!url) return 'unknown';
     if (/fabdem/i.test(url)) return 'fabdem';
     if (/copernicus/i.test(url)) return 'copernicus';
     if (/earthengine\.googleapis\.com/i.test(url)) {
-      return (cfg.demSource === 'copernicus') ? 'copernicus' : 'fabdem';
+      const s = preferredSrc || cfg.demSource;
+      return (s === 'copernicus') ? 'copernicus' : 'fabdem';
     }
     if (/mapterhorn\.com/i.test(url)) return 'mapterhorn';
     if (/elevation-tiles-prod/i.test(url)) return 'aws';
@@ -5945,8 +5946,8 @@ async function reloadMissingTiles(opts = {}) {
     }
     return true;
   }
-  async function fetchSingleTile(url) {
-    const provider = detectProviderFromUrl(url);
+  async function fetchSingleTile(url, preferredSrc = null) {
+    const provider = detectProviderFromUrl(url, preferredSrc);
     const bypassCache = isForceBypass();
 
     // 1. Cache-First (при принудительном обновлении онлайн кэш пропускаем)
@@ -6593,15 +6594,15 @@ async function reloadMissingTiles(opts = {}) {
   }
   // ------------------------------
 
-  async function loadDemTileWithFallback(coords, noBorderFetch = false) {
-    const srcKey = cfg.demSource || 'fabdem';
+  async function loadDemTileWithFallback(coords, noBorderFetch = false, srcOverride = null) {
+    const srcKey = (srcOverride && DEM_SOURCES[srcOverride]) ? srcOverride : (cfg.demSource || 'fabdem');
     const origKey = `${srcKey}:${coords.z}:${coords.x}:${coords.y}`;
     const startGen = _demCacheGen;
 
     const cachedOrig = getDemMemoryCache(origKey);
     if (cachedOrig) return cachedOrig;
     if (navigator.onLine === false) {
-      const childHit = getCachedDemTileWithChildren(coords);
+      const childHit = getCachedDemTileWithChildren(coords, srcKey);
       if (childHit && !childHit._degraded) return childHit;
     }
     if (demInFlightPromises.has(origKey)) return demInFlightPromises.get(origKey);
@@ -6637,7 +6638,7 @@ async function reloadMissingTiles(opts = {}) {
       let hadProviderError = false;
 
      const finish = async (img, z, x, y, tplTopZ, tpl) => {
-        const finalProvider = img._demProvider || detectProviderFromUrl(tpl);
+        const finalProvider = img._demProvider || detectProviderFromUrl(tpl, srcKey);
         const isLowerZoom = (z < tplTopZ);
         const isFallbackProvider =
           (srcKey === 'fabdem' || srcKey === 'copernicus' || srcKey === 'mapterhorn') &&
@@ -6675,7 +6676,7 @@ async function reloadMissingTiles(opts = {}) {
               let nb = getDemMemoryCache(k);
               if (!nb) {
                 try {
-                  nb = await loadDemTileWithFallback({ z, x: nx, y: ny }, true);
+                  nb = await loadDemTileWithFallback({ z, x: nx, y: ny }, true, srcKey);
                 } catch (e) {
                   nb = null;
                 }
@@ -6721,7 +6722,7 @@ async function reloadMissingTiles(opts = {}) {
 
       for (const tpl of templates) {
         if (epIsOpen(tpl)) {
-          WM.layerDiag?.log('dem', 'skip', { z: origZ, x: coords.x, y: coords.y, url: tpl, provider: detectProviderFromUrl(tpl), outcome: 'circuit-open', note: 'Провайдер в паузе' });
+          WM.layerDiag?.log('dem', 'skip', { z: origZ, x: coords.x, y: coords.y, url: tpl, provider: detectProviderFromUrl(tpl, srcKey), outcome: 'circuit-open', note: 'Провайдер в паузе' });
           hadProviderError = true;
           continue;
         }
@@ -6764,7 +6765,7 @@ async function reloadMissingTiles(opts = {}) {
               const cachedBlob = await WM.offlineArea.readCachedBlob(cachedUrl);
               if (cachedBlob) {
                 const loaded = await decodeDemBlob(cachedBlob, true);
-                loaded._demProvider = detectProviderFromUrl(tpl);
+                loaded._demProvider = detectProviderFromUrl(tpl, srcKey);
                 if (!tplDegraded) setDemMemoryCache(cacheKey, loaded);
                 degraded = tplDegraded;
                 const out = await finish(loaded, curZ, curX, curY, tplTopZ, tpl);
@@ -6797,7 +6798,7 @@ async function reloadMissingTiles(opts = {}) {
           if (!skipRequest) {
             const url = L.Util.template(tpl, { z: curZ, x: curX, y: curY });
             try {
-              const loaded = await fetchSingleTile(url);
+              const loaded = await fetchSingleTile(url, srcKey);
               epOk(tpl);
               cs.hit++;
 
@@ -6808,12 +6809,12 @@ async function reloadMissingTiles(opts = {}) {
                 if (tpl === primaryTpl && !tplDegraded) {
                   notifyDemHealth('ok');
                 } else if (hadProviderError) {
-                  notifyDemHealth('fallback', loaded._demProvider || detectProviderFromUrl(tpl));
+                  notifyDemHealth('fallback', loaded._demProvider || detectProviderFromUrl(tpl, srcKey));
                 }
                 return out;
               }
             } catch (err) {
-              WM.layerDiag?.log('dem', 'net', { z: curZ, x: curX, y: curY, url, provider: detectProviderFromUrl(tpl), status: err?.status || null, error: err?.name === 'AbortError' ? 'Timeout' : (err?.message || 'NetErr'), outcome: 'error' });
+              WM.layerDiag?.log('dem', 'net', { z: curZ, x: curX, y: curY, url, provider: detectProviderFromUrl(tpl, srcKey), status: err?.status || null, error: err?.name === 'AbortError' ? 'Timeout' : (err?.message || 'NetErr'), outcome: 'error' });
               if (err && err.isOffline) {
                 hadProviderError = true;
                 tplDegraded = true;
@@ -11457,8 +11458,8 @@ function getCachedWaterMask(z, tx, ty) {
     return null;
   }
 
-  function getCachedDemTileWithChildren(coords) {
-    const srcKey = cfg.demSource || 'fabdem';
+  function getCachedDemTileWithChildren(coords, srcOverride = null) {
+    const srcKey = (srcOverride && DEM_SOURCES[srcOverride]) ? srcOverride : (cfg.demSource || 'fabdem');
     const direct = getDemMemoryCache(`${srcKey}:${coords.z}:${coords.x}:${coords.y}`);
     if (direct && !direct._isEmptyFallback && !direct._evicted &&
         !(direct instanceof HTMLCanvasElement && (!direct.width || !direct.height))) {
@@ -11788,8 +11789,8 @@ function getCachedWaterMask(z, tx, ty) {
       }
     },
 
-    getActiveSourceInfo() {
-      const srcKey = cfg.demSource || 'fabdem';
+    getActiveSourceInfo(srcOverride = null) {
+      const srcKey = (srcOverride && DEM_SOURCES[srcOverride]) ? srcOverride : (cfg.demSource || 'fabdem');
       const srcObj = DEM_SOURCES[srcKey] || DEM_SOURCES.fabdem;
       const urls = srcObj.urls.slice();
       if (srcKey === 'fabdem' || srcKey === 'copernicus') {
@@ -11797,7 +11798,7 @@ function getCachedWaterMask(z, tx, ty) {
         if (direct) urls.unshift(direct);
       }
       const providers = urls.map((tpl, idx) => {
-        const id = detectProviderFromUrl(tpl);
+        const id = detectProviderFromUrl(tpl, srcKey);
         const st = epState(tpl);
         const label =
           /earthengine\.googleapis\.com/i.test(tpl) ? `GEE Direct (${srcKey.toUpperCase()})` :
@@ -11871,7 +11872,13 @@ function getCachedWaterMask(z, tx, ty) {
             parent = parent.parentElement;
           }
           setTimeout(() => {
-            sp.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const hudBody = hud.querySelector('.dem-hud-body');
+            if (hudBody) {
+              const bodyRect = hudBody.getBoundingClientRect();
+              const spRect = sp.getBoundingClientRect();
+              const targetTop = hudBody.scrollTop + (spRect.top - bodyRect.top) - 4;
+              hudBody.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+            }
           }, 90);
         }
       }
