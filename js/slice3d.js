@@ -17679,7 +17679,16 @@ position:fixed;z-index:3000;background:var(--bg1);color:var(--txt);border:1px so
 .s3d-head-left{display:flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none;touch-action:pan-x}
 .s3d-head-left::-webkit-scrollbar{display:none}
 .s3d-head-actions{display:flex;align-items:center;gap:5px;flex:0 0 auto;margin-left:auto}
-.s3d-win.s3d-max .s3d-head{cursor:default}
+.s3d-win.s3d-max .s3d-head{
+  padding-top:calc(7px + env(safe-area-inset-top,0px));
+  padding-left:calc(10px + env(safe-area-inset-left,0px));
+  padding-right:calc(10px + env(safe-area-inset-right,0px));
+}
+.s3d-win.s3d-max .s3d-foot{
+  padding-bottom:calc(5px + env(safe-area-inset-bottom,0px));
+  padding-left:calc(12px + env(safe-area-inset-left,0px));
+  padding-right:calc(12px + env(safe-area-inset-right,0px));
+}
 .s3d-title{font-weight:700;white-space:nowrap;letter-spacing:.01em}
 .s3d-sp{flex:1}
 .s3d-dots{display:flex;gap:4px;align-items:center;cursor:pointer;white-space:nowrap;padding:3px 7px;border-radius:999px;background:rgba(255,255,255,.04)}
