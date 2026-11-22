@@ -214,7 +214,7 @@
       workMode: 'hybrid',
       hybridZoom: 13,
       legacyOverlays: { ...EMPTY_LEGACY_OVERLAYS },
-      demPresetId: 'profile_1795125250893_589', // Старинная карта (в резерве)
+      demPresetId: 'profile_1795379935037_761', // Старинная карта (в резерве)
       demLayersActive: false,
       uiVis: {
         status: true, limit: true, pill: true, zoom: true, layers: true, search: true,
@@ -365,9 +365,9 @@
       id: 'beautiful',
       icon: '🎨',
       name: 'Красивая карта',
-      badge: '3D-визуал + Лес',
-      desc: 'Максимальная эстетика: сразу включён 3D-рельеф «Стандартный стиль (+Лес)», 3D-срез и панорама пиков. Всё лишнее скрыто.',
-      tags: ['Стандартный стиль (+Лес)', '3D-срез и пики', 'Чистый экран'],
+      badge: 'Старинная карта + 3D',
+      desc: 'Максимальная эстетика: сразу включён 3D-рельеф «Старинная карта» с декором, лесом, 3D-срезом и панорамой пиков. Всё лишнее скрыто.',
+      tags: ['Старинная карта', 'Декор + Лес', '3D-срез и пики'],
       baseMap: 'Тропы и грунтовки (CyclOSM)',
       quickSwapEnabled: true,
       quickSwapTarget: 'Спутник (Esri)',
@@ -380,7 +380,7 @@
       workMode: 'manual',
       hybridZoom: 13,
       legacyOverlays: { ...EMPTY_LEGACY_OVERLAYS },
-      demPresetId: 'profile_1795221330944_120', // Стандартный стиль (+Лес)
+      demPresetId: 'profile_1795379935037_761', // Старинная карта (с декором)
       demLayersActive: true,
       uiVis: {
         status: false, limit: true, pill: false, zoom: true, layers: true, search: true,
