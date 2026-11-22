@@ -64,7 +64,8 @@ jobs:
               "androidScheme": "https"
             },
             "android": {
-              "allowMixedContent": true
+              "allowMixedContent": true,
+              "adjustMarginsForEdgeToEdge": "disable"
             }
           }
           EOF
@@ -249,10 +250,12 @@ jobs:
           cat << 'EOF' > android/app/src/main/java/com/wikimapia/viewer/MainActivity.java
           package com.wikimapia.viewer;
 
+          import android.graphics.Color;
           import android.os.Bundle;
           import android.os.Build;
           import android.os.LocaleList;
           import android.content.res.Configuration;
+          import android.view.View;
           import android.view.WindowManager;
           import android.webkit.CookieManager;
           import android.webkit.JavascriptInterface;
@@ -267,6 +270,11 @@ jobs:
           import android.app.NotificationManager;
           import android.content.pm.PackageManager;
           import androidx.activity.OnBackPressedCallback;
+          import androidx.core.graphics.Insets;
+          import androidx.core.view.ViewCompat;
+          import androidx.core.view.WindowCompat;
+          import androidx.core.view.WindowInsetsCompat;
+          import androidx.core.view.WindowInsetsControllerCompat;
           import com.getcapacitor.BridgeActivity;
           import java.util.ArrayList;
           import java.util.List;
@@ -295,6 +303,28 @@ jobs:
                   getResources().updateConfiguration(config, getResources().getDisplayMetrics());
 
                   super.onCreate(savedInstanceState);
+
+                  // Безопасные отступы от шторки, выреза камеры, нижней панели и клавиатуры (Android 15+)
+                  View rootView = findViewById(android.R.id.content);
+                  if (rootView != null) {
+                      rootView.setBackgroundColor(Color.parseColor("#111827"));
+                      ViewCompat.setOnApplyWindowInsetsListener(rootView, (v, windowInsets) -> {
+                          Insets bars = windowInsets.getInsets(
+                              WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
+                          );
+                          Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+                          v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
+                          return WindowInsetsCompat.CONSUMED;
+                      });
+                      ViewCompat.requestApplyInsets(rootView);
+                  }
+
+                  WindowInsetsControllerCompat insetsController =
+                      WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+                  if (insetsController != null) {
+                      insetsController.setAppearanceLightStatusBars(false);
+                      insetsController.setAppearanceLightNavigationBars(false);
+                  }
 
                   if (bridge != null && bridge.getWebView() != null) {
                       WebSettings webSettings = bridge.getWebView().getSettings();
@@ -564,9 +594,28 @@ jobs:
           }
           EOF
 
-          # Цвета статусбара
-          sed -i '/<style name="AppTheme"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:fitsSystemWindows">true</item>\n        <item name="android:statusBarColor">#111827</item>\n        <item name="android:windowLightStatusBar">false</item>\n        <item name="android:navigationBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
-          sed -i '/<style name="AppTheme.NoActionBarLaunch"/a \        <item name="android:windowFullscreen">false</item>\n        <item name="android:statusBarColor">#111827</item>' android/app/src/main/res/values/styles.xml
+          # Цвета статусбара и навигационной панели
+          python3 - << 'EOF'
+          path = "android/app/src/main/res/values/styles.xml"
+          with open(path, "r", encoding="utf-8") as f:
+              content = f.read()
+
+          bar_items = """
+                  <item name="android:windowFullscreen">false</item>
+                  <item name="android:statusBarColor">#111827</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:navigationBarColor">#111827</item>"""
+
+          for style_tag in ('<style name="AppTheme"', '<style name="AppTheme.NoActionBar"'):
+              idx = content.find(style_tag)
+              if idx != -1:
+                  end_tag = content.find('>', idx)
+                  if end_tag != -1:
+                      content = content[:end_tag + 1] + bar_items + content[end_tag + 1:]
+
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          EOF
 
           cat << 'EOF' >> android/build.gradle
           allprojects {
