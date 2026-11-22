@@ -13,7 +13,7 @@
   const FIELD_N = 128;
 
   const DEFAULTS = {
-    enabled: true,
+    enabled: false,
 
     // — Форма и распределение —
     scale: 0.85,
@@ -2143,9 +2143,14 @@ void main() {
     u1(P, 'u_dispMax', W * 0.9);
   }
 
+  function isWelcomeModalOpen() {
+    const m = document.getElementById('modal-welcome-profiles');
+    return !!(m && m.classList.contains('open'));
+  }
+
   function renderFrame(now) {
     raf = requestAnimationFrame(renderFrame);
-    if (!running || !gl || ctxLost || document.hidden) { prevRafTs = 0; return; }
+    if (!running || !gl || ctxLost || document.hidden || isWelcomeModalOpen()) { prevRafTs = 0; return; }
     const map = WM.map;
     if (!map) return;
 
@@ -2622,6 +2627,12 @@ void main() {
     }
   };
 
-  if (cfg.enabled) whenMapReady(() => { if (!start()) { cfg.enabled = false; } });
+  const hasSavedProfile = !!localStorage.getItem('wm_app_profile_v1');
+  if (cfg.enabled && hasSavedProfile) {
+    whenMapReady(() => {
+      if (!cfg.enabled || isWelcomeModalOpen()) return;
+      if (!start()) { cfg.enabled = false; }
+    });
+  }
 })();
 
