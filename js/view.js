@@ -79,17 +79,18 @@
   function isAllowedByAutoSize(o, zoom, mapSize, density) {
     const area = o.area || 0;
     const isRegion = !!o.is_region;
+    const z = Math.round(zoom);
 
     // Оценка плотности объектов на экране
     const isHighDensity = density > 180;
     const isExtremeDensity = density > 380;
 
     // -------------------------------------------------------------------------
-    // 1. ПРОВЕРКА СВЕРХУ: Скрытие фоновых супергигантов при сильном приближении (zoom >= 16)
+    // 1. ПРОВЕРКА СВЕРХУ: Скрытие фоновых супергигантов при сильном приближении (z >= 16)
     // Чтобы огромный район или промзона не перекрывали обзор мелких домов внутри.
     // На зумах 14-15 НЕ скрываем, чтобы можно было кликнуть любой парк/квартал.
     // -------------------------------------------------------------------------
-    if (zoom >= 16 && (area >= 0.00015 || isRegion)) {
+    if (z >= 16 && (area >= 0.00015 || isRegion)) {
       const curMapSize = mapSize || (map ? map.getSize() : { x: 400, y: 700 });
       const degPerPx = 360 / (256 * 2 ** zoom);
       const centerLat = map ? map.getCenter().lat : ((o.bbox.s + o.bbox.n) / 2);
@@ -98,8 +99,8 @@
       const wpx = (o.bbox.e - o.bbox.w) / degPerPx;
       const hpx = (o.bbox.n - o.bbox.s) / cosLat / degPerPx;
 
-      // Отсекаем только если объект больше всего экрана более чем в 1.3-1.5 раза
-      const maxRatio = zoom >= 18 ? 1.1 : 1.4;
+      // Отсекаем только если объект больше всего экрана более чем в 1.1-1.4 раза
+      const maxRatio = z >= 18 ? 1.1 : 1.4;
       if (wpx > curMapSize.x * maxRatio && hpx > curMapSize.y * maxRatio) {
         return false;
       }
@@ -109,7 +110,7 @@
     // 2. ЗУМ 14 И КРУПНЕЕ (14, 15, 16, 17, 18, 19, 20):
     // НЕ УДАЛЯЕТСЯ ВООБЩЕ НИЧЕГО — видны все ларьки, памятники, гаражи и входы
     // -------------------------------------------------------------------------
-    if (zoom >= 14) {
+    if (z >= 14) {
       return true;
     }
 
@@ -124,7 +125,7 @@
 
     // Зум 13: убираем только самую микро-мелочь (< 400 м²: памятники, будки, ларьки).
     // Все жилые дома, гаражные кооперативы и склады остаются.
-    if (zoom === 13) {
+    if (z === 13) {
       let minArea = 0.00000006; // ~400 м²
       if (isExtremeDensity) minArea = 0.00000035; // плотный мегаполис: ~2 500 м² (крупные дома/ТЦ)
       else if (isHighDensity) minArea = 0.00000015; // плотная застройка: ~1 000 м²
@@ -132,7 +133,7 @@
     }
 
     // Зум 12: чуть крупнее мелочи (хрущевки, школы, детсады, ТЦ, кварталы остаются).
-    if (zoom === 12) {
+    if (z === 12) {
       let minArea = 0.00000035; // ~2 500 м²
       if (isExtremeDensity) minArea = 0.000002; // мегаполис: ~14 000 м²
       else if (isHighDensity) minArea = 0.0000009; // ~6 000 м²
@@ -140,7 +141,7 @@
     }
 
     // Зум 11: ещё крупнее (кварталы, больничные городки, промплощадки, парки).
-    if (zoom === 11) {
+    if (z === 11) {
       let minArea = 0.0000025; // ~18 000 м²
       if (isExtremeDensity) minArea = 0.000015; // мегаполис: ~100 000 м²
       else if (isHighDensity) minArea = 0.000006; // ~40 000 м²
@@ -148,7 +149,7 @@
     }
 
     // Зум 10: районный масштаб (микрорайоны, крупные заводы, большие парки, посёлки).
-    if (zoom === 10) {
+    if (z === 10) {
       let minArea = 0.00002; // ~140 000 м² (~14 га)
       if (isExtremeDensity) minArea = 0.00009; // ~600 000 м²
       else if (isHighDensity) minArea = 0.000045; // ~300 000 м²
@@ -156,7 +157,7 @@
     }
 
     // Зум 9: городской масштаб (крупные промзоны, лесопарки, городские районы).
-    if (zoom === 9) {
+    if (z === 9) {
       let minArea = 0.00009; // ~600 000 м² (~60 га)
       if (isExtremeDensity) minArea = 0.00035; // ~2.5 км²
       else if (isHighDensity) minArea = 0.00018; // ~1.2 км²
@@ -169,7 +170,7 @@
     // -------------------------------------------------------------------------
 
     // Зум 8:
-    if (zoom === 8) {
+    if (z === 8) {
       let minArea = 0.00045; // ~3 км²
       if (isExtremeDensity) minArea = 0.0018; // ~12 км²
       else if (isHighDensity) minArea = 0.0009; // ~6 км²
@@ -177,7 +178,7 @@
     }
 
     // Зум 7:
-    if (zoom === 7) {
+    if (z === 7) {
       let minArea = 0.002; // ~14 км²
       if (isHighDensity) minArea = 0.0045; // ~30 км²
       return area >= minArea;
@@ -394,23 +395,7 @@
         isZooming = true;
       });
 
-      // СЛУШАТЕЛЬ ДВИЖЕНИЯ ЗУМА ПРЯМО ПОД ПАЛЬЦЕМ:
-      map.on('zoom', () => {
-        if (!isVectorVisible || !map) return;
-        const curIntZoom = Math.round(map.getZoom());
 
-        // Проверяем: пересёк ли жест границу целого зума (например, было 14.3, стало 15.1)
-        if (lastRenderedZoom !== null && curIntZoom !== lastRenderedZoom) {
-          // Если таймер уже запущен — не спамим вызовами
-          if (!zoomRenderTimer) {
-            zoomRenderTimer = setTimeout(() => {
-              zoomRenderTimer = null;
-              // Запускаем перерасчёт контуров принудительно (forceDuringZoom = true)
-              WM.view.render(true);
-            }, 160); // 160 мс задержки дают 60 FPS без фризов анимации
-          }
-        }
-      });
 
       map.on('zoomend', () => { 
         isZooming = false;
