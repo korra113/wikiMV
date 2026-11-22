@@ -144,7 +144,9 @@
   }).setView(initialCenter, initialZoom);
 
   const canopyLayers = WM.canopy ? WM.canopy.init(map) : null;
-
+  if (isFirstReliefLaunch && WM.canopy && WM.canopy.applyProfile) {
+    WM.canopy.applyProfile({ enabled: false });
+  }
   // ДОБАВЬТЕ ЭТУ СТРОКУ СЮДА СРАЗУ ПОСЛЕ СОЗДАНИЯ КАРТЫ:
   WM.map = map;
   L.control.zoom({ position: 'topleft' }).addTo(map);
@@ -1327,15 +1329,6 @@ function enforceHiddenLayerSpoilers(visArg) {
         } else if (target.type === 'dem') {
           if (WM.demRelief && WM.demRelief.openHud) {
             WM.demRelief.openHud('tools', target.spoilerId);
-            if (target.spoilerId !== 'spoiler-hud-canopy') {
-              const parentSp = document.getElementById('spoiler-hud-canopy');
-              if (parentSp) parentSp.open = true;
-              const childSp = document.getElementById(target.spoilerId);
-              if (childSp) {
-                childSp.open = true;
-                setTimeout(() => childSp.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
-              }
-            }
           }
         } else if (target.type === 'inat') {
           if (WM.ui && WM.ui.openInatSettings) {
@@ -2463,11 +2456,7 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
 
 
    // --- НАЧАЛО ВСТАВКИ №1 ---
-  const isFirstReliefLaunch =
-    !localStorage.getItem('wm_app_profile_v1') &&
-    !localStorage.getItem('wm_view') &&
-    !localStorage.getItem('wm_dem_relief');
-  window._wmIsFirstLaunch = isFirstReliefLaunch;
+
 
   const default3dPreset = (isFirstReliefLaunch && WM.demPresets)
     ? (WM.demPresets.getAllPresets().find(p => p.id === WM.demPresets.DEFAULT_PRESET_ID) || WM.demPresets.getAllPresets()[0])
@@ -2552,6 +2541,9 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
   }
   if (WM.vectorRoads) {
     WM.vectorRoads.init(map);
+    if (isFirstReliefLaunch && WM.vectorRoads.isEnabled && WM.vectorRoads.isEnabled()) {
+      WM.vectorRoads.toggle();
+    }
   }
   if (WM.terrainOverlays) {
     WM.terrainOverlays.init(map);
