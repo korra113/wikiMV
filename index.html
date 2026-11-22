@@ -412,6 +412,7 @@
 </div>
 
 <!-- Модальное окно открытия координат во внешних картах и копирования -->
+ <!-- Модальное окно открытия координат во внешних картах и копирования -->
   <div id="modal-open-coords" class="modal-overlay">
     <div class="modal-box modal-box-large">
       <div class="modal-header">
@@ -420,12 +421,22 @@
       </div>
 
       <!-- Карточка координат с быстрым копированием по клику -->
-      <div class="coords-card" id="open-coords-copy-card" title="Нажмите, чтобы скопировать координаты" style="margin-bottom: 12px;">
+      <div class="coords-card" id="open-coords-copy-card" title="Нажмите, чтобы скопировать координаты" style="margin-bottom: 10px;">
         <div class="coords-meta">
           <span class="coords-label">Координаты центра экрана</span>
           <span class="coords-val" id="open-coords-val">--</span>
         </div>
         <span class="coords-copy-badge">📋 Скопировать</span>
+      </div>
+
+      <!-- Кнопки сохранения и просмотра сохранённых координат -->
+      <div class="coords-save-actions-row">
+        <button type="button" id="open-coords-btn-save" class="btn btn-primary coords-save-btn">
+          💾 Сохранить координаты
+        </button>
+        <button type="button" id="open-coords-btn-saved" class="btn btn-secondary coords-saved-btn">
+          📂 Сохранённые (<span id="open-coords-saved-count">0</span>)
+        </button>
       </div>
 
       <div class="modal-desc" style="margin-bottom: 10px;">Открыть текущую точку в сторонних сервисах:</div>
@@ -444,6 +455,54 @@
       <div class="modal-actions" style="margin-top: 0; justify-content: space-between;">
         <button type="button" id="open-coords-btn-copy" class="btn btn-secondary">📋 Скопировать координаты</button>
         <button type="button" id="open-coords-close" class="btn btn-primary">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно списка сохранённых координат -->
+  <div id="modal-saved-coords" class="modal-overlay">
+    <div class="modal-box modal-box-large saved-coords-modal-box">
+      <div class="modal-header">
+        <h3>📌 Сохранённые координаты (<span id="saved-coords-total">0</span>)</h3>
+        <button class="modal-close-x" id="saved-coords-x">✕</button>
+      </div>
+
+      <div id="saved-coords-list" class="saved-coords-list"></div>
+
+      <div class="saved-coords-io-row">
+        <button type="button" id="saved-coords-export" class="btn btn-secondary saved-coords-io-btn">
+          💾 Экспорт JSON
+        </button>
+        <button type="button" id="saved-coords-import-btn" class="btn btn-secondary saved-coords-io-btn">
+          📂 Импорт JSON
+        </button>
+        <input type="file" id="saved-coords-import-input" accept=".json,application/json" style="display: none;">
+      </div>
+
+      <div class="modal-actions" style="margin-top: 10px; justify-content: flex-end;">
+        <button type="button" id="saved-coords-close" class="btn btn-primary">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно ввода / редактирования имени координат -->
+  <div id="modal-save-coord" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="save-coord-title">💾 Сохранить координаты</h3>
+        <button class="modal-close-x" id="save-coord-x">✕</button>
+      </div>
+
+      <div id="save-coord-preview" class="save-coord-preview">--</div>
+
+      <div class="form-group" style="margin-bottom: 6px;">
+        <label for="save-coord-name-input">Название точки:</label>
+        <input type="text" id="save-coord-name-input" class="styled-input" maxlength="80" placeholder="Например: Родник, Лагерь (или оставьте пустым)" autocomplete="off">
+      </div>
+
+      <div class="modal-actions" style="margin-top: 12px;">
+        <button type="button" id="save-coord-cancel" class="btn btn-secondary">Отмена</button>
+        <button type="button" id="save-coord-submit" class="btn btn-primary">Сохранить</button>
       </div>
     </div>
   </div>
@@ -1126,6 +1185,26 @@
               </div>
             </div>
 
+            <!-- === НОВЫЙ БЛОК А: РАЗРЕШЕНИЕ НА УВЕДОМЛЕНИЯ === -->
+            <div class="pdr-card-box">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-weight: 800; font-size: 13px; color: var(--text-main);">🔔 Уведомления (статус записи)</div>
+                <span id="badge-notif-perm-status" class="badge-apk-only" style="background:#eab308; color:#000;">Проверка…</span>
+              </div>
+              <p class="hint-text" style="margin: 0; line-height: 1.4;">
+                Требуется на Android 13+, чтобы в шторке отображалось уведомление об активной фоновой записи трека.
+              </p>
+              <div style="display: flex; gap: 8px; margin-top: 2px;">
+                <button type="button" id="btn-request-notif-perm" class="btn btn-primary" style="flex: 1; font-size: 11.5px; padding: 7px 10px;">
+                  🔔 Разрешить уведомления
+                </button>
+                <button type="button" class="btn btn-secondary js-open-app-settings" style="font-size: 12px; padding: 7px 11px;" title="Системные настройки приложения">
+                  ⚙️
+                </button>
+              </div>
+            </div>
+            <!-- === КОНЕЦ БЛОКА А === -->
+
             <!-- 2. КАРТОЧКА: БАЗА ТРЕКОВ И ОБЛАКО -->
             <div class="pdr-card-box">
               <div class="track-settings-header-row" style="margin-bottom: 2px;">
@@ -1414,7 +1493,7 @@
             </div>
 
             <!-- БЫСТРАЯ ЮСТИРОВКА КОМПАСА -->
-            <div class="pdr-card-box" style="border: 1.5px solid var(--accent); background: var(--accent-bg);">
+             <div class="pdr-card-box" style="border: 1.5px solid var(--accent); background: var(--accent-bg);">
               <div class="pdr-card-header-row">
                 <div class="pdr-card-header" style="color: var(--accent); margin: 0;">🧭 Быстрая юстировка компаса</div>
                 <button type="button" id="btn-open-compass-adjust-settings" class="btn btn-primary" style="font-size: 11.5px; padding: 5px 12px; white-space: nowrap;">
@@ -1425,6 +1504,26 @@
                 Быстрое выставление курса телефона по известному ориентиру (Север, Солнце, Луна) без шагов и калибровочных «восьмёрок». Доступно также по <b>долгому нажатию</b> на стрелку компаса 🧭 на карте.
               </p>
             </div>
+
+            <!-- === НОВЫЙ БЛОК Б: РАЗРЕШЕНИЕ НА ШАГОМЕР === -->
+            <div class="pdr-card-box">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-weight: 800; font-size: 13px; color: var(--text-main);">👣 Доступ к шагомеру (физ. активность)</div>
+                <span id="badge-pdr-perm-status" class="badge-apk-only" style="background:#eab308; color:#000;">Проверка…</span>
+              </div>
+              <p class="hint-text" style="margin: 0; line-height: 1.4;">
+                Разрешение на распознавание физической активности (Android 10+) для подсчёта шагов, работы шагомера PDR и пробуждения GPS.
+              </p>
+              <div style="display: flex; gap: 8px; margin-top: 2px;">
+                <button type="button" id="btn-request-pdr-perm" class="btn btn-primary" style="flex: 1; font-size: 11.5px; padding: 7px 10px;">
+                  🔑 Разрешить доступ к шагомеру
+                </button>
+                <button type="button" class="btn btn-secondary js-open-app-settings" style="font-size: 12px; padding: 7px 11px;" title="Системные настройки приложения">
+                  ⚙️
+                </button>
+              </div>
+            </div>
+            <!-- === КОНЕЦ БЛОКА Б === -->
 
             <!-- 3. БЫСТРЫЕ ОСНОВНЫЕ ПЕРЕКЛЮЧАТЕЛИ -->
             <div class="pdr-card-box">
@@ -2230,7 +2329,7 @@
             </details>
 
             <!-- Внешний вид контуров -->
-            <details class="spoiler sub-spoiler">
+            <details class="spoiler sub-spoiler" id="spoiler-wikimapia-style">
               <summary class="spoiler-title sub-spoiler-title">
                 <span>🖌️ Стилизация контуров (Wikimapia)</span>
                 <span class="chevron">▼</span>
@@ -5540,20 +5639,134 @@
               <label for="dem-hud-contour-blend-select">Смешивание:</label>
               <select id="dem-hud-contour-blend-select" class="styled-select">
                 <option value="normal" selected>Normal (обычный)</option>
-                <option value="multiply">Multiply (тушь)</option>
                 <option value="overlay">Overlay (перекрытие)</option>
+                <option value="hard-light">Hard-Light (жёсткий)</option>
+                <option value="multiply">Multiply (умножение)</option>
+                <option value="luminosity">Luminosity (светимость)</option>
+                <option value="screen">Screen (осветление)</option>
                 <option value="soft-light">Soft-Light (мягкий)</option>
                 <option value="difference">Difference (контраст)</option>
               </select>
             </div>
           </div>
 
-          <label class="toggle-item" style="margin: 2px 0 0;">
-            <div><span style="font-size: 11px; font-weight: 700;">Подписи отметок высоты (м)</span></div>
-            <input type="checkbox" id="dem-hud-toggle-labels" checked>
-            <span class="toggle-switch"></span>
-          </label>
+           <details class="dem-hud-spoiler sub-spoiler" id="spoiler-hud-contour-labels" style="margin-top: 4px;">
+            <summary class="dem-hud-spoiler-summary sub-spoiler-title">
+              <div class="dem-hud-spoiler-left">
+                <span>🏷️ Метки высот (подписи)</span>
+                <span id="dem-hud-labels-status-badge" class="dem-hud-badge-mini active">Вкл</span>
+              </div>
+              <div class="dem-hud-spoiler-right">
+                <button type="button" class="dem-hud-switch-btn js-hud-spoiler-toggle active" data-sync-checkbox="dem-hud-toggle-labels" data-sync-badge="dem-hud-labels-status-badge">Выкл</button>
+                <span class="chevron">▼</span>
+              </div>
+            </summary>
 
+            <div class="dem-hud-spoiler-body">
+              <label class="toggle-item" style="margin: 0;">
+                <div>
+                  <span style="font-size: 11px; font-weight: 700;">Показывать отметки высоты</span>
+                  <small class="hint-text">Умное размещение на ровных участках без наложений</small>
+                </div>
+                <input type="checkbox" id="dem-hud-toggle-labels" checked>
+                <span class="toggle-switch"></span>
+              </label>
+
+              <div id="dem-hud-labels-sub" class="dem-sub-dimmable" style="margin-top: 4px; display: flex; flex-direction: column; gap: 6px;">
+
+                <!-- Положение и количество -->
+                <div class="dem-hud-grid-2">
+                  <div class="form-group" style="margin: 0;">
+                    <label for="dem-hud-label-scope-select">Какие линии подписывать:</label>
+                    <select id="dem-hud-label-scope-select" class="styled-select">
+                      <option value="auto" selected>⚡ Умно (основные + редкие)</option>
+                      <option value="major">〰️ Только основные (×5)</option>
+                      <option value="all">📏 Основные и обычные</option>
+                      <option value="all_form">📐 Все (вкл. полушаги)</option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="margin: 0;">
+                    <label for="dem-hud-label-orient-select">Ориентация цифр:</label>
+                    <select id="dem-hud-label-orient-select" class="styled-select">
+                      <option value="readable" selected>📖 Читаемая (слева направо)</option>
+                      <option value="uphill">⛰️ Верхом к вершине (топо)</option>
+                      <option value="horizontal">― Строго горизонтально</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="dem-hud-row" style="margin: 0;">
+                  <label for="dem-hud-label-density-slider">
+                    <span>Количество / плотность меток:</span>
+                    <b id="dem-hud-label-density-val" style="color: var(--accent);">100%</b>
+                  </label>
+                  <input type="range" id="dem-hud-label-density-slider" min="25" max="250" step="5" value="100" class="styled-range">
+                </div>
+
+                <hr class="style-divider">
+
+                <!-- Внешний вид -->
+                <div class="dem-hud-grid-2">
+                  <div class="form-group" style="margin: 0;">
+                    <label for="dem-hud-label-style-select">Стиль оформления:</label>
+                    <select id="dem-hud-label-style-select" class="styled-select">
+                      <option value="halo" selected>⭕ Ореол + разрыв</option>
+                      <option value="break">✂️ Чистый разрыв линии</option>
+                      <option value="pill">🏷️ Плашка / бейдж</option>
+                    </select>
+                  </div>
+                  <div class="dem-hud-row" style="margin: 0;">
+                    <label for="dem-hud-label-size-slider"><span>Размер шрифта:</span><b id="dem-hud-label-size-val">9.5 px</b></label>
+                    <input type="range" id="dem-hud-label-size-slider" min="7.5" max="16.0" step="0.5" value="9.5" class="styled-range">
+                  </div>
+                </div>
+
+                <div class="dem-hud-grid-2">
+                  <div class="form-group" style="margin: 0;">
+                    <label for="dem-hud-label-color-mode">Цвет цифр:</label>
+                    <select id="dem-hud-label-color-mode" class="styled-select">
+                      <option value="auto" selected>〰️ Как цвет линий</option>
+                      <option value="custom">🎨 Свой цвет</option>
+                    </select>
+                  </div>
+                  <div class="form-group" id="dem-hud-label-color-wrap" style="margin: 0;">
+                    <label for="dem-hud-label-color">Свой цвет текста:</label>
+                    <input type="color" id="dem-hud-label-color" value="#3a250b" class="styled-color-picker">
+                  </div>
+                </div>
+
+                <div class="dem-hud-grid-2">
+                  <div class="form-group" style="margin: 0;">
+                    <label for="dem-hud-label-halo-color">Цвет ореола / плашки:</label>
+                    <input type="color" id="dem-hud-label-halo-color" value="#f7f1e1" class="styled-color-picker">
+                  </div>
+                  <div class="dem-hud-row" id="dem-hud-label-halo-width-wrap" style="margin: 0;">
+                    <label for="dem-hud-label-halo-width-slider"><span>Толщина ореола:</span><b id="dem-hud-label-halo-width-val">3.0 px</b></label>
+                    <input type="range" id="dem-hud-label-halo-width-slider" min="1.0" max="5.0" step="0.5" value="3.0" class="styled-range">
+                  </div>
+                </div>
+
+                <div class="dem-hud-grid-3" style="margin-top: 2px;">
+                  <label class="toggle-item" style="margin: 0;">
+                    <span style="font-size: 10px;">Разрыв линии</span>
+                    <input type="checkbox" id="dem-hud-toggle-label-break" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item" style="margin: 0;">
+                    <span style="font-size: 10px;">Жирный</span>
+                    <input type="checkbox" id="dem-hud-toggle-label-bold" checked>
+                    <span class="toggle-switch"></span>
+                  </label>
+                  <label class="toggle-item" style="margin: 0;">
+                    <span style="font-size: 10px;">Дописать «м»</span>
+                    <input type="checkbox" id="dem-hud-toggle-label-unit">
+                    <span class="toggle-switch"></span>
+                  </label>
+                </div>
+
+              </div>
+            </div>
+          </details>
           <!-- Вложенный спойлер: палитра, карандаш и гравировка изолиний -->
           <details class="dem-hud-spoiler sub-spoiler">
             <summary class="dem-hud-spoiler-summary sub-spoiler-title">
@@ -6805,8 +7018,11 @@
                   <input type="range" id="viewshed-eye-height-slider" min="0.5" max="30.0" step="0.5" value="1.8" class="styled-range">
                 </div>
                 <div class="dem-hud-row" style="margin: 0;">
-                  <label for="viewshed-radius-slider"><span>Радиус обзора:</span><b id="viewshed-radius-val" style="color: var(--accent);">75 км</b></label>
-                  <input type="range" id="viewshed-radius-slider" min="5" max="150" step="5" value="75" class="styled-range">
+                  <label for="viewshed-radius-slider">
+                    <span>Радиус обзора:</span>
+                    <b id="viewshed-radius-val" style="color: var(--accent);">15 км</b>
+                  </label>
+                  <input type="range" id="viewshed-radius-slider" min="5" max="150" step="5" value="15" class="styled-range">
                 </div>
               </div>
 
@@ -7644,7 +7860,7 @@
           </div><!-- /#dem-hud-canopy-trees-sub -->
 
           <!-- Вложенный спойлер 5.4: Растровые аналитические слои CHM -->
-          <details class="dem-hud-spoiler sub-spoiler" style="margin-top: 6px;">
+          <details class="dem-hud-spoiler sub-spoiler" id="spoiler-hud-canopy-layers" style="margin-top: 6px;">
             <summary class="dem-hud-spoiler-summary sub-spoiler-title">
               <div class="dem-hud-spoiler-left"><span>📊 Слои данных: высота крон и маска леса</span></div>
               <div class="dem-hud-spoiler-right"><span class="chevron">▼</span></div>
@@ -7732,7 +7948,7 @@
               <span style="font-size: 11.5px; font-weight: 700;">Включить векторный слой OSM</span>
               <small class="hint-text">Дороги, вода, леса, вершины, названия и постройки</small>
             </div>
-            <input type="checkbox" id="dem-hud-toggle-roads">
+            <input type="checkbox" id="dem-hud-roads-enable-chk">
             <span class="toggle-switch"></span>
           </label>
 
@@ -9678,6 +9894,7 @@
   <script src="js/audibility.js"></script>
   <script src="js/demRelief.js"></script>
   <script src="js/demPresets.js"></script> 
+  <script src="js/demQuickPanel.js"></script>
   <script src="js/clouds.js"></script>
 
   <!-- 1. Базовые пресеты (дефолтные деревья) -->
