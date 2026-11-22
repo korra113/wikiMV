@@ -129,7 +129,6 @@
   }
 
   const isFirstReliefLaunch =
-    !localStorage.getItem('wm_first_relief_launch_done') &&
     !localStorage.getItem('wm_app_profile_v1') &&
     !localStorage.getItem('wm_view');
 
@@ -3842,6 +3841,8 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
 
   function onDeviceOrientation(e) {
     if (document.hidden) return;
+    const welcomeEl = document.getElementById('modal-welcome-profiles');
+    if (welcomeEl && welcomeEl.classList.contains('open')) return;
     window._wmSensorEventsCount = (window._wmSensorEventsCount || 0) + 1;
 
     const now = performance.now();
