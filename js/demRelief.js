@@ -959,9 +959,9 @@ async function reloadMissingTiles(opts = {}) {
 
   const DEFAULT_CONFIG = {
     demSource: 'fabdem',
-    demDeblock: true,       // авто-сглаживание блочных/квантованных DEM-тайлов
+    demDeblock: true,
     demDeblockSigmaM: 60,  
-    hillshadeEnabled: true,
+    hillshadeEnabled: false, // <-- было true
     blendMode: 'normal',
     contourBlendMode: 'multiply',
     zFactor: 8.5,
@@ -1107,7 +1107,7 @@ async function reloadMissingTiles(opts = {}) {
     hillshadeOpacity: 0.95,
 
     // Изолинии (горизонтали)
-    contoursEnabled: true,
+    contoursEnabled: false,
     contourStep: 50,
     contourPalette: 'custom',
     contourColor: '#47370a',
