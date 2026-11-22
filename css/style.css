@@ -3755,6 +3755,9 @@ body.sheet-open .hover-pill {
   max-height: 55vh;
   margin: 0 -8px 12px 0;
   padding-right: 8px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  contain: content;
 }
 
 /* Стили Поиска */
