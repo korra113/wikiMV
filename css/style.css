@@ -9944,9 +9944,16 @@ body.sheet-open .measure-hud {
 .wm-ruler-track-badge-icon {
   background: transparent !important;
   border: none !important;
+  overflow: visible !important;
 }
 
 .wm-ruler-track-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  transform: translate(-50%, -100%);
+  transform-origin: 50% 50%;
   background: var(--bg-glass-strong);
   border: 1.5px solid var(--track-color, #0284c7);
   color: var(--text-main);
@@ -9968,10 +9975,9 @@ body.sheet-open .measure-hud {
 }
 
 .wm-ruler-track-badge:hover {
-  transform: scale(1.08);
+  transform: translate(-50%, -100%) scale(1.06);
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
 }
-
 /* Узлы ломаной линии */
 .wm-ruler-vertex-icon {
   background: transparent !important;
@@ -17352,7 +17358,70 @@ body.zoom-low .wm-ruler-track-badge span {
 body.zoom-low .wm-ruler-track-badge {
   transform: translate(-50%, -50%) !important; /* На зуме < 12 садится строго в центр точки */
 }
+body.zoom-low .wm-ruler-track-badge:hover {
+  transform: translate(-50%, -50%) scale(1.3) !important;
+}
 
+/* =========================================================================
+   ПОПАП ПРОВЕРКИ СЛЫШИМОСТИ В ТОЧКЕ (AUDIBILITY)
+   ========================================================================= */
+.wm-audibility-leaflet-popup .leaflet-popup-content-wrapper {
+  background: var(--bg-glass-strong, rgba(255, 255, 255, 0.95)) !important;
+  color: var(--text-main, #0f172a) !important;
+  border-radius: var(--radius-md, 12px) !important;
+  border: 1.5px solid var(--border-strong, #cbd5e1) !important;
+  box-shadow: var(--shadow-float, 0 8px 24px rgba(0, 0, 0, 0.2)) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 4px;
+}
+
+.wm-audibility-leaflet-popup .leaflet-popup-content {
+  margin: 8px 10px !important;
+  line-height: 1.4 !important;
+}
+
+.wm-audibility-leaflet-popup .leaflet-popup-tip {
+  background: var(--bg-glass-strong, rgba(255, 255, 255, 0.95)) !important;
+}
+
+.wm-audibility-leaflet-popup .leaflet-popup-close-button {
+  color: var(--text-muted, #64748b) !important;
+}
+.wm-audibility-leaflet-popup .leaflet-popup-close-button:hover {
+  color: var(--text-main, #0f172a) !important;
+}
+
+/* Выделение цифр внутри блока деталей */
+.wm-audibility-leaflet-popup b:not([style*="color"]) {
+  color: var(--text-main, #0f172a);
+}
+
+/* Тёмная тема */
+[data-theme="dark"] .wm-audibility-leaflet-popup .leaflet-popup-content-wrapper,
+[data-theme="dark"] .wm-audibility-leaflet-popup .leaflet-popup-tip {
+  background: var(--bg-glass-strong, rgba(17, 24, 39, 0.96)) !important;
+  border-color: var(--border, #374151) !important;
+  color: var(--text-main, #f9fafb) !important;
+}
+
+/* Тема ночного зрения */
+[data-theme="night-vision"] .wm-audibility-leaflet-popup .leaflet-popup-content-wrapper,
+[data-theme="night-vision"] .wm-audibility-leaflet-popup .leaflet-popup-tip {
+  background: rgba(18, 3, 3, 0.96) !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+/* Отключение blur на слабых устройствах и в APK (как в остальных попапах) */
+.capacitor-app .wm-audibility-leaflet-popup .leaflet-popup-content-wrapper,
+.capacitor-app .wm-audibility-leaflet-popup .leaflet-popup-tip,
+.low-end .wm-audibility-leaflet-popup .leaflet-popup-content-wrapper,
+.low-end .wm-audibility-leaflet-popup .leaflet-popup-tip {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: var(--bg-primary) !important;
+}
 /* Фиксированная плашка над перекрестием в центре экрана */
 #gps-dist-fixed-badge {
   position: absolute;
@@ -18729,7 +18798,211 @@ body.wm-ui-hidden #gps-dist-fixed-badge {
   padding: 2px 0 8px;
   margin-bottom: 6px;
 }
+/* =========================================================================
+   СОХРАНЁННЫЕ КООРДИНАТЫ (МОДАЛЬНЫЕ ОКНА И КОМПАКТНЫЙ СПИСОК)
+   ========================================================================= */
 
+#modal-saved-coords {
+  z-index: 3150 !important;
+}
+
+#modal-save-coord {
+  z-index: 3250 !important;
+}
+
+.coords-save-actions-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.coords-save-btn,
+.coords-saved-btn {
+  padding: 8px 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.save-coord-preview {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.saved-coords-modal-box {
+  max-width: 470px !important;
+  width: 95vw;
+}
+
+.saved-coords-list {
+  max-height: 52vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 2px;
+  margin-bottom: 10px;
+  scrollbar-width: thin;
+}
+
+.saved-coords-empty {
+  padding: 20px 10px !important;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.saved-coord-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s ease;
+}
+
+.saved-coord-item:hover {
+  border-color: var(--border-strong);
+}
+
+.saved-coord-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.saved-coord-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.saved-coord-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-coord-zoom-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0 5px;
+  line-height: 1.35;
+  flex-shrink: 0;
+}
+
+.saved-coord-bottom {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.saved-coord-coords {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  line-height: 1.3;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
+}
+
+.saved-coord-coords:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+
+.saved-coord-coords:active {
+  transform: scale(0.96);
+}
+
+.saved-coord-time {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.saved-coord-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.saved-coord-actions .icon-btn-sm {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+}
+
+.saved-coord-btn-go:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+
+.saved-coord-btn-del {
+  color: var(--danger);
+}
+
+.saved-coord-btn-del:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+}
+
+.saved-coords-io-row {
+  display: flex;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.saved-coords-io-btn {
+  flex: 1;
+  font-size: 12px;
+  padding: 7px 10px;
+}
+
+[data-theme="night-vision"] .saved-coord-item,
+[data-theme="night-vision"] .save-coord-preview {
+  background: #120303;
+  border-color: #3b0707;
+}
+
+[data-theme="night-vision"] .saved-coord-coords {
+  background: #050101;
+  border-color: #5c0f0f;
+  color: #ef4444;
+}
 .mp-chart-col {
   flex: 1 1 auto;
   min-width: 0;
