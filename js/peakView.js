@@ -435,7 +435,7 @@
   async function loadDemBox(box, zLo, zHi, maxTiles, job, bicubic = false) {
     const dr = WM.demRelief;
     if (!dr || typeof dr.loadDemTileWithFallback !== 'function') throw new Error('модуль рельефа (demRelief) не подключён');
-    const srcId = (dr.getConfig && dr.getConfig().demSource) || 'fabdem';
+    const srcId = (job && job.demSource) || (dr.getConfig && dr.getConfig().demSource) || 'copernicus';
     const maxTilePx = PERF.demTileMaxPx || 512;
     const z = zoomForBox(box, zLo, zHi, maxTiles);
     const r = tileRange(box, z), tw = r.x1 - r.x0 + 1;
@@ -459,8 +459,8 @@
             tileSizes[t.i] = hit.s;
             tileProvs[t.i] = hit.p || srcId;
           } else {
-            let ramImg = (!job.force && dr.getCachedDemTileWithChildren)
-              ? dr.getCachedDemTileWithChildren({ z, x: t.x, y: t.y })
+           let ramImg = (!job.force && dr.getCachedDemTileWithChildren)
+              ? dr.getCachedDemTileWithChildren({ z, x: t.x, y: t.y }, srcId)
               : null;
             let img = ramImg;
             const decodeImg = (srcImg) => {
@@ -490,7 +490,7 @@
 
             if (!decoded) {
               try {
-                img = await withTimeout(dr.loadDemTileWithFallback({ z, x: t.x, y: t.y }), 25000, 'таймаут DEM');
+                img = await withTimeout(dr.loadDemTileWithFallback({ z, x: t.x, y: t.y }, false, srcId), 25000, 'таймаут DEM');
               } catch (netErr) {
                 if (ramImg && !job.signal.aborted) img = ramImg;
                 else throw netErr;
@@ -2182,7 +2182,7 @@
     }
   }
 
-  function createHub(onChange, enabledMap) {
+  function createHub(onChange, enabledMap, getDemSource) {
     const hub = { sources: {}, geo: null, gen: 0 };
     const defs = [
       { id: 'demOuter', icon: '⛰️', title: 'Рельеф (дальний, ±45 км)', desc: 'Горизонт и горные хребты (z10)', load: (job) => loadDemBox(job.geo.boxForHalf(OUTER_HALF, PERF.outerN, PERF.outerN), 10, 11, PERF.demOuterMaxTiles, job) },
@@ -2231,7 +2231,8 @@
       s.state = 'loading'; s.msg = 'Загрузка…'; s.progress = null;
       emit(s.id, 'state');
       const t0 = performance.now();
-      const demSrc = (WM.demRelief && WM.demRelief.getConfig && WM.demRelief.getConfig().demSource) || 'fabdem';
+      const demSrc = (typeof getDemSource === 'function' ? getDemSource() : null) ||
+        (WM.demRelief && WM.demRelief.getConfig && WM.demRelief.getConfig().demSource) || 'copernicus';
       const key = (s.id === 'canopy' || s.id === 'canopyFar')
         ? `${s.id}|${getCanopyVersion()}|${geo.key}`
         : ((s.id === 'demOuter' || s.id === 'demMid' || s.id === 'demInner')
@@ -2248,6 +2249,7 @@
         else {
           res = await s.def.load({
             geo,
+            demSource: demSrc,
             force: !!force,
             signal: s.ctl.signal,
             progress: (d, t) => { if (run === s.run) { s.progress = { d, t }; emit(s.id, 'progress'); } }
@@ -6964,6 +6966,7 @@ void main() {
   // ===========================================================================
   const DEF = {
     view: {
+      demSource: null, // null = берёт источник из основного проекта (fabdem -> copernicus); ручной выбор сохраняется
       mode: 'hybrid',
       perfOverlay: false,
       perfContinuous: false,
@@ -7260,6 +7263,15 @@ position:fixed;z-index:3010;background:var(--bg1);color:var(--txt);border:1px so
     const mobile = isMobile();
     const save = () => { try { localStorage.setItem(LSK + 'st', JSON.stringify(ST)); } catch (e) {} };
 
+    function getDemSource() {
+      const sources = (WM.demRelief && WM.demRelief.getSources) ? WM.demRelief.getSources() : null;
+      const isValid = k => !!(k && (!sources || sources[k]));
+      if (isValid(ST.view.demSource)) return ST.view.demSource;
+      const mainSrc = (WM.demRelief && WM.demRelief.getConfig && WM.demRelief.getConfig().demSource) || 'fabdem';
+      if (mainSrc === 'fabdem') return 'copernicus';
+      return isValid(mainSrc) ? mainSrc : 'copernicus';
+    }
+
     const cam = {
       x: 0, z: 0, y: 2,
       yaw: 0, pitch: 0.04,
@@ -7545,6 +7557,8 @@ position:fixed;z-index:3010;background:var(--bg1);color:var(--txt);border:1px so
       if (zoomJobCtl) try { zoomJobCtl.abort(); } catch (e) {}
       const ctl = zoomJobCtl = new AbortController();
       const curGeo = geo, curDemSig = S.demSig, curH0 = S.h0;
+
+      const curDemSrc = getDemSource();
       const zN = PERF.zoomN || ZOOM_N;
       const zMaxT = PERF.zoomMaxTiles || 25;
       const box = curGeo.boxForCenterHalf(snapCx, snapCz, desiredHalf, zN, zN);
@@ -7553,7 +7567,7 @@ position:fixed;z-index:3010;background:var(--bg1);color:var(--txt);border:1px so
       updateChips();
 
       try {
-        const res = await loadDemBox(box, 12, 14, zMaxT, { signal: ctl.signal, progress: () => {} }, true);
+        const res = await loadDemBox(box, 12, 14, zMaxT, { signal: ctl.signal, demSource: curDemSrc, progress: () => {} }, true);
         if (ctl.signal.aborted || destroyed || !geo || geo.key !== curGeo.key || !S) return;
 
         const wm = (hub && hub.sources.vectors && hub.sources.vectors.state === 'ok')
@@ -8961,7 +8975,7 @@ position:fixed;z-index:3010;background:var(--bg1);color:var(--txt);border:1px so
       if (refs.demMeta) {
         refs.demMeta.textContent = '';
         const dr = WM.demRelief;
-        const sInfo = (dr && typeof dr.getActiveSourceInfo === 'function') ? dr.getActiveSourceInfo() : null;
+        const sInfo = (dr && typeof dr.getActiveSourceInfo === 'function') ? dr.getActiveSourceInfo(getDemSource()) : null;
 
         const agg = {};
         ['demOuter', 'demMid', 'demInner'].forEach(id => {
@@ -9018,6 +9032,29 @@ position:fixed;z-index:3010;background:var(--bg1);color:var(--txt);border:1px so
     function buildMainTab() {
       const V = ST.view, L = ST.layers, C = ST.camera, SK = ST.sky;
 
+      const demSourcesMap = (WM.demRelief && WM.demRelief.getSources) ? WM.demRelief.getSources() : null;
+      const demOpts = demSourcesMap
+        ? Object.values(demSourcesMap).map(s => [s.id, s.name])
+        : [
+            ['fabdem', 'FABDEM (GEE 30m без лесов и зданий)'],
+            ['copernicus', 'Copernicus GLO-30 (GEE 30m)'],
+            ['mapterhorn', 'Mapterhorn (Copernicus 30m + LiDAR)'],
+            ['aws', 'AWS Terrarium (Mapzen / Nextzen)']
+          ];
+
+      refs.demSourceSel = mkSel(demOpts, getDemSource(), v => {
+        V.demSource = v;
+        lastDemSrc = v;
+        save();
+        if (hub) {
+          hub.reload('demOuter');
+          hub.reload('demMid');
+          hub.reload('demInner');
+          if (ST.panel && ST.tab === 'sources') renderSources();
+        }
+        const label = (demSourcesMap && demSourcesMap[v]?.name) || v;
+        toast(`⛰️ Поставщик рельефа: ${label}`);
+      });
       // 1. Тип отображения и тема
       const modeSel = mkSel([
         ['contour', '🏔️ Контуры и хребты'],
@@ -9361,6 +9398,10 @@ position:fixed;z-index:3010;background:var(--bg1);color:var(--txt);border:1px so
       refs.chkIsolinesMain = mkChk('📏 Горизонтали высот', !!V.showIsolines, setIsolinesOn);
 
       const page = el('div', null,
+        mkCard('⛰️ Поставщик рельефа (DEM)',
+          mkRow('Источник высот', refs.demSourceSel)
+        ),
+
         mkCard('☀️ Время суток и небо',
           mkRow('Режим времени', timeModeSel),
           mkRow('Время суток', hourRng),
@@ -10802,11 +10843,15 @@ position:fixed;z-index:3010;background:var(--bg1);color:var(--txt);border:1px so
       if (!destroyed && hub) { hub.reload('canopy'); hub.reload('canopyFar'); }
     });
 
-    let lastDemSrc = (WM.demRelief && WM.demRelief.getConfig && WM.demRelief.getConfig().demSource) || 'fabdem';
+
+    let lastDemSrc = getDemSource();
     listen(window, 'wm:dem-change', (e) => {
       if (destroyed || !hub) return;
-      const curDemSrc = (WM.demRelief && WM.demRelief.getConfig && WM.demRelief.getConfig().demSource) || 'fabdem';
-      if ((e && e.detail && e.detail.sourceChanged) || curDemSrc !== lastDemSrc) {
+      const curDemSrc = getDemSource();
+      if (refs.demSourceSel && refs.demSourceSel.value !== curDemSrc) {
+        refs.demSourceSel.value = curDemSrc;
+      }
+      if (curDemSrc !== lastDemSrc || (!ST.view.demSource && e && e.detail && e.detail.sourceChanged)) {
         lastDemSrc = curDemSrc;
         hub.reload('demOuter');
         hub.reload('demMid');
@@ -10814,7 +10859,6 @@ position:fixed;z-index:3010;background:var(--bg1);color:var(--txt);border:1px so
         if (ST.panel && ST.tab === 'sources') renderSources();
       }
     });
-
     const ro = new ResizeObserver(entries => {
       for (const entry of entries) {
         if (entry.target === headEl) { syncBrandOverflow(); continue; }
@@ -10904,7 +10948,7 @@ position:fixed;z-index:3010;background:var(--bg1);color:var(--txt);border:1px so
 
     const bootScene = () => {
       booted = true;
-      hub = createHub(onHubChange, ST.sources);
+      hub = createHub(onHubChange, ST.sources, getDemSource);
       _liveHub = hub;
       hub.start(geo);
       if (syncSceneTimer) { clearTimeout(syncSceneTimer); syncSceneTimer = 0; }
