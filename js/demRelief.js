@@ -13134,14 +13134,6 @@ window.renderCanopyHudUI = renderHudUI;
       };
     }
 
-    function getGridN(z) {
-      if (z <= 11) return 10;
-      if (z === 12) return 12;
-      if (z === 13) return 15;
-      if (z === 14) return 18;
-      if (z === 15) return 20;
-      return 22;
-    }
 
     function ptQuad(x0, y0, cx, cy, x1, y1, t) {
       const u = 1 - t;
@@ -13575,7 +13567,9 @@ window.renderCanopyHudUI = renderHudUI;
       const hasCanopy = !!(WM.canopy && typeof WM.canopy.getHeightAtNorm === 'function');
       const demSampler = createTileDemSampler(coords);
 
-      const N = getGridN(z);
+      const basePx = (6.2 + Math.max(0, z - 12) * 0.75) * dCfg.size;
+      const targetSpacing = Math.max(22, basePx * 4.1);
+      const N = clamp(Math.round(256 / targetSpacing), 4, 14);
       const cell = 256 / N;
       const inv256 = 1 / 256;
       const basePx = (6.2 + Math.max(0, z - 12) * 0.75) * dCfg.size;
@@ -13729,18 +13723,20 @@ window.renderCanopyHudUI = renderHudUI;
     const DecorGridLayer = L.GridLayer.extend({
       _initTile(tile) {
         L.GridLayer.prototype._initTile.call(this, tile);
-        const size = 256 + PAD * 2;
+        const tileW = this.getTileSize().x || 256;
+        const scale = tileW / 256;
+        const size = (256 + PAD * 2) * scale;
+        const padPx = PAD * scale;
         tile.style.width = size + 'px';
         tile.style.height = size + 'px';
         tile.style.minWidth = size + 'px';
         tile.style.minHeight = size + 'px';
         tile.style.maxWidth = size + 'px';
         tile.style.maxHeight = size + 'px';
-        tile.style.marginLeft = -PAD + 'px';
-        tile.style.marginTop = -PAD + 'px';
+        tile.style.marginLeft = -padPx + 'px';
+        tile.style.marginTop = -padPx + 'px';
         tile.style.pointerEvents = 'none';
       },
-
       createTile(coords, done) {
         const tile = document.createElement('canvas');
         const size = 256 + PAD * 2;
