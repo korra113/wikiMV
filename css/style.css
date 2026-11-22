@@ -574,19 +574,7 @@ body.sheet-open .quick-menu-fab {
   background: var(--accent);
 }
 
-/* Оверлей и контейнер меню */
-.quick-menu-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.42);
-  -webkit-backdrop-filter: blur(4px);
-  z-index: 3500;
-  display: none; /* Скрыт по умолчанию */
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  cursor: pointer;
-}
+
 .quick-menu-overlay.open {
   display: flex !important;
   animation: qmOverlayFade 0.15s ease-out;
@@ -603,22 +591,69 @@ body.sheet-open .quick-menu-fab {
 }
 
 /* Сама карточка меню — аккуратное появление без смещений экрана */
+/* В начале style.css добавьте .quick-menu-overlay к исключениям: */
+.capacitor-app .quick-menu-overlay,
+.low-end .quick-menu-overlay {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Единый блок быстрого меню (без дубля) */
+.quick-menu-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.52);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  z-index: 3500;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  cursor: pointer;
+}
+
+.quick-menu-overlay.open {
+  display: flex !important;
+}
+
+.quick-menu-overlay.desktop-context {
+  background: transparent;
+}
+
 .quick-menu-box {
-  background: var(--bg-glass-strong);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--bg-primary);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-lg, 18px);
   box-shadow: var(--shadow-float);
   width: 100%;
-  max-width: 320px;
+  max-width: 460px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  animation: qmBoxPop 0.15s cubic-bezier(0.16, 1, 0.3, 1);
-  transform-origin: top left;
+  cursor: default;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  contain: layout style paint;
+  animation: qmBoxPop 0.14s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* На ПК с мышкой можно оставить лёгкий blur только на самой карточке */
+@media (min-width: 800px) and (hover: hover) {
+  .quick-menu-box {
+    background: var(--bg-glass-strong);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
+
+/* В keyframes уберите opacity: 0 -> 1, оставьте только плавный scale —
+   именно смена opacity при окончании анимации даёт 1-кадровый провал */
+@keyframes qmBoxPop {
+  from { transform: translate3d(0, 6px, 0) scale(0.96); }
+  to   { transform: translate3d(0, 0, 0) scale(1); }
+}
 /* Отдельные ключевые кадры для быстрого меню */
 @keyframes qmOverlayFade {
   from { opacity: 0; }
@@ -640,8 +675,7 @@ body.sheet-open .quick-menu-fab {
   height: 44px;
   border-radius: var(--radius-sm);
   background: var(--bg-glass-strong);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+
   border: 1px solid var(--border);
   font-size: 20px;
   box-shadow: var(--shadow);
@@ -892,8 +926,7 @@ body.sheet-open .quick-menu-fab {
   height: 36px;
   border-radius: 50%;
   background: var(--bg-glass-strong);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow);
   cursor: pointer;
@@ -12186,43 +12219,7 @@ body.wm-ui-hidden .visual-compass-hud {
   background: var(--accent);
 }
 
-.quick-menu-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  -webkit-backdrop-filter: blur(5px);
-  z-index: 3500;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  cursor: pointer;
-}
-.quick-menu-overlay.open {
-  display: flex !important;
-  animation: qmOverlayFade 0.15s ease-out;
-}
-.quick-menu-overlay.desktop-context {
-  background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
 
-.quick-menu-box {
-  background: var(--bg-glass-strong);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg, 18px);
-  box-shadow: var(--shadow-float);
-  width: 100%;
-  max-width: 460px; /* Увеличено для красивой 3-4 колоночной сетки */
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  animation: qmBoxPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-  cursor: default;
-}
 
 .quick-menu-header {
   display: flex;
@@ -18812,23 +18809,36 @@ body.wm-ui-hidden #gps-dist-fixed-badge {
 
 .coords-save-actions-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 12px;
+  width: 100%;
 }
 
 .coords-save-btn,
 .coords-saved-btn {
-  padding: 8px 10px;
-  font-size: 12.5px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 6px;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 1.25;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  text-align: center;
   gap: 4px;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  box-sizing: border-box;
 }
 
+/* Для сетки сторонних карт тоже лучше minmax(0, 1fr), чтобы на узких экранах не распирало */
+.nav-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
 .save-coord-preview {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
