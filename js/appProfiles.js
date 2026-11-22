@@ -881,6 +881,16 @@
     const st = document.createElement('style');
     st.id = 'wm-app-profiles-style';
     st.textContent = `
+      #modal-welcome-profiles {
+        contain: layout style paint;
+      }
+      #modal-welcome-profiles .modal-box {
+        overflow: hidden;
+        transform: translate3d(0, 0, 0);
+        backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
+        contain: layout style paint;
+      }
       .wm-prof-grid {
         display: flex;
         flex-direction: column;
@@ -898,7 +908,8 @@
         background: var(--bg-secondary, rgba(128,128,128,0.08));
         color: var(--text-main, #f1f5f9);
         cursor: pointer;
-        transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+        contain: layout style;
+        transition: border-color 0.12s ease, background 0.12s ease;
       }
       .wm-prof-card:hover {
         border-color: var(--accent, #3b82f6);
@@ -1109,6 +1120,7 @@
       list.forEach(p => {
         const btn = document.createElement('button');
         btn.type = 'button';
+        btn.dataset.profileId = p.id;
         btn.className = 'wm-prof-card'
           + (p.isLastCustom ? ' is-last-custom' : '')
           + (selectedWelcomeId === p.id ? ' selected' : '');
@@ -1127,7 +1139,9 @@
         `;
         btn.onclick = () => {
           selectedWelcomeId = p.id;
-          renderCards();
+          cardsWrap.querySelectorAll('.wm-prof-card').forEach(el => {
+            el.classList.toggle('selected', el.dataset.profileId === selectedWelcomeId);
+          });
         };
         btn.ondblclick = () => {
           selectedWelcomeId = p.id;
@@ -1257,9 +1271,11 @@
     isInitialized = true;
 
     if (!localStorage.getItem(LS_KEY)) {
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         openWelcomeModal();
-      }, 250);
+      });
+    } else {
+      renderSettingsSpoiler();
     }
   }
 
