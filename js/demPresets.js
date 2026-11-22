@@ -827,12 +827,12 @@
   }
 },
 {
-  "id": "profile_1795355970087_126",
+  "id": "profile_1795379935037_761",
   "name": "Старинная карта",
   "version": 2,
-  "createdAt": "2026-11-22T13:59:30.086Z",
+  "createdAt": "2026-11-22T20:38:55.037Z",
   "demRelief": {
-    "demSource": "fabdem",
+    "demSource": "mapterhorn",
     "demDeblock": true,
     "hillshadeEnabled": true,
     "contoursEnabled": false,
@@ -859,10 +859,10 @@
     "orenNayarRoughness": 0.5,
     "specularDamp": 2.7,
     "inkBleed": true,
-    "lightBoost": 1.85,
+    "lightBoost": 1.45,
     "imhofDeflection": 0.95,
     "imhofWarmCool": 0.8,
-    "lightWrap": 0.65,
+    "lightWrap": 0.4,
     "paperGrain": 1.15,
     "zFactorAuto": false,
     "zFactor": 2,
@@ -921,14 +921,14 @@
     "hachureColor": "#31302f",
     "hachureLightMod": 1,
     "ambientOcclusion": true,
-    "aoStrength": 0.3,
+    "aoStrength": 0.4,
     "aoRadius": 0.7,
     "aoSlopeBleed": 0,
     "svfEnabled": true,
-    "svfStrength": 0.95,
+    "svfStrength": 0.75,
     "castShadows": true,
     "shadowReach": 1,
-    "shadowOpacity": 2,
+    "shadowOpacity": 1.7,
     "outlineEnabled": true,
     "outlineType": "all",
     "outlineBlendMode": "multiply",
@@ -942,7 +942,14 @@
     "outlineLightMod": 0.4
   },
   "terrainDecor": {
-    "enabled": false
+    "enabled": true,
+    "color": "#3c352c",
+    "blendMode": "multiply",
+    "opacity": 0.6,
+    "lineWidth": 1,
+    "size": 1.85,
+    "sizeSpread": 0.45,
+    "frequency": 0.4
   },
   "clouds": {
     "enabled": false
@@ -992,8 +999,8 @@
       "treeClearRoadsSoftness": 0.7,
       "treeAutoDenseScale": 2.5,
       "treeAutoDenseThinning": 0.1,
-      "treeEdgeScale": 0.95,
-      "treeMassifScale": 1.35,
+      "treeEdgeScale": 0.7,
+      "treeMassifScale": 2.15,
       "customColors": true,
       "decidColor1": "#7c6e46",
       "decidColor2": "#797539",
