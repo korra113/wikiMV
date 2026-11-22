@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'wm-shell-v97';
+const SHELL_CACHE = 'wm-shell-v99';
 const FALLBACK_CACHE = 'wm-fallback-v2';
 const TILES_CACHE = 'wm-tiles-v1';
 const MAX_CACHED_TILES = 15000;
@@ -30,6 +30,7 @@ const ASSETS_TO_CACHE = [
   'js/leaflet.js',
   'js/tile-retry.js',
   'js/config.js',
+  'js/layerInspector.js',
   'js/geo.js',
   'js/cache.js',
   'js/geomag.js',
@@ -60,6 +61,7 @@ const ASSETS_TO_CACHE = [
   'js/audibility.js',
   'js/demRelief.js',
   'js/demPresets.js',
+  'js/demQuickPanel.js',
   'js/clouds.js',
   'js/treePresets.js',
   'js/slice3d.js',
@@ -248,8 +250,8 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = req.url;
 
-  // Пропускаем не-GET, blob/data/chrome-extension и Range-запросы (GeoTIFF / COG v2)
-  if (req.method !== 'GET' || !url.startsWith('http') || req.headers.has('range')) {
+  // Пропускаем не-GET, blob/data/chrome-extension, Range-запросы (GeoTIFF / COG v2) и проверочные пинги карт
+  if (req.method !== 'GET' || !url.startsWith('http') || req.headers.has('range') || url.includes('_wmchk=')) {
     return;
   }
 
