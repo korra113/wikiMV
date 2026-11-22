@@ -133,31 +133,40 @@
     preferCanvas: true,
     tapTolerance: 20, 
     maxZoom: 20,
-    minZoom: 3,              // Не даем уменьшать меньше 3 (на зуме 0-2 мобильный GPU захлебывается)
-    maxBounds: WORLD_BOUNDS, // <-- Запрещаем уезжать на дубликаты
-    maxBoundsViscosity: 1.0, // <-- 1.0 = намертво держит в границах (без перетягивания в пустоту)
-    zoomSnap: 1,
+    minZoom: 3,
+    maxBounds: WORLD_BOUNDS,
+    maxBoundsViscosity: 1.0,
+    zoomSnap: 1,               // Плавный дробный зум без рывка при отрыве пальца
     zoomDelta: 1,
+    wheelPxPerZoomLevel: 80,
     zoomAnimation: true,
-    fadeAnimation: false,
-    zoomAnimationThreshold: 4
+    fadeAnimation: true,       // Органичное проявление догруженных тайлов поверх старых
+    zoomAnimationThreshold: 8  // Не сбрасывать анимацию при резком зуме
   }).setView(initialCenter, initialZoom);
+
+  const isFirstReliefLaunch =
+    !localStorage.getItem('wm_first_relief_launch_done') &&
+    !localStorage.getItem('wm_app_profile_v1') &&
+    !localStorage.getItem('wm_view');
 
   const canopyLayers = WM.canopy ? WM.canopy.init(map) : null;
   if (isFirstReliefLaunch && WM.canopy && WM.canopy.applyProfile) {
     WM.canopy.applyProfile({ enabled: false });
   }
+
+
   // ДОБАВЬТЕ ЭТУ СТРОКУ СЮДА СРАЗУ ПОСЛЕ СОЗДАНИЯ КАРТЫ:
   WM.map = map;
   L.control.zoom({ position: 'topleft' }).addTo(map);
 
   const isMobile = L.Browser.mobile;
+  const isLowRamDevice = (navigator.deviceMemory || 4) <= 3;
   const COMMON_TILE_OPTIONS = {
-    keepBuffer: 1,
+     keepBuffer: isMobile ? 1 : 2,
     updateWhenIdle: false,
     updateWhenZooming: true,
-    updateInterval: 120,
-    bounds: WORLD_BOUNDS // <-- не грузить тайлы копий мира
+    updateInterval: 60,
+    bounds: WORLD_BOUNDS
   };
   function isPeakViewForeground() {
     return !!(WM.peakView && WM.peakView.isOpen && WM.peakView.isOpen() && !WM.peakView.isMinimized());
@@ -173,23 +182,13 @@
   // Добавьте слушатель промежуточного шага зумирования
   let previewFetchTimer = null;
 
-  map.on('zoom', () => {
-    // Если пользователь притормозил пальцы на новом зуме хотя бы на 140 мс —
-    // запускаем предварительную загрузку еще до события zoomend!
-    clearTimeout(previewFetchTimer);
-    previewFetchTimer = setTimeout(() => {
-      if (isPeakViewForeground()) return;
-      const curZoom = Math.round(map.getZoom());
-      const mode = WM.ui ? WM.ui.getWorkMode() : 'hybrid';
-      
-      // Подгружаем только если зум позволяет видеть полигоны
-      if (mode !== 'manual' && curZoom >= (C.VECTOR_ZOOM || 13)) {
-        WM.loader.update();
-      }
-    }, 140);
-  });
 
-  map.on('zoomend', syncMapZoomClasses);
+let isMapZooming = false;
+  map.on('zoomstart', () => { isMapZooming = true; });
+  map.on('zoomend', () => {
+    isMapZooming = false;
+    syncMapZoomClasses();
+  });
   syncMapZoomClasses();
 
 
@@ -406,21 +405,24 @@
   });
 
   function syncFallbackUnderlay() {
-    const isNoBase = (localStorage.getItem('wm_base_layer') === 'Без карты-подложки') || map.hasLayer(noBaseMapLayer);
-    // Если выбрано "Без карты-подложки", отключаем даже аварийную оффлайн-подложку
+    const activeName = localStorage.getItem('wm_base_layer');
+    const isNoBase = (activeName === 'Без карты-подложки') || map.hasLayer(noBaseMapLayer);
     if (isNoBase) {
       if (map.hasLayer(fallbackUnderlay)) map.removeLayer(fallbackUnderlay);
       return;
     }
 
+    const activeMeta = WM.baseMapsCatalog && WM.baseMapsCatalog.find(m => m.name === activeName);
+    const isRegional = activeMeta && (activeMeta.category === 'rare' || activeMeta.category === 'historical');
+    const maxUnderlayZ = isRegional ? 11 : 5;
+
     const z = map.getZoom();
-    if (z <= 11) {
+    if (z <= maxUnderlayZ) {
       if (!map.hasLayer(fallbackUnderlay)) map.addLayer(fallbackUnderlay);
     } else {
       if (map.hasLayer(fallbackUnderlay)) map.removeLayer(fallbackUnderlay);
     }
   }
-
   if (map.getZoom() <= 11) {
     fallbackUnderlay.addTo(map);
   }
@@ -2530,6 +2532,7 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
   rebuildBaseLayersControl();
 
   WM.map = map;
+  if (WM.tileRetry && WM.tileRetry.initPrefetch) WM.tileRetry.initPrefetch(map);
 
 
   WM.view.init(map);
@@ -2553,6 +2556,11 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
   }
 
   // --- НАЧАЛО ВСТАВКИ №2 ---
+  if (isFirstReliefLaunch) {
+    try {
+      localStorage.setItem('wm_first_relief_launch_done', '1');
+    } catch (e) {}
+  }
   // Когда все модули (дороги, декор, облака, лес, обзор) уже инициализированы,
   // применяем пресет «Стандартный стиль» целиком и фиксируем флаг первого запуска
 
@@ -3242,11 +3250,6 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
   map.on('moveend zoomend', () => {
     if (!isPeakViewForeground()) {
       scheduleIdleMemoryTrim(12000);
-      scheduleRender();
-
-      if (WM.ui && WM.ui.updateInfoHudUI) {
-        WM.ui.updateInfoHudUI();
-      }
 
       if (WM.viewshed && WM.viewshed.isActive && WM.viewshed.isActive()) {
         if (WM.viewshed.getOriginMode && WM.viewshed.getOriginMode() === 'center') {
@@ -3257,25 +3260,23 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
       clearTimeout(moveTimer);
       moveTimer = setTimeout(() => {
         if (isPeakViewForeground()) return;
+        scheduleRender();
+        if (WM.ui && WM.ui.updateInfoHudUI) WM.ui.updateInfoHudUI();
         WM.loader.update();
-      }, 250);
+
+        const c = map.getCenter();
+        const z = Math.round(map.getZoom());
+        try {
+          localStorage.setItem('wm_view', JSON.stringify({ c: [c.lat, c.lng], z }));
+        } catch (e) {}
+        try {
+          const newHash = `#${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`;
+          if (window.location.hash !== newHash) {
+            history.replaceState(history.state, '', newHash);
+          }
+        } catch (e) {}
+      }, 200);
     }
-
-    const c = map.getCenter();
-    const z = Math.round(map.getZoom());
-
-    // Сохранение в localStorage
-    try {
-      localStorage.setItem('wm_view', JSON.stringify({ c: [c.lat, c.lng], z }));
-    } catch (e) {}
-
-    // --- ОБНОВЛЕНИЕ АДРЕСНОЙ СТРОКИ БЕЗ ПЕРЕЗАГРУЗКИ И БЕЗ ЗАСОРЕНИЯ ИСТОРИИ ---
-    try {
-      const newHash = `#${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`;
-      if (window.location.hash !== newHash) {
-        history.replaceState(history.state, '', newHash);
-      }
-    } catch (e) {}
   });
 
   let demResumeTimer = 0;
@@ -5264,18 +5265,18 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
   map.on('move', () => {
     if (isPeakViewForeground()) return;
     const now = performance.now();
-    if (now - lastMoveCalc < 33) return;
+    // Во время активного зума реже пересчитываем оверлеи и пропускаем тяжёлые лучи
+    const interval = isMapZooming ? 80 : 33;
+    const gap = document.body.classList.contains('leaflet-touching') ? 100 : 33;
+    if (now - lastMoveCalc < gap) return;
     lastMoveCalc = now;
 
-    // Теперь updateGpsDistVisuals обновляет геометрию полилинии мгновенно,
-    // а плашка на экране стоит неподвижно над перекрестием без единого фриза!
     if (isGpsDistEnabled) updateGpsDistVisuals();
     if (activeNavTarget) updateNavTargetVisuals();
     if (isMotionVectorEnabled) updateMotionVectorVisuals();
-    if (WM.ui && WM.ui.updateRays) WM.ui.updateRays(map.getCenter(), true);
+    if (!isMapZooming && WM.ui && WM.ui.updateRays) WM.ui.updateRays(map.getCenter(), true);
     if (WM.measure && WM.measure.onMapMove) WM.measure.onMapMove();
   });
-
    // <-- ВСТАВИТЬ СЮДА -->
   window.addEventListener('wm:dem-change', () => {
     if (isGpsDistEnabled) updateGpsDistVisuals(true);
