@@ -1197,6 +1197,9 @@
     const modal = document.getElementById('modal-welcome-profiles');
     if (modal) modal.classList.remove('open');
     if (syncHistory && WM.ui && WM.ui.clearHistoryState) WM.ui.clearHistoryState('welcomeProfiles');
+    if (WM.clouds && WM.clouds.isEnabled && WM.clouds.isEnabled() && !WM.clouds.isRunning()) {
+      WM.clouds.setEnabled(true);
+    }
   }
 
   // =========================================================================
