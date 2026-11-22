@@ -13572,7 +13572,6 @@ window.renderCanopyHudUI = renderHudUI;
       const N = clamp(Math.round(256 / targetSpacing), 4, 14);
       const cell = 256 / N;
       const inv256 = 1 / 256;
-      const basePx = (6.2 + Math.max(0, z - 12) * 0.75) * dCfg.size;
 
       ctx.save();
       ctx.strokeStyle = dCfg.color || '#3c352c';
