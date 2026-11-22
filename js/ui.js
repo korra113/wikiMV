@@ -2410,11 +2410,10 @@
         rafPending = true;
         requestAnimationFrame(() => {
           const t = e.touches[0];
-          updatePiePointer(t.clientX, t.clientY, centerPt);
+          if (t) updatePiePointer(t.clientX, t.clientY, centerPt);
           rafPending = false;
         });
-      }, { passive: false });
-
+      }, { passive: true });
       const onTouchEnd = () => {
         clearTimeout(pieHoldTimer);
         if (pieStarted) {
@@ -7787,7 +7786,7 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
 
     window.addEventListener('touchstart', onTouchStart, { passive: true });
     window.addEventListener('touchmove', onTouchMove, { passive: true });
-    window.addEventListener('touchend', onTouchEnd, { passive: false });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
     window.addEventListener('touchcancel', cancelHold, { passive: true });
 
     window.addEventListener('contextmenu', (e) => {
