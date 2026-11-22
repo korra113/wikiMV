@@ -7082,7 +7082,20 @@ position:fixed;z-index:3010;background:var(--bg1);color:var(--txt);border:1px so
 .pkv-win.pkv-max{inset:0!important;width:auto!important;height:auto!important;border-radius:0;border:0}
 .pkv-win.pkv-hide{display:none}
 .pkv-head{display:flex;align-items:center;gap:8px;padding:7px 10px;background:linear-gradient(180deg,#1d2431,#171c26);border-bottom:1px solid var(--line);user-select:none;touch-action:none;cursor:move;flex:0 0 auto}
-.pkv-win.pkv-max .pkv-head{cursor:default}
+.pkv-win.pkv-max .pkv-head{
+  padding-top:calc(7px + env(safe-area-inset-top,0px));
+  padding-left:calc(10px + env(safe-area-inset-left,0px));
+  padding-right:calc(10px + env(safe-area-inset-right,0px));
+}
+.pkv-win.pkv-max .pkv-foot{
+  padding-bottom:calc(5px + env(safe-area-inset-bottom,0px));
+  padding-left:calc(12px + env(safe-area-inset-left,0px));
+  padding-right:calc(12px + env(safe-area-inset-right,0px));
+}
+.pkv-win.pkv-max .pkv-joy,
+.pkv-win.pkv-max .pkv-rctrls{
+  bottom:calc(16px + env(safe-area-inset-bottom,0px));
+}
 .pkv-title{font-weight:700;white-space:nowrap}
 .pkv-dots{display:flex;gap:4px;align-items:center;cursor:pointer;padding:3px 7px;border-radius:999px;background:rgba(255,255,255,.05)}
 .pkv-dot{width:8px;height:8px;border-radius:50%;background:#555;display:inline-block}
