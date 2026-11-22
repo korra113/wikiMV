@@ -13966,36 +13966,30 @@ body.sheet-open .info-hud {
    ИНДИКАЦИЯ ЗАГРУЗКИ ТАЙЛОВ: СПИННЕР ЕСТЬ, НО БЕЗ МЕЛЬТЕШЕНИЯ И МЕРЦАНИЯ
    ========================================================================= */
 
-/* 1. Пока тайл скачивается:
-      Делаем его видимым (перебивая visibility: hidden от Leaflet),
-      показываем сетку 256x256 и живой вращающийся SVG-спиннер. */
-/* 1. Спиннер показываем ТОЛЬКО на тайлах базовой подложки в стандартном tile-pane */
+
+.leaflet-tile {
+  outline: none;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Незагруженный тайл остаётся скрытым, чтобы сквозь него была видна чёткая подложка предыдущего зума */
 .leaflet-tile-pane .leaflet-tile:not(.leaflet-tile-loaded) {
-  visibility: visible !important;
-  opacity: 1 !important;
-  box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.12) !important;
-  background-color: rgba(148, 163, 184, 0.08) !important;
-  background-image: radial-gradient(circle, rgba(100, 116, 139, 0.25) 1px, transparent 1px) !important;
-  background-size: 16px 16px !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
 }
 
-[data-theme="dark"] .leaflet-tile-pane .leaflet-tile:not(.leaflet-tile-loaded) {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
-  background-color: rgba(15, 23, 42, 0.4) !important;
-  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.15) 1px, transparent 1px) !important;
-}
-
-/* 3. Отключаем спиннеры во время анимации масштабирования, чтобы старые тайлы не двоились */
-.leaflet-zoom-animating .leaflet-tile:not(.leaflet-tile-loaded) {
-  background-image: none !important;
-}
-
-/* 4. Загруженный тайл */
+/* Загруженный и декодированный тайл плавно проявляется через fadeAnimation Leaflet */
 .leaflet-tile.leaflet-tile-loaded {
   visibility: inherit !important;
-  opacity: 1 !important;
   background-image: none !important;
   box-shadow: none !important;
+}
+
+/* На время активного щипка/зума отключаем тяжёлые SVG-фильтры растра Wikimapia для 60 FPS */
+.leaflet-zoom-animating .leaflet-wm-raster-pane-pane,
+.leaflet-touching .leaflet-wm-raster-pane-pane {
+  filter: none !important;
 }
 /* =========================================================================
    БЕЙДЖ И ЛИНИЯ РАССТОЯНИЯ ДО GPS / ЦЕЛИ
