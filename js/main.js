@@ -160,7 +160,9 @@
   if (isFirstReliefLaunch && WM.canopy && WM.canopy.applyProfile) {
     WM.canopy.applyProfile({ enabled: false });
   }
-
+  if (isFirstReliefLaunch && WM.clouds && WM.clouds.applyProfile) {
+    WM.clouds.applyProfile({ enabled: false });
+  }
 
   // ДОБАВЬТЕ ЭТУ СТРОКУ СЮДА СРАЗУ ПОСЛЕ СОЗДАНИЯ КАРТЫ:
   WM.map = map;
