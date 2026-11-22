@@ -121,6 +121,18 @@
   const initialCenter = urlView ? urlView.c : (saved ? saved.c : [53.30005, 50.10281]);
   const initialZoom = urlView ? urlView.z : (saved ? saved.z : 13);
 
+  if (window._wmIsFirstLaunch === undefined) {
+    window._wmIsFirstLaunch =
+      !localStorage.getItem('wm_app_profile_v1') &&
+      !localStorage.getItem('wm_view') &&
+      !localStorage.getItem('wm_dem_relief');
+  }
+
+  const isFirstReliefLaunch =
+    !localStorage.getItem('wm_first_relief_launch_done') &&
+    !localStorage.getItem('wm_app_profile_v1') &&
+    !localStorage.getItem('wm_view');
+
   // Границы всего мира в проекции Web Mercator
   const WORLD_BOUNDS = L.latLngBounds(
     L.latLng(-85.05112878, -180),
@@ -144,10 +156,6 @@
     zoomAnimationThreshold: 8  // Не сбрасывать анимацию при резком зуме
   }).setView(initialCenter, initialZoom);
 
-  const isFirstReliefLaunch =
-    !localStorage.getItem('wm_first_relief_launch_done') &&
-    !localStorage.getItem('wm_app_profile_v1') &&
-    !localStorage.getItem('wm_view');
 
   const canopyLayers = WM.canopy ? WM.canopy.init(map) : null;
   if (isFirstReliefLaunch && WM.canopy && WM.canopy.applyProfile) {
@@ -2454,22 +2462,6 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
   // ИНИЦИАЛИЗАЦИЯ DEM РЕЛЬЕФА (WEBGL HILLSHADE + CONTOURS)
   // =========================================================================
 
-
-
-
-   // --- НАЧАЛО ВСТАВКИ №1 ---
-
-
-  const default3dPreset = (isFirstReliefLaunch && WM.demPresets)
-    ? (WM.demPresets.getAllPresets().find(p => p.id === WM.demPresets.DEFAULT_PRESET_ID) || WM.demPresets.getAllPresets()[0])
-    : null;
-
-  // Заранее применяем настройки рельефа (mapterhorn, normal, без горизонталей),
-  // чтобы initLayers(map) сразу стартовал с ними и не делал лишних запросов к AWS
-  if (default3dPreset && WM.demRelief && default3dPreset.demRelief) {
-    WM.demRelief.applyProfile(default3dPreset.demRelief);
-  }
-  // --- КОНЕЦ ВСТАВКИ №1 ---
 
   let demLayers = null;
   if (WM.demRelief && WM.demRelief.initLayers) {
