@@ -442,7 +442,7 @@
   let isProgrammaticHistoryBack = false;
 
   function clearHistoryState(stateName) {
-    if (window.Capacitor) return;
+    if (window.Capacitor || isProgrammaticHistoryBack) return;
     if (history.state && history.state.wmView === stateName) {
       isProgrammaticHistoryBack = true;
       history.back();
@@ -1911,13 +1911,14 @@
 
   function closeQuickMenu(syncHistory = true) {
     const overlay = $('quick-menu-overlay');
+    const wasOpen = !!(overlay && (!overlay.hidden || overlay.classList.contains('open')));
     if (overlay) {
       overlay.classList.remove('open');
       overlay.hidden = true;
     }
     const modalAdd = $('modal-quick-menu-add');
     if (modalAdd) modalAdd.classList.remove('open');
-    if (syncHistory) clearHistoryState('quickMenu');
+    if (syncHistory && wasOpen) clearHistoryState('quickMenu');
   }
 
   // =========================================================================
@@ -3043,7 +3044,10 @@
     rangering: false,
     motiontail: true,
     motionvector: false,
-    hideuibtn: false
+    hideuibtn: false,
+    layersdup: false,   // дубль кнопки слоёв слева внизу
+    searchbl: false,    // поиск слева внизу
+    infobtn: false      // кнопка инфо-панели слева внизу
   };
   let uiVis = { ...UI_VIS_DEFAULT };
 
@@ -5154,37 +5158,92 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
   }
 
   // 2. Функция расчёта порядка кнопок в левом нижнем углу
+  // --- Стек кнопок слева внизу: ☰ → стрелка → [смена карты] → [скрыть UI] ---
+  let blStackCollapsed = false;
+  try { blStackCollapsed = localStorage.getItem('wm_bl_stack_collapsed') === 'true'; } catch (e) {}
+
+  function setBlStackCollapsed(val) {
+    blStackCollapsed = !!val;
+    try { localStorage.setItem('wm_bl_stack_collapsed', blStackCollapsed ? 'true' : 'false'); } catch (e) {}
+    updateBottomLeftButtonsStack();
+  }
+
   function updateBottomLeftButtonsStack() {
     const btnQuickMenu = $('btn-quick-menu');
     const btnQuickSwap = $('btn-quick-swap-map');
     const btnHideUI = $('btn-hide-ui');
+    const btnToggle = $('btn-bl-stack-toggle');
+    const btnBlLayers = $('btn-bl-layers');
+    const btnBlSearch = $('btn-bl-search');
+    const btnBlInfo = $('btn-bl-info');
 
-    // Кнопка меню активна, если включена в настройках и не скрыта
-    const isMenuVisible = btnQuickMenu && 
-      !btnQuickMenu.hidden && 
-      !!(quickMenuConfig && quickMenuConfig.enabled && quickMenuConfig.triggers && quickMenuConfig.triggers.btn);
+    const BL_BASE = 26;          // нижний отступ кнопки ☰
+    const BL_BTN = 44;           // высота кнопки
+    const BL_GAP = 6;            // <<< расстояние между кнопками (было 14)
+    const BL_STEP = BL_BTN + BL_GAP;
+    const BL_AFTER_ARROW = 102;  // низ первой кнопки над стрелкой
 
-    // Кнопка смены карт активна в левом нижнем углу, если включена и настроена на эту позицию
-    const isSwapInBottomLeft = btnQuickSwap && 
-      !btnQuickSwap.hidden && 
+    const uiHidden = document.body.classList.contains('wm-ui-hidden');
+
+    const isMenuVisible = !uiHidden && !!(
+      btnQuickMenu &&
+      quickMenuConfig && quickMenuConfig.enabled &&
+      quickMenuConfig.triggers && quickMenuConfig.triggers.btn
+    );
+
+    const isSwapInBL = !uiHidden && !!btnQuickSwap &&
       localStorage.getItem('wm_quick_swap_enabled') !== 'false' &&
       localStorage.getItem('wm_quick_swap_pos') === 'bottom-left';
 
-    if (btnQuickSwap && isSwapInBottomLeft) {
-      btnQuickSwap.classList.toggle('stacked-above-menu', !!isMenuVisible);
+    const isHideUiOn = !!btnHideUI && (uiHidden || !!(uiVis && uiVis.hideuibtn));
+
+    const isLayersDup = !uiHidden && !!btnBlLayers && !!uiVis.layersdup;
+    const isSearchBl  = !uiHidden && !!btnBlSearch && !!uiVis.search && !!uiVis.searchbl;
+    const isInfoBtn   = !uiHidden && !!btnBlInfo && !!uiVis.infomenu && !!uiVis.infobtn;
+
+    // Порядок снизу вверх
+    const items = [];
+    if (isSwapInBL) items.push(btnQuickSwap);
+    if (isLayersDup) items.push(btnBlLayers);
+    if (isSearchBl) items.push(btnBlSearch);
+    if (isInfoBtn) items.push(btnBlInfo);
+    if (isHideUiOn) items.push(btnHideUI);
+
+    const hasToggle = isMenuVisible && items.length > 0;
+    const collapsed = hasToggle && blStackCollapsed;
+
+    let bottom = hasToggle ? BL_AFTER_ARROW : BL_BASE;
+    items.forEach(btn => {
+      btn.classList.toggle('bl-stack-collapsed', collapsed);
+      btn.style.setProperty('bottom', `calc(${bottom}px + env(safe-area-inset-bottom, 0px))`, 'important');
+      bottom += BL_STEP;
+    });
+
+    // Кнопки не из стека — вернуть штатное положение
+    [btnQuickSwap, btnHideUI, btnBlLayers, btnBlSearch, btnBlInfo].forEach(btn => {
+      if (btn && !items.includes(btn)) {
+        btn.classList.remove('bl-stack-collapsed');
+        btn.style.removeProperty('bottom');
+      }
+    });
+    [btnBlLayers, btnBlSearch, btnBlInfo].forEach(btn => {
+      if (btn) btn.hidden = !items.includes(btn);
+    });
+    if (btnHideUI) btnHideUI.classList.remove('stack-level-1', 'stack-level-2');
+
+    // Подсветка кнопки инфо-панели, когда панель развёрнута
+    if (btnBlInfo) {
+      const hud = $('info-hud');
+      btnBlInfo.classList.toggle('active', !!hud && !hud.classList.contains('collapsed'));
     }
 
-    if (btnHideUI) {
-      let stackLevel = 0;
-      if (isMenuVisible) stackLevel++;
-      if (isSwapInBottomLeft) stackLevel++;
-
-      btnHideUI.classList.remove('stack-level-1', 'stack-level-2');
-      if (stackLevel === 1) {
-        btnHideUI.classList.add('stack-level-1');
-      } else if (stackLevel >= 2) {
-        btnHideUI.classList.add('stack-level-2');
-      }
+    if (btnToggle) {
+      btnToggle.hidden = !hasToggle;
+      btnToggle.classList.toggle('is-collapsed', collapsed);
+      const label = collapsed ? 'Показать кнопки' : 'Скрыть кнопки';
+      btnToggle.title = label;
+      btnToggle.setAttribute('aria-label', label);
+      btnToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
     }
   }
   window.updateBottomLeftButtonsStack = updateBottomLeftButtonsStack;
@@ -5246,12 +5305,11 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
 
     document.body.classList.toggle('wm-hide-layers-btn', uiVis.layers === false);
     const layersControlEl = document.querySelector('.leaflet-control-layers');
-    if (layersControlEl) layersControlEl.style.display = uiVis.layers ? '' : 'none';
-
+    
     if ($('btn-quick-measure')) $('btn-quick-measure').style.display = uiVis.quickmeasure ? '' : 'none';
 
 
-    if ($('btn-search')) $('btn-search').style.display = uiVis.search ? '' : 'none';
+    if ($('btn-search')) $('btn-search').style.display = (uiVis.search && !uiVis.searchbl) ? '' : 'none';
     if ($('btn-mode-toggle')) $('btn-mode-toggle').style.display = uiVis.mode ? '' : 'none';
     if ($('btn-measure')) $('btn-measure').style.display = uiVis.measure ? '' : 'none';
     if ($('btn-add-marker')) $('btn-add-marker').style.display = uiVis.marker ? '' : 'none';
@@ -11004,12 +11062,63 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
       if (btnHideUI) {
         btnHideUI.onclick = () => toggleHideUI();
       }
+
+      const btnBlToggle = $('btn-bl-stack-toggle');
+      if (btnBlToggle) {
+        btnBlToggle.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setBlStackCollapsed(!blStackCollapsed);
+        };
+      }
+      // --- Дубль кнопки слоёв ---
+      const btnBlLayers = $('btn-bl-layers');
+      if (btnBlLayers) {
+        let layersWasOpen = false;
+        // Клик вне меню слоёв закрывает его ещё на pointerup, до click.
+        // Поэтому запоминаем состояние на pointerdown.
+        btnBlLayers.addEventListener('pointerdown', () => {
+          const c = WM.layersControl && WM.layersControl._container;
+          layersWasOpen = !!(c && c.classList.contains('leaflet-control-layers-expanded'));
+        });
+        btnBlLayers.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (layersWasOpen) { layersWasOpen = false; return; } // уже закрылось
+          if (WM.layersControl && WM.layersControl.expand) WM.layersControl.expand();
+        });
+      }
+
+      // --- Поиск: вызывает штатную кнопку, даже когда она скрыта ---
+      const btnBlSearch = $('btn-bl-search');
+      if (btnBlSearch) {
+        btnBlSearch.onclick = () => { const b = $('btn-search'); if (b) b.click(); };
+      }
+
+      // --- Инфо-панель: только открыть/закрыть ---
+      const btnBlInfo = $('btn-bl-info');
+      if (btnBlInfo) {
+        btnBlInfo.onclick = () => { if (window.toggleInfoHud) window.toggleInfoHud(); };
+      }
+
+      // --- Подпереключатель «разместить внизу слева» виден только при включённом поиске ---
+      function syncBlSearchSubToggle() {
+        const w = $('wrap-ui-searchbl'), s = $('toggle-ui-search');
+        if (w && s) w.hidden = !s.checked;
+      }
+      window.syncBlSearchSubToggle = syncBlSearchSubToggle;
+      document.addEventListener('change', (e) => {
+        if (e.target && e.target.id === 'toggle-ui-search') syncBlSearchSubToggle();
+      });
+      syncBlSearchSubToggle();
       updateBottomLeftButtonsStack();
 
       VIS_KEYS.forEach(k => {
         const chk = $('toggle-ui-' + k);
         if (chk) chk.checked = uiVis[k] !== false;
       });
+
+      if (window.syncBlSearchSubToggle) window.syncBlSearchSubToggle();
 
       const chkManualPdrPdr = $('toggle-ui-manualpdr');
       const chkManualPdrVis = $('toggle-ui-manualpdr-vis');
@@ -11566,7 +11675,13 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
         if (!isCollapsed) {
           updateInfoHudUI();
         }
+        updateBottomLeftButtonsStack(); // <-- ДОБАВИТЬ: обновить подсветку кнопки
       }
+
+      // <-- ДОБАВИТЬ: вызов/закрытие панели из стека слева внизу
+      window.toggleInfoHud = () => {
+        if (hudEl) setInfoHudCollapsed(!hudEl.classList.contains('collapsed'));
+      };
 
       // Восстановление состояния из памяти
       const isSavedCollapsed = localStorage.getItem('wm_info_hud_collapsed') !== 'false';
