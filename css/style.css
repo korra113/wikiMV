@@ -10456,6 +10456,44 @@ body.sheet-open .measure-hud {
   border-radius: var(--radius-sm) !important;
 }
 
+body.wm-hide-layers-btn .leaflet-control-layers {
+  display: none !important;
+}
+
+.leaflet-control-layers:not(.leaflet-control-layers-expanded) {
+  width: 44px !important;
+  height: 44px !important;
+  padding: 0 !important;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.leaflet-control-layers-toggle,
+.leaflet-touch .leaflet-control-layers-toggle,
+.leaflet-retina .leaflet-control-layers-toggle {
+  background-image: none !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  width: 100% !important;
+  height: 100% !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-main) !important;
+  text-decoration: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+[data-theme="night-vision"] .leaflet-control-layers-toggle {
+  background-color: transparent !important;
+  filter: none !important;
+  color: #ef4444 !important;
+}
+
 .leaflet-control-layers-expanded {
   z-index: 2500 !important;
   box-shadow: var(--shadow-float) !important;
@@ -13752,18 +13790,28 @@ body.sheet-open .info-hud {
 }
 
 .info-hud-content {
-  padding: 6px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 50vh;
+  padding: 6px 10px 14px;
+  display: block;
+  max-height: min(50vh, calc(100dvh - 195px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
   overflow-y: auto;
   overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   font-size: 11px;
   line-height: 1.35;
   transition: opacity 0.15s ease;
 }
 
+.info-hud-content > .ih-section,
+.ih-astro-swipe-area > .ih-spoiler {
+  margin-bottom: 6px;
+}
+
+.info-hud-content > :last-child,
+.ih-astro-swipe-area > :last-child {
+  margin-bottom: 0;
+}
 /* Контент плавно исчезает при сжатии */
 .info-hud.collapsed .info-hud-content {
   display: none;
