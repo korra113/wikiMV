@@ -10456,7 +10456,7 @@ body.sheet-open .measure-hud {
   border-radius: var(--radius-sm) !important;
 }
 
-body.wm-hide-layers-btn .leaflet-control-layers {
+body.wm-hide-layers-btn .leaflet-control-layers:not(.leaflet-control-layers-expanded) {
   display: none !important;
 }
 
@@ -17363,8 +17363,130 @@ body.zoom-low .wm-ruler-tick-label {
 
 /* Оболочка узла центрируется без смещений */
 body.zoom-low .wm-ruler-vertex-wrap {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   width: 16px !important;
   height: 16px !important;
+}
+
+body.zoom-low .wm-ruler-vertex-icon {
+  pointer-events: none;
+}
+body.zoom-low .wm-ruler-vertex-wrap {
+  pointer-events: auto;
+}
+
+/* =========================================================================
+   СТРЕЛКА СВОРАЧИВАНИЯ СТЕКА КНОПОК СЛЕВА ВНИЗУ (над кнопкой быстрого меню)
+   ========================================================================= */
+.bl-stack-toggle {
+  position: absolute;
+  left: calc(14px + env(safe-area-inset-left, 0px));
+  bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+  width: 44px;
+  height: 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  color: var(--text-main);
+  cursor: pointer;
+  z-index: 1000;
+  touch-action: manipulation;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+
+.bl-stack-toggle:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.bl-stack-toggle:active {
+  transform: scale(0.94);
+}
+
+.bl-stack-toggle svg {
+  transition: transform 0.2s ease;
+}
+
+/* Свёрнуто: стрелка смотрит вверх («развернуть») */
+.bl-stack-toggle.is-collapsed {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.bl-stack-toggle.is-collapsed svg {
+  transform: rotate(180deg);
+}
+
+/* Скрытые стрелкой кнопки */
+#btn-hide-ui.bl-stack-collapsed,
+#btn-quick-swap-map.bl-stack-collapsed {
+  display: none !important;
+}
+
+body.sheet-open .bl-stack-toggle,
+body.wm-ui-hidden .bl-stack-toggle {
+  display: none !important;
+}
+
+[data-theme="night-vision"] .bl-stack-toggle {
+  background: rgba(18, 3, 3, 0.94);
+  border-color: #3b0707;
+  color: #ef4444;
+}
+
+/* Кнопки стека слева внизу (положение bottom ставит JS) */
+.bl-stack-btn {
+  position: absolute;
+  left: calc(14px + env(safe-area-inset-left, 0px));
+  bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  color: var(--text-main);
+  cursor: pointer;
+  z-index: 1000;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+}
+.bl-stack-btn:active { transform: scale(0.92); }
+.bl-stack-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.bl-stack-btn[hidden],
+.bl-stack-btn.bl-stack-collapsed,
+body.sheet-open .bl-stack-btn,
+body.wm-ui-hidden .bl-stack-btn {
+  display: none !important;
+}
+[data-theme="night-vision"] .bl-stack-btn {
+  background: rgba(18, 3, 3, 0.94);
+  border-color: #3b0707;
+  color: #ef4444;
+}
+[data-theme="night-vision"] .bl-stack-btn.active {
+  background: #7f1d1d;
+  color: #fecaca;
 }
 
 body.zoom-low .wm-ruler-vertex-dot {
