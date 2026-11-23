@@ -264,6 +264,27 @@
   <button id="btn-quick-menu" class="floating-btn quick-menu-fab" title="Быстрое меню" hidden>☰</button>
   <button id="btn-hide-ui" class="floating-btn hide-ui-fab" title="Скрыть интерфейс" hidden>👁️</button>
 
+  <button id="btn-bl-layers" class="bl-stack-btn" type="button"
+        title="Слои карты" aria-label="Слои карты" hidden>
+  <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+    <polyline points="2 12 12 17 22 12"></polyline>
+    <polyline points="2 17 12 22 22 17"></polyline>
+  </svg>
+</button>
+<button id="btn-bl-search" class="bl-stack-btn" type="button"
+        title="Поиск мест и объектов" aria-label="Поиск" hidden>🔍</button>
+<button id="btn-bl-info" class="bl-stack-btn" type="button"
+        title="Инфо-панель" aria-label="Инфо-панель" hidden>📊</button>
+
+  <button id="btn-bl-stack-toggle" class="bl-stack-toggle" type="button"
+          title="Скрыть кнопки" aria-label="Скрыть кнопки" aria-expanded="true" hidden>
+    <svg width="14" height="9" viewBox="0 0 14 9" fill="none" aria-hidden="true">
+      <path d="M2 2L7 7L12 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
   <!-- Плавающие круглые кнопки управления -->
   <nav class="floating-controls" id="ui-floating-controls" aria-label="Инструменты карты">
     <button type="button" id="fc-scroll-up" class="fc-scroll-arrow fc-scroll-up" title="Прокрутить вверх" hidden aria-label="Прокрутить вверх">
@@ -2730,6 +2751,14 @@
                 </label>
 
                 <div id="sub-infomenu-settings" class="sub-infomenu-settings" hidden>
+                  <label class="toggle-item">
+                    <div>
+                      <span>📊 Кнопка вызова панели слева внизу</span>
+                      <small class="hint-text">Открывает и закрывает панель. Её положение не меняется</small>
+                    </div>
+                    <input type="checkbox" id="toggle-ui-infobtn">
+                    <span class="toggle-switch"></span>
+                  </label>
                   <div class="sub-infomenu-header">Что отображать в панели:</div>
                   <label class="toggle-item">
                     <span>🕒 Текущее время и дата</span>
@@ -2919,9 +2948,25 @@
                   <input type="checkbox" id="toggle-ui-search" checked>
                   <span class="toggle-switch"></span>
                 </label>
+
+                <div id="wrap-ui-searchbl" hidden>
+                  <label class="toggle-item">
+                    <span>↳ Разместить внизу слева</span>
+                    <input type="checkbox" id="toggle-ui-searchbl">
+                    <span class="toggle-switch"></span>
+                  </label>
+                </div>
                 <label class="toggle-item">
                   <span>Список слоёв карт</span>
                   <input type="checkbox" id="toggle-ui-layers" checked>
+                  <span class="toggle-switch"></span>
+                </label>
+                <label class="toggle-item">
+                  <div>
+                    <span>Дубль кнопки слоёв слева внизу</span>
+                    <small class="hint-text">Появляется в стеке кнопок под стрелкой. Работает так же, как основная</small>
+                  </div>
+                  <input type="checkbox" id="toggle-ui-layersdup">
                   <span class="toggle-switch"></span>
                 </label>
                 <label class="toggle-item">
@@ -3409,7 +3454,7 @@
 
        <label class="toggle-item" style="margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border);">
           <div>
-            <span style="font-weight:600; display:block;">🌐 Метка видна всем</span>
+            <span style="font-weight:600; display:block;">🌐 Метка видна другим</span>
             <small class="hint-text" style="margin-top: 2px;">Опубликовать метку в общую базу Firebase для других пользователей</small>
           </div>
           <input type="checkbox" id="marker-is-public-input">
@@ -5083,7 +5128,7 @@
 
         <div class="dem-hud-grid-2">
           <div class="form-group" style="margin: 0;">
-            <label for="dem-hud-sunmode-select">Режим солнца:</label>
+            <label for="dem-hud-sunmode-select">Режим солнца и цвета:</label>
             <select id="dem-hud-sunmode-select" class="styled-select">
               <option value="time" selected>🕒 Время суток (24ч)</option>
               <option value="suncalc">☀️ Реальное Солнце</option>
