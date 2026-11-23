@@ -401,10 +401,10 @@
   <div id="modal-quick-swap-select" class="modal-overlay">
   <div class="modal-box modal-box-large">
     <div class="modal-header">
-      <h3>🔀 Вторая карта для переключения</h3>
+      <h3>🔀 Выбор карты или слоя</h3>
       <button class="modal-close-x" id="quick-swap-select-x">✕</button>
     </div>
-    <p class="modal-desc">Выберите карту, на которую будет переключать кнопка 🔀 при обычном нажатии.</p>
+    <p class="modal-desc">Выберите карту для переключения или любой слой для быстрого включения/выключения кнопкой 🔀.</p>
     <div class="modal-content-scroll" style="max-height: 52vh;">
       <div id="quick-swap-maps-list" class="quick-menu-list"></div>
     </div>
@@ -889,8 +889,8 @@
                 <div class="quick-swap-settings-box">
                   <label class="toggle-item">
                     <div>
-                      <span style="font-weight:600; display:block;">Кнопка быстрой смены карты</span>
-                      <small class="hint-text">Кнопка 🔀 для мгновенного переключения между двумя картами. Долгий клик вызывает быстрое меню выбора второй карты</small>
+                      <span style="font-weight:600; display:block;">Кнопка быстрой смены карты / слоя</span>
+                      <small class="hint-text">Кнопка 🔀 для переключения между двумя картами или вкл/выкл выбранного слоя. Долгий клик открывает меню выбора</small>
                     </div>
                     <input type="checkbox" id="toggle-quick-swap-enabled">
                     <span class="toggle-switch"></span>
@@ -903,7 +903,9 @@
                       <option value="bottom-left">Слева внизу</option>
                     </select>
 
-                    <label style="font-size: 12.5px; font-weight: 600; margin-bottom: 5px; display: block;">Вторая карта для переключения:</label>
+                   
+
+                    <label style="font-size: 12.5px; font-weight: 600; margin-bottom: 5px; display: block;">Вторая карта или слой для кнопки 🔀:</label>
                     <button type="button" id="btn-quick-swap-choose-map" class="styled-input" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; text-align: left; width: 100%;">
                       <span id="quick-swap-target-title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Спутник (Esri)</span>
                       <span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">Изменить ›</span>
