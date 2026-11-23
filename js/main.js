@@ -280,6 +280,7 @@ let isMapZooming = false;
     }
     syncOverlayMode();
     syncWikimapiaControlState();
+    if (window.updateQuickSwapUI) window.updateQuickSwapUI(); // <-- ДОБАВИТЬ
     refreshStatus();
   };
 
@@ -348,6 +349,7 @@ let isMapZooming = false;
     }
 
     syncWikimapiaControlState();
+    if (window.updateQuickSwapUI) window.updateQuickSwapUI(); // <-- ДОБАВИТЬ
     refreshStatus();
   };
 
@@ -1276,6 +1278,7 @@ function enforceHiddenLayerSpoilers(visArg) {
         badge.classList.toggle('has-active', checkedCount > 0);
       }
     }
+    if (window.updateQuickSwapUI) window.updateQuickSwapUI(); // <-- ДОБАВИТЬ
   }
   window.syncLayersControlExtras = syncLayersControlExtras;
 
@@ -1390,6 +1393,16 @@ function enforceHiddenLayerSpoilers(visArg) {
       if (this._layersLink) {
         L.DomEvent.on(this._layersLink, 'click', L.DomEvent.stop);
         L.DomEvent.on(this._layersLink, 'click', this.expand, this);
+
+        // Заменяем стандартную растровую иконку Leaflet на единую векторную иконку
+        if (!this._layersLink.querySelector('.wm-layers-custom-svg')) {
+          this._layersLink.innerHTML = `
+            <svg class="wm-layers-custom-svg" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+              <polyline points="2 12 12 17 22 12"></polyline>
+              <polyline points="2 17 12 22 22 17"></polyline>
+            </svg>`;
+        }
       }
 
       // Закрываем только по клику вне меню (перетаскивание карты не закрывает)
@@ -1912,6 +1925,12 @@ function enforceHiddenLayerSpoilers(visArg) {
     layersControl = new GroupedLayersControl(enabledBaseLayers, cleanOverlays, { position: 'topright' }).addTo(map);
     WM.layersControl = layersControl;
     syncLayersControlExtras();
+    if (layersControl && layersControl._container && WM.ui && WM.ui.uiVis) {
+      layersControl._container.style.display = WM.ui.uiVis.layers !== false ? '' : 'none';
+    }
+    if (typeof window.updateFloatingDock === 'function') {
+      window.updateFloatingDock();
+    }
   }
   WM.rebuildBaseLayersControl = rebuildBaseLayersControl;
 
@@ -1958,7 +1977,373 @@ function enforceHiddenLayerSpoilers(visArg) {
   WM.switchToBaseMap = switchToBaseMap;
 
   // Логика кнопки быстрой смены карты
+  // Логика кнопки быстрой смены карты и слоёв
   const btnQuickSwap = document.getElementById('btn-quick-swap-map');
+  const _qsLayers = {}; // Безопасные ссылки на слои без ошибок порядка инициализации (TDZ)
+
+  function getQuickSwapOverlayCatalog() {
+    const items = [];
+
+    // 1. Векторный слой OSM
+    items.push({
+      key: 'layer:osm',
+      group: 'osm',
+      groupTitle: '🛤️ Векторный слой OSM',
+      icon: '🛤️',
+      name: 'Слой OSM (дороги, горы, вода)',
+      visKey: 'osm',
+      visTitle: 'Слой OSM',
+      isActive: () => !!(WM.vectorRoads && WM.vectorRoads.isEnabled && WM.vectorRoads.isEnabled()),
+      toggle: () => {
+        if (!WM.vectorRoads || !WM.vectorRoads.toggle) return false;
+        const next = WM.vectorRoads.toggle();
+        if (window.syncLayersControlExtras) window.syncLayersControlExtras();
+        return next;
+      }
+    });
+
+    // 2. Wikimapia и тайники
+    items.push(
+      {
+        key: 'layer:wm_all',
+        group: 'wikimapia',
+        groupTitle: '🌐 Wikimapia и тайники',
+        icon: '🌐',
+        name: 'Wikimapia (полностью)',
+        visKey: 'wikimapia',
+        visTitle: 'Wikimapia',
+        isActive: () => !isWikimapiaDisabled,
+        toggle: () => {
+          const nextDisabled = !isWikimapiaDisabled;
+          if (WM.setWikimapiaDisabled) WM.setWikimapiaDisabled(nextDisabled);
+          return !nextDisabled;
+        }
+      },
+      {
+        key: 'layer:wm_contours',
+        group: 'wikimapia',
+        groupTitle: '🌐 Wikimapia и тайники',
+        icon: '🗺️',
+        name: 'Контуры Wikimapia (растр)',
+        visKey: 'wikimapia',
+        visTitle: 'Wikimapia',
+        isActive: () => !isWikimapiaDisabled && isContoursEnabled,
+        toggle: () => {
+          if (isWikimapiaDisabled) {
+            if (WM.setWikimapiaDisabled) WM.setWikimapiaDisabled(false);
+            if (WM.setWikimapiaLayersEnabled) WM.setWikimapiaLayersEnabled(true, isVectorsEnabled);
+            return true;
+          }
+          const next = !isContoursEnabled;
+          if (WM.setWikimapiaLayersEnabled) WM.setWikimapiaLayersEnabled(next, isVectorsEnabled);
+          return next;
+        }
+      },
+      {
+        key: 'layer:wm_vectors',
+        group: 'wikimapia',
+        groupTitle: '🌐 Wikimapia и тайники',
+        icon: '📐',
+        name: 'Полигоны Wikimapia (вектор)',
+        visKey: 'wikimapia',
+        visTitle: 'Wikimapia',
+        isActive: () => !isWikimapiaDisabled && isVectorsEnabled,
+        toggle: () => {
+          if (isWikimapiaDisabled) {
+            if (WM.setWikimapiaDisabled) WM.setWikimapiaDisabled(false);
+            if (WM.setWikimapiaLayersEnabled) WM.setWikimapiaLayersEnabled(isContoursEnabled, true);
+            return true;
+          }
+          const next = !isVectorsEnabled;
+          if (WM.setWikimapiaLayersEnabled) WM.setWikimapiaLayersEnabled(isContoursEnabled, next);
+          return next;
+        }
+      },
+      {
+        key: 'layer:geocaching',
+        group: 'wikimapia',
+        groupTitle: '🌐 Wikimapia и тайники',
+        icon: '📦',
+        name: 'Тайники (Geocaching.su)',
+        visKey: 'wikimapia',
+        visTitle: 'Wikimapia',
+        isActive: () => !!(_qsLayers.geocachingLayer && map.hasLayer(_qsLayers.geocachingLayer)),
+        toggle: () => {
+          const l = _qsLayers.geocachingLayer;
+          if (!l) return false;
+          const next = !map.hasLayer(l);
+          if (next) map.addLayer(l);
+          else map.removeLayer(l);
+          return next;
+        }
+      }
+    );
+
+    // 3. Рельеф, изолинии и облака
+    items.push(
+      {
+        key: 'layer:dem_hillshade',
+        group: 'relief',
+        groupTitle: '🏔️ Рельеф и облака',
+        icon: '🏔️',
+        name: '3D Рельеф: WebGL отмывка',
+        visKey: 'relief',
+        visTitle: 'Рельеф',
+        isActive: () => !!(WM.demRelief && WM.demRelief.getConfig && WM.demRelief.getConfig().hillshadeEnabled),
+        toggle: () => {
+          if (!WM.demRelief) return false;
+          const next = !WM.demRelief.getConfig().hillshadeEnabled;
+          localStorage.setItem('wm_dem_hillshade_enabled', next ? 'true' : 'false');
+          const chk = document.getElementById('toggle-dem-hillshade');
+          if (chk) chk.checked = next;
+          WM.demRelief.setConfig({ hillshadeEnabled: next });
+          if (WM.demRelief.applyLayerVisibility) WM.demRelief.applyLayerVisibility();
+          return next;
+        }
+      },
+      {
+        key: 'layer:dem_contours',
+        group: 'relief',
+        groupTitle: '🏔️ Рельеф и облака',
+        icon: '〰️',
+        name: '3D Рельеф: Горизонтали (DEM)',
+        visKey: 'relief',
+        visTitle: 'Рельеф',
+        isActive: () => !!(WM.demRelief && WM.demRelief.getConfig && WM.demRelief.getConfig().contoursEnabled),
+        toggle: () => {
+          if (!WM.demRelief) return false;
+          const next = !WM.demRelief.getConfig().contoursEnabled;
+          localStorage.setItem('wm_dem_contours_enabled', next ? 'true' : 'false');
+          const chk = document.getElementById('toggle-dem-contours');
+          if (chk) chk.checked = next;
+          WM.demRelief.setConfig({ contoursEnabled: next });
+          if (WM.demRelief.applyLayerVisibility) WM.demRelief.applyLayerVisibility();
+          return next;
+        }
+      },
+      {
+        key: 'layer:esri_hillshade',
+        group: 'relief',
+        groupTitle: '🏔️ Рельеф и облака',
+        icon: '⛰️',
+        name: 'Рельеф: Тени (Esri)',
+        visKey: 'relief',
+        visTitle: 'Рельеф',
+        isActive: () => !!(_qsLayers.esriHillshade && map.hasLayer(_qsLayers.esriHillshade)),
+        toggle: () => {
+          const l = _qsLayers.esriHillshade;
+          if (!l) return false;
+          const next = !map.hasLayer(l);
+          if (next) map.addLayer(l);
+          else map.removeLayer(l);
+          return next;
+        }
+      },
+      {
+        key: 'layer:esri_shaded',
+        group: 'relief',
+        groupTitle: '🏔️ Рельеф и облака',
+        icon: '🗺️',
+        name: 'Рельеф: Гипсометрия (Esri)',
+        visKey: 'relief',
+        visTitle: 'Рельеф',
+        isActive: () => !!(_qsLayers.esriShadedRelief && map.hasLayer(_qsLayers.esriShadedRelief)),
+        toggle: () => {
+          const l = _qsLayers.esriShadedRelief;
+          if (!l) return false;
+          const next = !map.hasLayer(l);
+          if (next) map.addLayer(l);
+          else map.removeLayer(l);
+          return next;
+        }
+      },
+      {
+        key: 'layer:mff_relief',
+        group: 'relief',
+        groupTitle: '🏔️ Рельеф и облака',
+        icon: '🎨',
+        name: 'Рельеф: Художественный SRTM',
+        visKey: 'relief',
+        visTitle: 'Рельеф',
+        isActive: () => !!(_qsLayers.mffRelief && map.hasLayer(_qsLayers.mffRelief)),
+        toggle: () => {
+          const l = _qsLayers.mffRelief;
+          if (!l) return false;
+          const next = !map.hasLayer(l);
+          if (next) map.addLayer(l);
+          else map.removeLayer(l);
+          return next;
+        }
+      }
+    );
+
+    if (WM.clouds) {
+      items.push({
+        key: 'layer:clouds',
+        group: 'relief',
+        groupTitle: '🏔️ Рельеф и облака',
+        icon: '☁️',
+        name: 'Гравюрные 3D-облака',
+        visKey: 'relief',
+        visTitle: 'Рельеф',
+        isActive: () => !!(WM.clouds && WM.clouds.isEnabled && WM.clouds.isEnabled()),
+        toggle: () => {
+          if (!WM.clouds) return false;
+          const next = WM.clouds.toggle();
+          if (WM.demRelief && WM.demRelief.renderHud) WM.demRelief.renderHud();
+          return next;
+        }
+      });
+    }
+
+    // 4. Леса и iNaturalist
+    items.push(
+      {
+        key: 'layer:canopy_trees',
+        group: 'canopy',
+        groupTitle: '🌲 Леса и iNaturalist',
+        icon: '🌲',
+        name: '2D Лес (гравюрные деревья)',
+        visKey: 'canopy',
+        visTitle: 'Природа и лес',
+        isActive: () => !!(WM.canopy && WM.canopy.getSettings && WM.canopy.getSettings().treesEnabled),
+        toggle: () => {
+          if (!WM.canopy) return false;
+          const next = !WM.canopy.getSettings().treesEnabled;
+          WM.canopy.setTreesEnabled(next);
+          if (WM.demRelief && WM.demRelief.renderHud) WM.demRelief.renderHud();
+          return next;
+        }
+      },
+      {
+        key: 'layer:canopy_height',
+        group: 'canopy',
+        groupTitle: '🌲 Леса и iNaturalist',
+        icon: '📏',
+        name: 'Высота крон деревьев (1м Meta)',
+        visKey: 'canopy',
+        visTitle: 'Природа и лес',
+        isActive: () => !!(WM.canopy && WM.canopy.getSettings && WM.canopy.getSettings().heightEnabled),
+        toggle: () => {
+          if (!WM.canopy) return false;
+          const next = !WM.canopy.getSettings().heightEnabled;
+          WM.canopy.setHeightEnabled(next);
+          if (WM.demRelief && WM.demRelief.renderHud) WM.demRelief.renderHud();
+          return next;
+        }
+      },
+      {
+        key: 'layer:canopy_mask',
+        group: 'canopy',
+        groupTitle: '🌲 Леса и iNaturalist',
+        icon: '🌳',
+        name: 'Лесной покров (деревья ≥ 1м)',
+        visKey: 'canopy',
+        visTitle: 'Природа и лес',
+        isActive: () => !!(WM.canopy && WM.canopy.getSettings && WM.canopy.getSettings().maskEnabled),
+        toggle: () => {
+          if (!WM.canopy) return false;
+          const next = !WM.canopy.getSettings().maskEnabled;
+          WM.canopy.setMaskEnabled(next);
+          if (WM.demRelief && WM.demRelief.renderHud) WM.demRelief.renderHud();
+          return next;
+        }
+      },
+      {
+        key: 'layer:inat',
+        group: 'canopy',
+        groupTitle: '🌲 Леса и iNaturalist',
+        icon: '🌿',
+        name: 'Растения и грибы (iNaturalist)',
+        visKey: 'canopy',
+        visTitle: 'Природа и лес',
+        isActive: () => (WM.inat && WM.inat.getConfig)
+          ? !!WM.inat.getConfig().enabled
+          : !!(_qsLayers.inatLayer && map.hasLayer(_qsLayers.inatLayer)),
+        toggle: () => {
+          const l = _qsLayers.inatLayer;
+          const cur = (WM.inat && WM.inat.getConfig)
+            ? !!WM.inat.getConfig().enabled
+            : !!(l && map.hasLayer(l));
+          const next = !cur;
+          localStorage.setItem('wm_overlay_inat', next ? 'true' : 'false');
+          const chk = document.getElementById('toggle-inat-layer-enable');
+          if (chk) chk.checked = next;
+          if (next) {
+            if (l && !map.hasLayer(l)) map.addLayer(l);
+            if (WM.inat && WM.inat.enable && (!WM.inat.getConfig || !WM.inat.getConfig().enabled)) {
+              WM.inat.enable();
+            }
+          } else {
+            if (WM.inat && WM.inat.disable) WM.inat.disable();
+            if (l && map.hasLayer(l)) map.removeLayer(l);
+          }
+          return next;
+        }
+      }
+    );
+
+    // 5. Слои анализа местности
+    const analysisMeta = [
+      { id: 'viewshed', icon: '👁️', name: 'Зона видимости (Viewshed)' },
+      { id: 'audibility', icon: '🎧', name: 'Зона слышимости (Акустика)' },
+      { id: 'steep', icon: '🧗', name: 'Крутые склоны' },
+      { id: 'camp', icon: '⛺', name: 'Пологие места (палатка)' },
+      { id: 'windShelter', icon: '💨', name: 'Защита от ветра' },
+      { id: 'solar', icon: '☀️', name: 'Накопление света (за день)' },
+      { id: 'flood', icon: '🌊', name: 'Разлив рек (паводок)' }
+    ];
+
+    analysisMeta.forEach(a => {
+      items.push({
+        key: `layer:analysis_${a.id}`,
+        group: 'analysis',
+        groupTitle: '🏞️ Слои анализа местности',
+        icon: a.icon,
+        name: a.name,
+        visKey: 'analysis',
+        visTitle: 'Слои наложения и анализа',
+        isActive: () => {
+          const toCfg = (WM.terrainOverlays && WM.terrainOverlays.getConfig) ? WM.terrainOverlays.getConfig() : {};
+          return isAnalysisItemEnabled(a.id, toCfg);
+        },
+        toggle: () => {
+          let next = false;
+          if (a.id === 'viewshed') {
+            if (WM.viewshed && WM.viewshed.toggle) {
+              WM.viewshed.toggle();
+              next = !!(WM.viewshed.isActive && WM.viewshed.isActive());
+            }
+          } else if (a.id === 'audibility') {
+            if (WM.audibility && WM.audibility.toggle) {
+              WM.audibility.toggle();
+              next = !!(WM.audibility.isActive && WM.audibility.isActive());
+            }
+          } else if (WM.terrainOverlays && WM.terrainOverlays.toggleLayer) {
+            const cur = !!(WM.terrainOverlays.getConfig?.()?.[a.id]?.enabled);
+            next = !cur;
+            WM.terrainOverlays.toggleLayer(a.id, next);
+          }
+          if (window.syncLayersControlExtras) window.syncLayersControlExtras();
+          if (WM.demRelief && WM.demRelief.renderHud) WM.demRelief.renderHud();
+          return next;
+        }
+      });
+    });
+
+    return items;
+  }
+
+  function getQuickSwapOverlayDef(targetKey) {
+    if (!targetKey || !targetKey.startsWith('layer:')) return null;
+    return getQuickSwapOverlayCatalog().find(item => item.key === targetKey) || null;
+  }
+
+  WM.getQuickSwapLayerInfo = function (targetKey) {
+    const def = getQuickSwapOverlayDef(targetKey);
+    if (!def) return null;
+    return { key: def.key, icon: def.icon, name: def.name, groupTitle: def.groupTitle };
+  };
 
   function initQuickSwapModal() {
     const modal = document.getElementById('modal-quick-swap-select');
@@ -1995,9 +2380,9 @@ function enforceHiddenLayerSpoilers(visArg) {
 
     if (swapPos === 'bottom-left') {
       btnQuickSwap.classList.add('pos-bottom-left');
-      const isQuickMenuVisible = btnQuickMenu && 
-        !btnQuickMenu.hidden && 
-        btnQuickMenu.style.display !== 'none' && 
+      const isQuickMenuVisible = btnQuickMenu &&
+        !btnQuickMenu.hidden &&
+        btnQuickMenu.style.display !== 'none' &&
         getComputedStyle(btnQuickMenu).display !== 'none';
 
       btnQuickSwap.classList.toggle('stacked-above-menu', !!isQuickMenuVisible);
@@ -2015,9 +2400,22 @@ function enforceHiddenLayerSpoilers(visArg) {
       if (kml && WM.imageOverlay.toggleOverlayVisibility) {
         const isVisible = kml.visible !== false;
         btnQuickSwap.classList.toggle('active-target', isVisible);
-        btnQuickSwap.title = isVisible 
-          ? `Скрыть слой «${kml.name}» (удерживайте для выбора)` 
+        btnQuickSwap.title = isVisible
+          ? `Скрыть слой «${kml.name}» (удерживайте для выбора)`
           : `Показать слой «${kml.name}» (удерживайте для выбора)`;
+        return;
+      }
+    }
+
+    if (targetMap.startsWith('layer:')) {
+      const def = getQuickSwapOverlayDef(targetMap);
+      if (def) {
+        const isOn = !!def.isActive();
+        btnQuickSwap.classList.toggle('active-target', isOn);
+        btnQuickSwap.title = isOn
+          ? `Выключить «${def.name}» (удерживайте для выбора)`
+          : `Включить «${def.name}» (удерживайте для выбора)`;
+        if (window.updateFloatingDock) window.updateFloatingDock();
         return;
       }
     }
@@ -2028,9 +2426,9 @@ function enforceHiddenLayerSpoilers(visArg) {
     const isCurrentlyTarget = (currentMap === targetMap);
 
     btnQuickSwap.classList.toggle('active-target', isCurrentlyTarget);
-    btnQuickSwap.title = isCurrentlyTarget 
-      ? `Вернуться на предыдущую карту (удерживайте для выбора второй карты)` 
-      : `Переключить на «${targetMap}» (удерживайте для выбора второй карты)`;
+    btnQuickSwap.title = isCurrentlyTarget
+      ? `Вернуться на предыдущую карту (удерживайте для выбора)`
+      : `Переключить на «${targetMap}» (удерживайте для выбора)`;
   }
   window.updateQuickSwapUI = updateQuickSwapUI;
 
@@ -2053,16 +2451,35 @@ function enforceHiddenLayerSpoilers(visArg) {
 
     listEl.innerHTML = '';
 
-    // Показываем KML-блок только если спойлер custom не скрыт
+    const selectTarget = (targetKey, toastText) => {
+      localStorage.setItem('wm_quick_swap_target', targetKey);
+      updateQuickSwapUI();
+      if (WM.ui && WM.ui.updateQuickSwapTargetBtn) {
+        WM.ui.updateQuickSwapTargetBtn();
+      }
+      if (WM.appProfiles && WM.appProfiles.notifyUserModified) {
+        WM.appProfiles.notifyUserModified();
+      }
+      modal.classList.remove('open');
+      if (WM.ui && WM.ui.showToast) {
+        WM.ui.showToast(toastText);
+      }
+    };
+
+    const appendSectionHeader = (text, accent = false) => {
+      const hdr = document.createElement('div');
+      hdr.style.cssText = `padding: 6px 12px; font-size: 11px; font-weight: 700; color: ${accent ? 'var(--accent)' : 'var(--text-muted)'}; background: var(--bg-secondary); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);`;
+      hdr.textContent = text;
+      listEl.appendChild(hdr);
+    };
+
+    // 1. KML-карты
     const kmlOverlays = (vis.custom !== false && WM.imageOverlay && WM.imageOverlay.getKmlOverlays)
       ? WM.imageOverlay.getKmlOverlays()
       : [];
 
     if (kmlOverlays.length > 0) {
-      const kmlHeader = document.createElement('div');
-      kmlHeader.style.cssText = 'padding: 6px 12px; font-size: 11px; font-weight: 700; color: var(--accent); background: var(--bg-secondary); border-bottom: 1px solid var(--border);';
-      kmlHeader.textContent = '📜 МНОГОТАЙЛОВЫЕ KML КАРТЫ (ВКЛ / ВЫКЛ ПО КНОПКЕ)';
-      listEl.appendChild(kmlHeader);
+      appendSectionHeader('📜 МНОГОТАЙЛОВЫЕ KML КАРТЫ (ВКЛ / ВЫКЛ ПО КНОПКЕ)', true);
 
       kmlOverlays.forEach(kml => {
         const kmlKey = 'kml:' + kml.id;
@@ -2078,7 +2495,7 @@ function enforceHiddenLayerSpoilers(visArg) {
           <span class="quick-menu-item-icon">📜</span>
           <div class="quick-menu-item-text">
             <span class="quick-menu-item-title" ${isTarget ? 'style="color:var(--accent);"' : ''}>
-              ${kml.name} ${isTarget ? '✓ (Назначена на кнопку)' : ''}
+              ${escapeHtml(kml.name)} ${isTarget ? '✓ (Назначена на кнопку)' : ''}
             </span>
             <span class="quick-menu-item-sub">
               KML слой (${kml.tiles ? kml.tiles.length : 0} тайлов) · Статус: ${isVisible ? 'Включён' : 'Скрыт'}
@@ -2086,36 +2503,89 @@ function enforceHiddenLayerSpoilers(visArg) {
           </div>
         `;
 
-        itemBtn.onclick = () => {
-          localStorage.setItem('wm_quick_swap_target', kmlKey);
-          updateQuickSwapUI();
-          if (WM.ui && WM.ui.updateQuickSwapTargetBtn) {
-            WM.ui.updateQuickSwapTargetBtn();
-          }
-          if (WM.appProfiles && WM.appProfiles.notifyUserModified) {
-            WM.appProfiles.notifyUserModified();
-          }
-          modal.classList.remove('open');
-          if (WM.ui && WM.ui.showToast) {
-            WM.ui.showToast(`🔀 На кнопку назначена KML-карта: ${kml.name}`);
-          }
-        };
-
+        itemBtn.onclick = () => selectTarget(kmlKey, `🔀 На кнопку назначена KML-карта: ${kml.name}`);
         listEl.appendChild(itemBtn);
       });
-
-      const baseHeader = document.createElement('div');
-      baseHeader.style.cssText = 'padding: 6px 12px; font-size: 11px; font-weight: 700; color: var(--text-muted); background: var(--bg-secondary); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);';
-      baseHeader.textContent = '🗺️ БАЗОВЫЕ ПОДЛОЖКИ КАРТ';
-      listEl.appendChild(baseHeader);
     }
 
-    // Фильтруем и от скрытых спойлеров, и от отключённых вручную карт
+    // 2. Слои и наложения (OSM, Wikimapia, Рельеф, Леса, iNat, Анализ)
+    const overlayCatalog = getQuickSwapOverlayCatalog().filter(def => !def.visKey || vis[def.visKey] !== false);
+    if (overlayCatalog.length > 0) {
+      appendSectionHeader('🧩 СЛОИ И НАЛОЖЕНИЯ (ВКЛ / ВЫКЛ ПО КНОПКЕ)', true);
+
+      const groupsMap = new Map();
+      overlayCatalog.forEach(def => {
+        if (!groupsMap.has(def.group)) {
+          groupsMap.set(def.group, { title: def.groupTitle, items: [] });
+        }
+        groupsMap.get(def.group).items.push(def);
+      });
+
+      const createOverlayBtn = (def) => {
+        const isTarget = (currentTarget === def.key);
+        const isOn = !!def.isActive();
+
+        const itemBtn = document.createElement('button');
+        itemBtn.type = 'button';
+        itemBtn.className = 'quick-menu-item' + (isTarget ? ' active' : '');
+        itemBtn.style.padding = '9px 12px';
+
+        itemBtn.innerHTML = `
+          <span class="quick-menu-item-icon">${def.icon}</span>
+          <div class="quick-menu-item-text">
+            <span class="quick-menu-item-title" ${isTarget ? 'style="color:var(--accent);"' : ''}>
+              ${escapeHtml(def.name)} ${isTarget ? '✓ (Назначен на кнопку)' : ''}
+            </span>
+            <span class="quick-menu-item-sub">
+              Слой · Статус: ${isOn ? '🟢 Включён' : '⚪ Выключен'}
+            </span>
+          </div>
+        `;
+
+        itemBtn.onclick = () => selectTarget(def.key, `🔀 На кнопку назначен слой: ${def.name}`);
+        return itemBtn;
+      };
+
+      groupsMap.forEach((grp, grpKey) => {
+        // Одиночный слой OSM выводим сразу без лишнего спойлера
+        if (grpKey === 'osm' && grp.items.length === 1) {
+          listEl.appendChild(createOverlayBtn(grp.items[0]));
+          return;
+        }
+
+        const hasTargetInGrp = grp.items.some(d => d.key === currentTarget);
+        const activeCount = grp.items.filter(d => d.isActive()).length;
+
+        const details = document.createElement('details');
+        details.className = 'spoiler sub-spoiler';
+        details.style.margin = '6px 8px';
+        if (hasTargetInGrp) details.open = true;
+
+        const summary = document.createElement('summary');
+        summary.className = 'spoiler-title sub-spoiler-title';
+        summary.innerHTML = `
+          <span>${grp.title} <small style="color:var(--text-muted); font-weight:600;">(${activeCount}/${grp.items.length})</small></span>
+          <span class="chevron">▼</span>
+        `;
+
+        const body = document.createElement('div');
+        body.className = 'spoiler-body';
+        body.style.padding = '4px 0';
+        grp.items.forEach(def => body.appendChild(createOverlayBtn(def)));
+
+        details.append(summary, body);
+        listEl.appendChild(details);
+      });
+    }
+
+    // 3. Базовые подложки карт
     const visibleCatalog = WM.baseMapsCatalog.filter(m => vis[m.group || m.category] !== false);
     const availableMaps = visibleCatalog.filter(m => !disabledList.includes(m.name));
     const mapsToDisplay = availableMaps.length ? availableMaps : visibleCatalog;
 
-    if (!mapsToDisplay.length && !kmlOverlays.length) {
+    appendSectionHeader('🗺️ БАЗОВЫЕ ПОДЛОЖКИ КАРТ', false);
+
+    if (!mapsToDisplay.length && !kmlOverlays.length && !overlayCatalog.length) {
       const emptyEl = document.createElement('div');
       emptyEl.className = 'muted';
       emptyEl.style.padding = '16px';
@@ -2123,44 +2593,58 @@ function enforceHiddenLayerSpoilers(visArg) {
       listEl.appendChild(emptyEl);
     }
 
-    mapsToDisplay.forEach(m => {
+    const baseDetails = document.createElement('details');
+    baseDetails.className = 'spoiler sub-spoiler';
+    baseDetails.style.margin = '6px 8px';
+    const isBaseTarget = !currentTarget.startsWith('kml:') && !currentTarget.startsWith('layer:');
+    baseDetails.open = isBaseTarget || overlayCatalog.length === 0;
+
+    const baseSummary = document.createElement('summary');
+    baseSummary.className = 'spoiler-title sub-spoiler-title';
+    baseSummary.innerHTML = `
+      <span>🗺️ Выбрать базовую карту (${mapsToDisplay.length + 1})</span>
+      <span class="chevron">▼</span>
+    `;
+
+    const baseBody = document.createElement('div');
+    baseBody.className = 'spoiler-body';
+    baseBody.style.padding = '4px 0';
+
+    const baseItemsToRender = [
+      { name: 'Без карты-подложки', category: 'none', icon: '⬜', sub: 'Пустой фон (удобно с рельефом / OSM)' },
+      ...mapsToDisplay.map(m => ({
+        name: m.name,
+        category: m.category,
+        icon: m.category === 'historical' ? '📜' : (m.name.includes('Спутник') ? '🛰️' : '🗺️'),
+        sub: m.category === 'historical' ? 'Историческая карта' : 'Современная карта'
+      }))
+    ];
+
+    baseItemsToRender.forEach(m => {
       const isTarget = (m.name === currentTarget);
       const isCurrentActive = (m.name === currentBase);
 
       const itemBtn = document.createElement('button');
       itemBtn.type = 'button';
       itemBtn.className = 'quick-menu-item' + (isTarget ? ' active' : '');
-      itemBtn.style.padding = '10px 12px';
-
-      const icon = m.category === 'historical' ? '📜' : (m.name.includes('Спутник') ? '🛰️' : '🗺️');
+      itemBtn.style.padding = '9px 12px';
 
       itemBtn.innerHTML = `
-        <span class="quick-menu-item-icon">${icon}</span>
+        <span class="quick-menu-item-icon">${m.icon}</span>
         <div class="quick-menu-item-text">
           <span class="quick-menu-item-title" ${isTarget ? 'style="color:var(--accent);"' : ''}>
-            ${m.name} ${isTarget ? '✓ (Активная вторая)' : (isCurrentActive ? ' (Текущая)' : '')}
+            ${escapeHtml(m.name)} ${isTarget ? '✓ (Активная вторая)' : (isCurrentActive ? ' (Текущая)' : '')}
           </span>
-          <span class="quick-menu-item-sub">${m.category === 'historical' ? 'Историческая карта' : 'Современная карта'}</span>
+          <span class="quick-menu-item-sub">${m.sub}</span>
         </div>
       `;
 
-      itemBtn.onclick = () => {
-        localStorage.setItem('wm_quick_swap_target', m.name);
-        updateQuickSwapUI();
-        if (WM.ui && WM.ui.updateQuickSwapTargetBtn) {
-          WM.ui.updateQuickSwapTargetBtn();
-        }
-        if (WM.appProfiles && WM.appProfiles.notifyUserModified) {
-          WM.appProfiles.notifyUserModified();
-        }
-        modal.classList.remove('open');
-        if (WM.ui && WM.ui.showToast) {
-          WM.ui.showToast(`🔀 Вторая карта: ${m.name}`);
-        }
-      };
-
-      listEl.appendChild(itemBtn);
+      itemBtn.onclick = () => selectTarget(m.name, `🔀 Вторая карта: ${m.name}`);
+      baseBody.appendChild(itemBtn);
     });
+
+    baseDetails.append(baseSummary, baseBody);
+    listEl.appendChild(baseDetails);
 
     modal.classList.add('open');
   }
@@ -2254,6 +2738,25 @@ function enforceHiddenLayerSpoilers(visArg) {
       } else {
         WM.ui.showToast('⚠️ KML-карта не найдена или была удалена');
       }
+      return;
+    }
+
+    if (targetMap.startsWith('layer:')) {
+      const def = getQuickSwapOverlayDef(targetMap);
+      if (!def) {
+        WM.ui.showToast('⚠️ Выбранный слой недоступен');
+        return;
+      }
+      if (def.visKey && vis[def.visKey] === false) {
+        WM.ui.showToast(`⚠️ Раздел «${def.visTitle}» скрыт в настройках меню слоёв`);
+        return;
+      }
+      const nextState = def.toggle();
+      updateQuickSwapUI();
+      if (WM.appProfiles && WM.appProfiles.notifyUserModified) {
+        WM.appProfiles.notifyUserModified();
+      }
+      WM.ui.showToast(nextState ? `${def.icon} «${def.name}» включён` : `🕶️ «${def.name}» выключен`);
       return;
     }
 
@@ -2459,6 +2962,13 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
   let isVectorsEnabled = localStorage.getItem('wm_overlay_vectors') !== 'false';
   if (isVectorsEnabled && !isWikimapiaDisabled) vectorPolygonsLayer.addTo(map);
 
+  // ДОБАВИТЬ СЮДА:
+  _qsLayers.esriHillshade = esriHillshade;
+  _qsLayers.esriShadedRelief = esriShadedRelief;
+  _qsLayers.mffRelief = mffRelief;
+  _qsLayers.inatLayer = inatLayer;
+  _qsLayers.geocachingLayer = geocachingLayer;
+
   // =========================================================================
   // ИНИЦИАЛИЗАЦИЯ DEM РЕЛЬЕФА (WEBGL HILLSHADE + CONTOURS)
   // =========================================================================
@@ -2662,9 +3172,9 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
     if (e.layer === audibilityLayer || e.layer === viewshedLayer) {
       syncLayersControlExtras();
     }
+    updateQuickSwapUI(); // <-- ДОБАВИТЬ
   });
   syncAudibilityToolsUI();
-
 
 
   map.on('overlayadd', (e) => {
@@ -2751,6 +3261,7 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
     if (WM.appProfiles && WM.appProfiles.notifyUserModified) {
       WM.appProfiles.notifyUserModified();
     }
+    updateQuickSwapUI(); // <-- ДОБАВИТЬ
   });
 
   map.on('overlayremove', (e) => {
@@ -2819,6 +3330,7 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
     if (WM.appProfiles && WM.appProfiles.notifyUserModified) {
       WM.appProfiles.notifyUserModified();
     }
+    updateQuickSwapUI(); // <-- ДОБАВИТЬ
   });
 
 
@@ -5276,6 +5788,7 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
   window.addEventListener('wm:dem-change', () => {
     if (isGpsDistEnabled) updateGpsDistVisuals(true);
     if (activeNavTarget) updateNavTargetVisuals();
+    updateQuickSwapUI(); // <-- ДОБАВИТЬ
   });
 
   // =========================================================================
@@ -5798,6 +6311,7 @@ if (!localStorage.getItem('wm_app_profile_v1') && !localStorage.getItem('wm_view
   if (WM.appProfiles && WM.appProfiles.init) {
     WM.appProfiles.init();
   }
+  updateQuickSwapUI(); // <-- ДОБАВИТЬ
 
   if (WM.ui && WM.ui.updateMotionBtnState) {
     WM.ui.updateMotionBtnState();
