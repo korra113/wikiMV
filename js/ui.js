@@ -2773,6 +2773,11 @@
       const kmlId = targetMap.slice(4);
       const kml = WM.imageOverlay && WM.imageOverlay.getOverlay ? WM.imageOverlay.getOverlay(kmlId) : null;
       titleEl.textContent = kml ? `📜 ${kml.name}` : '📜 KML карта';
+    } else if (targetMap.startsWith('layer:')) {
+      const info = WM.getQuickSwapLayerInfo ? WM.getQuickSwapLayerInfo(targetMap) : null;
+      titleEl.textContent = info ? `${info.icon} ${info.name}` : `🧩 ${targetMap.slice(6)}`;
+    } else if (targetMap === 'Без карты-подложки') {
+      titleEl.textContent = '⬜ Без карты-подложки';
     } else {
       const isSat = targetMap.includes('Спутник');
       const icon = isSat ? '🛰️' : '🗺️';
@@ -3240,7 +3245,7 @@
 
       let data = null;
       try {
-        data = await fetchWeatherEndpoint(openMeteoUrl, 2500);
+        data = await fetchWeatherEndpoint(openMeteoUrl, 4000);
       } catch (errDirect) {
         data = await Promise.any([
           fetchWeatherEndpoint('https://allorigins.hexlet.app/raw?url=' + encodeURIComponent(openMeteoUrl), 4000),
@@ -4451,8 +4456,8 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
       html += `
         <div class="ih-section">
           <div class="ih-row main-time">
-            <span class="ih-val-large">${timeStr}</span>
-            <span class="ih-sub">${dateStr}</span>
+            <span class="ih-val-large js-ih-time">${timeStr}</span>
+            <span class="ih-sub js-ih-date">${dateStr}</span>
           </div>
         </div>
       `;
@@ -4516,7 +4521,10 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
     }
 
     // 5. Солнце, Луна, Погода и Дополнительно
-    const hasAstroItems = (window.SunCalc && (infoHudConfig.sun || infoHudConfig.moon || infoHudConfig.rays)) || infoHudConfig.weather;
+    const hasAstroItems =
+      (window.SunCalc && (infoHudConfig.sun || infoHudConfig.moon || infoHudConfig.rays)) ||
+      infoHudConfig.weather ||
+      infoHudConfig.extra !== false;
 
     if (hasAstroItems) {
       const astroDate = new Date(now);
@@ -4550,10 +4558,10 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
 
       html += `<div class="ih-astro-swipe-area">`;
 
-      // --- СПОЙЛЕР: СОЛНЦЕ (по умолчанию открыт) ---
+      // --- СПОЙЛЕР: СОЛНЦЕ ---
       if (infoHudConfig.sun && window.SunCalc) {
         const sTimes = SunCalc.getTimes(astroDate, refLat, refLng);
-        const sunPos = SunCalc.getPosition(astroDate, refLat, refLng); // <-- ДОБАВЛЕНО const
+        const sunPos = SunCalc.getPosition(astroDate, refLat, refLng);
         const sunAzDeg = ((sunPos.azimuth * 180 / Math.PI + 180) % 360);
         const sunAltDeg = (sunPos.altitude * 180 / Math.PI).toFixed(1);
 
@@ -4564,22 +4572,22 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
               <span class="ih-chevron">▼</span>
             </summary>
             <div class="ih-spoiler-body ih-grid-2">
-               <div>🌅 Восход: <b>${fmtLocalMapTime(sTimes.sunrise, refLng, refLat)}</b></div>
-                <div>🌇 Закат: <b>${fmtLocalMapTime(sTimes.sunset, refLng, refLat)}</b></div>
-                <div>☀️ Полдень: <b>${fmtLocalMapTime(sTimes.solarNoon, refLng, refLat)}</b></div>
-                <div>✨ Зол час: <b>${fmtLocalMapTime(sTimes.goldenHour, refLng, refLat)}</b></div>
-                <div>🌆 Сумерки: <b>${fmtLocalMapTime(sTimes.dusk, refLng, refLat)}</b></div>
+              <div>🌅 Восход: <b>${fmtLocalMapTime(sTimes.sunrise, refLng, refLat)}</b></div>
+              <div>🌇 Закат: <b>${fmtLocalMapTime(sTimes.sunset, refLng, refLat)}</b></div>
+              <div>☀️ Полдень: <b>${fmtLocalMapTime(sTimes.solarNoon, refLng, refLat)}</b></div>
+              <div>✨ Зол час: <b>${fmtLocalMapTime(sTimes.goldenHour, refLng, refLat)}</b></div>
+              <div>🌆 Сумерки: <b>${fmtLocalMapTime(sTimes.dusk, refLng, refLat)}</b></div>
               <div>🧭 Азимут: <b>${Math.round(sunAzDeg)}° (${degToCompass(sunAzDeg)})</b></div>
             </div>
           </details>
         `;
       }
 
-      // --- СПОЙЛЕР: ЛУНА (по умолчанию открыт) ---
+      // --- СПОЙЛЕР: ЛУНА ---
       if (infoHudConfig.moon && window.SunCalc) {
         const moonIllum = SunCalc.getMoonIllumination(astroDate);
         const moonTimes = SunCalc.getMoonTimes(astroDate, refLat, refLng);
-        const moonPos = SunCalc.getMoonPosition(astroDate, refLat, refLng); // <-- ДОБАВЛЕНО const
+        const moonPos = SunCalc.getMoonPosition(astroDate, refLat, refLng);
         const moonAzDeg = ((moonPos.azimuth * 180 / Math.PI + 180) % 360);
         const moonAltDeg = (moonPos.altitude * 180 / Math.PI).toFixed(1);
         const phase = getMoonPhaseInfo(moonIllum.phase);
@@ -4604,14 +4612,13 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
         `;
       }
 
-      // --- СПОЙЛЕР: ПОГОДА (по умолчанию скрыт) ---
+      // --- СПОЙЛЕР: ПОГОДА ---
       if (infoHudConfig.weather) {
         const wData = getWeatherForDate(astroDate);
         const headerSummary = wData
           ? `${wData.weatherIcon} Погода (${wData.day ? wData.day.temp : '--'})`
           : '🌦️ Погода (загрузка…)';
 
-        // Показываем вложенный почасовой спойлер только для Сегодня (0) и Завтра (1)
         const isTodayOrTomorrow = (infoAstroDayOffset === 0 || infoAstroDayOffset === 1);
         const currentHour = now.getHours();
 
@@ -4642,130 +4649,6 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
                 <div class="ih-hourly-scroll">
                   ${cardsHtml}
                 </div>
-              </div>
-            </details>
-          `;
-        } // <--- ДОБАВИТЬ ЭТУ СКОБКУ
-
-        let extraHtml = '';
-        if (infoHudConfig.extra !== false) {
-          const eData = getExtraWeatherForDate(astroDate, infoAstroDayOffset === 0, refLat, refLng);
-
-          let extraSummary = '📋 Дополнительно';
-          let windValStr = '--', gustValStr = '', cloudStr = '--', snowStr = '--';
-          let apparentStr = '--', humStr = '--', dewStr = '--', pressStr = '--';
-          let visStr = '--', uvStr = '--', soilStr = '--', elevStr = '--';
-
-          if (eData) {
-            const wShort = eData.windSpd != null ? `${eData.windSpd.toFixed(1)} м/с` : '--';
-            const cShort = eData.cloudCover != null ? `${Math.round(eData.cloudCover)}%` : '--';
-            extraSummary = `📋 Дополнительно (💨 ${wShort} · ☁️ ${cShort})`;
-
-            if (eData.windSpd != null) {
-              const dirNorm = eData.windDir != null ? ((eData.windDir % 360) + 360) % 360 : null;
-              const dirLabel = dirNorm != null ? `, ${degToCompass(dirNorm)} (${Math.round(dirNorm)}°)` : '';
-              windValStr = `${eData.windSpd.toFixed(1)} м/с${dirLabel}`;
-            }
-            if (eData.windGust != null && eData.windSpd != null && eData.windGust > eData.windSpd + 0.8) {
-              gustValStr = `до ${eData.windGust.toFixed(1)} м/с`;
-            }
-
-            cloudStr = eData.cloudCover != null ? `${Math.round(eData.cloudCover)}%` : '--';
-
-            if (eData.snowDepthM != null) {
-              const snowCm = eData.snowDepthM * 100;
-              if (snowCm <= 0.05) snowStr = 'Нет';
-              else if (snowCm < 1) snowStr = '< 1 см';
-              else if (snowCm < 10) snowStr = `${snowCm.toFixed(1)} см`;
-              else snowStr = `${Math.round(snowCm)} см`;
-            }
-            if (eData.snowfallCm != null && eData.snowfallCm > 0.05) {
-              snowStr += snowStr === 'Нет' ? `снег ${eData.snowfallCm.toFixed(1)} см/ч` : ` (+${eData.snowfallCm.toFixed(1)})`;
-            }
-
-            if (eData.apparentTemp != null) {
-              const at = Math.round(eData.apparentTemp);
-              apparentStr = (at > 0 ? `+${at}` : `${at}`) + '°';
-            }
-            humStr = eData.humidity != null ? `${Math.round(eData.humidity)}%` : '--';
-            if (eData.dewPoint != null) {
-              const dp = Math.round(eData.dewPoint);
-              dewStr = (dp > 0 ? `+${dp}` : `${dp}`) + '°';
-            }
-
-            if (eData.pressureHpa != null) {
-              const pMm = Math.round(eData.pressureHpa * 0.750062);
-              let trend = '';
-              if (eData.prevPressureHpa != null) {
-                const diffMm = Math.round((eData.pressureHpa - eData.prevPressureHpa) * 0.750062);
-                if (diffMm >= 1) trend = ` ↑+${diffMm}`;
-                else if (diffMm <= -1) trend = ` ↓${diffMm}`;
-              }
-              pressStr = `${pMm} мм${trend}`;
-            }
-
-            if (eData.visibilityM != null) {
-              if (eData.visibilityM < 1000) visStr = `${Math.round(eData.visibilityM)} м`;
-              else if (eData.visibilityM < 10000) visStr = `${(eData.visibilityM / 1000).toFixed(1)} км`;
-              else visStr = `${Math.round(eData.visibilityM / 1000)} км`;
-            }
-
-            uvStr = eData.uvIndex != null ? eData.uvIndex.toFixed(1) : '--';
-
-            if (eData.soilTemp0 != null) {
-              const st = Math.round(eData.soilTemp0);
-              const stStr = (st > 0 ? `+${st}` : `${st}`) + '°';
-              const smStr = eData.soilMoist != null ? `, ${Math.round(eData.soilMoist * 100)}%` : '';
-              soilStr = `${stStr}${smStr}`;
-            }
-
-            elevStr = eData.elevation != null ? `${Math.round(eData.elevation)} м` : '--';
-          }
-
-          const timeCaption = eData
-            ? (eData.isToday
-                ? `На ${eData.hourLabel} (местн.)`
-                : `${infoAstroDayOffset < 0 ? 'Данные' : 'Прогноз'} на ${eData.hourLabel}`)
-            : '';
-
-          extraHtml = `
-            <details class="ih-spoiler ih-extra-spoiler" data-spoiler="extra" ${hudSpoilersState.extra ? 'open' : ''}>
-              <summary class="ih-spoiler-summary" style="margin-top: 5px; padding: 3px 0; border-top: 1px dashed var(--border);">
-                <span>${extraSummary}</span>
-                <span class="ih-chevron">▼</span>
-              </summary>
-              <div class="ih-spoiler-body" style="padding-top: 4px;">
-                ${eData ? `
-                  <div class="ih-row" style="margin-bottom: 3px;">
-                    <span class="ih-lbl">💨 Ветер:</span>
-                    <span class="ih-val">${windValStr}</span>
-                  </div>
-                  ${gustValStr ? `
-                    <div class="ih-row" style="margin-bottom: 3px;">
-                      <span class="ih-lbl">🌬️ Порывы:</span>
-                      <span class="ih-val">${gustValStr}</span>
-                    </div>
-                  ` : ''}
-                  <div class="ih-grid-2">
-                    <div>☁️ Облака: <b>${cloudStr}</b></div>
-                    <div>❄️ Снег: <b>${snowStr}</b></div>
-                    <div>🌡️ Ощущ.: <b>${apparentStr}</b></div>
-                    <div>💧 Влага: <b>${humStr}</b></div>
-                    <div>🧭 Давл.: <b>${pressStr}</b></div>
-                    <div>👁️ Видим.: <b>${visStr}</b></div>
-                    <div>🌫️ Роса: <b>${dewStr}</b></div>
-                    <div>🕶️ УФ-инд.: <b>${uvStr}</b></div>
-                    <div>🌱 Грунт: <b>${soilStr}</b></div>
-                    <div>⛰️ Выс. DEM: <b>${elevStr}</b></div>
-                  </div>
-                  <div style="font-size: 9.5px; color: var(--text-muted); margin-top: 3px; text-align: right;">
-                    ${timeCaption}
-                  </div>
-                ` : `
-                  <div class="muted-val" style="padding: 4px 0; font-size: 10px; color: var(--text-muted);">
-                    ${isWeatherLoading ? '⏳ Загрузка данных Open-Meteo…' : 'Ожидание сети…'}
-                  </div>
-                `}
               </div>
             </details>
           `;
@@ -4806,8 +4689,6 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
                   <div style="color: var(--text-muted); margin-top: 1px;">${wData.weatherDesc}</div>
                 </div>
                 ${hourlyHtml}
-
-               ${extraHtml}
               ` : `
                 <div class="muted-val" style="padding: 4px 0; font-size: 10px; color: var(--text-muted);">
                   ${isWeatherLoading ? '⏳ Загрузка прогноза Open-Meteo…' : 'Ожидание сети…'}
@@ -4818,17 +4699,147 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
         `;
       }
 
+      // --- СПОЙЛЕР: ПОДРОБНЫЙ ПРОГНОЗ ПОГОДЫ (самостоятельный верхний спойлер) ---
+      if (infoHudConfig.extra !== false) {
+        const eData = getExtraWeatherForDate(astroDate, infoAstroDayOffset === 0, refLat, refLng);
 
+        let extraSummary = '📋 Подробный прогноз';
+        let windValStr = '--', gustValStr = '', cloudStr = '--', snowStr = '--';
+        let apparentStr = '--', humStr = '--', dewStr = '--', pressStr = '--';
+        let visStr = '--', uvStr = '--', soilStr = '--', elevStr = '--';
+
+        if (eData) {
+          const wShort = eData.windSpd != null ? `${eData.windSpd.toFixed(1)} м/с` : '--';
+          const cShort = eData.cloudCover != null ? `${Math.round(eData.cloudCover)}%` : '--';
+          extraSummary = `📋 Подробно (💨 ${wShort} · ☁️ ${cShort})`;
+
+          if (eData.windSpd != null) {
+            const dirNorm = eData.windDir != null ? ((eData.windDir % 360) + 360) % 360 : null;
+            const dirLabel = dirNorm != null ? `, ${degToCompass(dirNorm)} (${Math.round(dirNorm)}°)` : '';
+            windValStr = `${eData.windSpd.toFixed(1)} м/с${dirLabel}`;
+          }
+          if (eData.windGust != null && eData.windSpd != null && eData.windGust > eData.windSpd + 0.8) {
+            gustValStr = `до ${eData.windGust.toFixed(1)} м/с`;
+          }
+
+          cloudStr = eData.cloudCover != null ? `${Math.round(eData.cloudCover)}%` : '--';
+
+          if (eData.snowDepthM != null) {
+            const snowCm = eData.snowDepthM * 100;
+            if (snowCm <= 0.05) snowStr = 'Нет';
+            else if (snowCm < 1) snowStr = '< 1 см';
+            else if (snowCm < 10) snowStr = `${snowCm.toFixed(1)} см`;
+            else snowStr = `${Math.round(snowCm)} см`;
+          }
+          if (eData.snowfallCm != null && eData.snowfallCm > 0.05) {
+            snowStr += snowStr === 'Нет' ? `снег ${eData.snowfallCm.toFixed(1)} см/ч` : ` (+${eData.snowfallCm.toFixed(1)})`;
+          }
+
+          if (eData.apparentTemp != null) {
+            const at = Math.round(eData.apparentTemp);
+            apparentStr = (at > 0 ? `+${at}` : `${at}`) + '°';
+          }
+          humStr = eData.humidity != null ? `${Math.round(eData.humidity)}%` : '--';
+          if (eData.dewPoint != null) {
+            const dp = Math.round(eData.dewPoint);
+            dewStr = (dp > 0 ? `+${dp}` : `${dp}`) + '°';
+          }
+
+          if (eData.pressureHpa != null) {
+            const pMm = Math.round(eData.pressureHpa * 0.750062);
+            let trend = '';
+            if (eData.prevPressureHpa != null) {
+              const diffMm = Math.round((eData.pressureHpa - eData.prevPressureHpa) * 0.750062);
+              if (diffMm >= 1) trend = ` ↑+${diffMm}`;
+              else if (diffMm <= -1) trend = ` ↓${diffMm}`;
+            }
+            pressStr = `${pMm} мм${trend}`;
+          }
+
+          if (eData.visibilityM != null) {
+            if (eData.visibilityM < 1000) visStr = `${Math.round(eData.visibilityM)} м`;
+            else if (eData.visibilityM < 10000) visStr = `${(eData.visibilityM / 1000).toFixed(1)} км`;
+            else visStr = `${Math.round(eData.visibilityM / 1000)} км`;
+          }
+
+          uvStr = eData.uvIndex != null ? eData.uvIndex.toFixed(1) : '--';
+
+          if (eData.soilTemp0 != null) {
+            const st = Math.round(eData.soilTemp0);
+            const stStr = (st > 0 ? `+${st}` : `${st}`) + '°';
+            const smStr = eData.soilMoist != null ? `, ${Math.round(eData.soilMoist * 100)}%` : '';
+            soilStr = `${stStr}${smStr}`;
+          }
+
+          elevStr = eData.elevation != null ? `${Math.round(eData.elevation)} м` : '--';
+        }
+
+        const timeCaption = eData
+          ? (eData.isToday
+              ? `На ${eData.hourLabel} (местн.)`
+              : `${infoAstroDayOffset < 0 ? 'Данные' : 'Прогноз'} на ${eData.hourLabel}`)
+          : '';
+
+        html += `
+          <details class="ih-spoiler ih-astro-section ih-extra-spoiler" data-spoiler="extra" ${hudSpoilersState.extra ? 'open' : ''}>
+            <summary class="ih-spoiler-summary">
+              <span>${extraSummary}</span>
+              <span class="ih-chevron">▼</span>
+            </summary>
+            <div class="ih-spoiler-body" style="padding-top: 4px;">
+              ${eData ? `
+                <div class="ih-row" style="margin-bottom: 3px;">
+                  <span class="ih-lbl">💨 Ветер:</span>
+                  <span class="ih-val">${windValStr}</span>
+                </div>
+                ${gustValStr ? `
+                  <div class="ih-row" style="margin-bottom: 3px;">
+                    <span class="ih-lbl">🌬️ Порывы:</span>
+                    <span class="ih-val">${gustValStr}</span>
+                  </div>
+                ` : ''}
+                <div class="ih-grid-2">
+                  <div>☁️ Облака: <b>${cloudStr}</b></div>
+                  <div>❄️ Снег: <b>${snowStr}</b></div>
+                  <div>🌡️ Ощущ.: <b>${apparentStr}</b></div>
+                  <div>💧 Влага: <b>${humStr}</b></div>
+                  <div>🧭 Давл.: <b>${pressStr}</b></div>
+                  <div>👁️ Видим.: <b>${visStr}</b></div>
+                  <div>🌫️ Роса: <b>${dewStr}</b></div>
+                  <div>🕶️ УФ-инд.: <b>${uvStr}</b></div>
+                  <div>🌱 Грунт: <b>${soilStr}</b></div>
+                  <div>⛰️ Выс. DEM: <b>${elevStr}</b></div>
+                </div>
+                <div style="font-size: 9.5px; color: var(--text-muted); margin-top: 3px; text-align: right;">
+                  ${timeCaption}
+                </div>
+              ` : `
+                <div class="muted-val" style="padding: 4px 0; font-size: 10px; color: var(--text-muted);">
+                  ${isWeatherLoading ? '⏳ Загрузка данных Open-Meteo…' : 'Ожидание сети…'}
+                </div>
+              `}
+            </div>
+          </details>
+        `;
+      }
 
       html += `</div>`; // ih-astro-swipe-area
     }
 
-    if (!isCollapsed) {
-      // Сохраняем положение прокрутки почасовых карточек перед обновлением DOM
+    if (!isCollapsed && content) {
+      if (content._isUserTouching) {
+        content._pendingHudUpdate = true;
+        return;
+      }
+      if (content._lastRenderedHtml === html) return;
+
+      const prevScrollTop = content.scrollTop;
       const prevScrollEl = content.querySelector('.ih-hourly-scroll');
       const prevScrollPos = prevScrollEl ? prevScrollEl.scrollLeft : null;
 
+      content._lastRenderedHtml = html;
       content.innerHTML = html;
+      content.scrollTop = prevScrollTop;
 
       // Восстанавливаем позицию прокрутки или центрируем на текущем часе
       const newScrollEl = content.querySelector('.ih-hourly-scroll');
@@ -5233,8 +5244,9 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
     const zoomControl = document.querySelector('.leaflet-control-zoom');
     if (zoomControl) zoomControl.style.display = uiVis.zoom ? '' : 'none';
 
-    const layersControl = document.querySelector('.leaflet-control-layers');
-    if (layersControl) layersControl.style.display = uiVis.layers ? '' : 'none';
+    document.body.classList.toggle('wm-hide-layers-btn', uiVis.layers === false);
+    const layersControlEl = document.querySelector('.leaflet-control-layers');
+    if (layersControlEl) layersControlEl.style.display = uiVis.layers ? '' : 'none';
 
     if ($('btn-quick-measure')) $('btn-quick-measure').style.display = uiVis.quickmeasure ? '' : 'none';
 
@@ -11576,18 +11588,37 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
       // Свайпы и клики по кнопкам листания дней астрономии
       const hudContent = $('info-hud-content');
       if (hudContent) {
-        // Запоминание открытости спойлеров
+        let touchEndTimer = null;
+        hudContent.addEventListener('touchstart', () => {
+          clearTimeout(touchEndTimer);
+          hudContent._isUserTouching = true;
+        }, { passive: true });
+
+        const finishHudTouch = () => {
+          clearTimeout(touchEndTimer);
+          touchEndTimer = setTimeout(() => {
+            hudContent._isUserTouching = false;
+            if (hudContent._pendingHudUpdate) {
+              hudContent._pendingHudUpdate = false;
+              updateInfoHudUI();
+            }
+          }, 220);
+        };
+        hudContent.addEventListener('touchend', finishHudTouch, { passive: true });
+        hudContent.addEventListener('touchcancel', finishHudTouch, { passive: true });
+
+        // Запоминание открытости спойлеров (дальше идёт твой существующий код)
         hudContent.addEventListener('toggle', (e) => {
           const details = e.target.closest('details[data-spoiler]');
           if (!details) return;
           const key = details.dataset.spoiler;
           if (key && hudSpoilersState[key] !== undefined) {
             hudSpoilersState[key] = details.open;
-            // Если пользователь раскрыл погоду или "Дополнительно" и данных (или новых полей) нет — загружаем сразу:
             if ((key === 'weather' || key === 'extra') && details.open) {
+              const c = WM.map ? WM.map.getCenter() : { lat: 55.75, lng: 37.62 };
+              const curKey = `${c.lat.toFixed(1)}_${c.lng.toFixed(1)}`;
               const hasExtraFields = !!(weatherCacheData && weatherCacheData.hourly && Array.isArray(weatherCacheData.hourly.cloud_cover));
-              if (!weatherCacheData || (key === 'extra' && !hasExtraFields)) {
-                const c = WM.map ? WM.map.getCenter() : { lat: 55.75, lng: 37.62 };
+              if (!weatherCacheData || weatherCacheKey !== curKey || (key === 'extra' && !hasExtraFields)) {
                 loadWeatherIfNeeded(c.lat, c.lng);
               }
             }
@@ -11670,11 +11701,24 @@ function getExtraWeatherForDate(targetDate, isToday, refLat, refLng) {
             // Таймер обновления виджета каждую секунду
        setInterval(() => {
         if (document.hidden) return;
-
         const hud = $('info-hud');
         if (!hud || hud.classList.contains('collapsed')) return;
 
-        updateInfoHudUI(); // Вызываем регулярное обновление
+        if (!infoHudConfig.time) return;
+        const content = $('info-hud-content');
+        if (!content) return;
+
+        const timeEl = content.querySelector('.js-ih-time');
+        const dateEl = content.querySelector('.js-ih-date');
+        if (!timeEl) {
+          updateInfoHudUI();
+          return;
+        }
+        const now = new Date();
+        const tStr = now.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const dStr = now.toLocaleDateString('ru', { weekday: 'short', day: 'numeric', month: 'short' });
+        if (timeEl.textContent !== tStr) timeEl.textContent = tStr;
+        if (dateEl && dateEl.textContent !== dStr) dateEl.textContent = dStr;
       }, 1000);
 
       // Полная перерисовка астрономии и координат — раз в 30 секунд или по событиям карты
