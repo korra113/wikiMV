@@ -1488,15 +1488,25 @@ const SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
 
       const roadLayer = layers.streets || layers.transportation || layers.roads || layers.road || layers.highway;
       const bldLayer  = layers.buildings || layers.building;
-      const waterLayer = layers.water_polygons || layers.water || layers.water_polygon || layers.water_areas || layers.ocean;
+      const waterPolyLayers = [
+        layers.water_polygons,
+        layers.water,
+        layers.water_polygon,
+        layers.water_areas,
+        layers.water_area,
+        layers.ocean,
+        layers.sea
+      ].filter(Boolean);
       const waterwayLayer = layers.water_lines || layers.waterway || layers.waterways;
 
-      const extent = (roadLayer && roadLayer.extent) || (bldLayer && bldLayer.extent) || 
-                     (waterLayer && waterLayer.extent) || (waterwayLayer && waterwayLayer.extent) || 4096;
+      const extent = (roadLayer && roadLayer.extent) || (bldLayer && bldLayer.extent) ||
+                     (waterPolyLayers[0] && waterPolyLayers[0].extent) ||
+                     (waterwayLayer && waterwayLayer.extent) || 4096;
 
       const nParent = 1 << pZoom;
 
-      function transformGeom(geom) {
+      function transformGeom(geom, ext) {
+        const curExt = ext || extent;
         const transformed = [];
         for (let l = 0; l < geom.length; l++) {
           const line = geom[l];
@@ -1504,8 +1514,8 @@ const SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
           for (let i = 0; i < line.length; i += 2) {
             const lx = line[i], ly = line[i + 1];
             // Истинные мировые координаты Меркатора тайла без масштабирующих искажений
-            const normX = (parentX + lx / extent) / nParent;
-            const normY = (parentY + ly / extent) / nParent;
+            const normX = (parentX + lx / curExt) / nParent;
+            const normY = (parentY + ly / curExt) / nParent;
             const u = (normX - area.X0) / (area.X1 - area.X0);
             const v = (normY - area.Y0) / (area.Y1 - area.Y0);
             const sx = (u - 0.5) * area.widthM;
@@ -1518,14 +1528,16 @@ const SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
       }
 
       if (roadLayer && roadLayer.features) {
-        roadLayer.features.forEach(f => streetFeatures.push({ props: f.props || {}, geom: transformGeom(f.geom) }));
+        roadLayer.features.forEach(f => streetFeatures.push({ props: f.props || {}, geom: transformGeom(f.geom, roadLayer.extent) }));
       }
       if (bldLayer && bldLayer.features) {
-        bldLayer.features.forEach(f => buildingFeatures.push({ props: f.props || {}, geom: transformGeom(f.geom) }));
+        bldLayer.features.forEach(f => buildingFeatures.push({ props: f.props || {}, geom: transformGeom(f.geom, bldLayer.extent) }));
       }
-      if (waterLayer && waterLayer.features) {
-        waterLayer.features.forEach(f => waterPolygons.push({ props: f.props || {}, geom: transformGeom(f.geom) }));
-      }
+      waterPolyLayers.forEach(wl => {
+        if (wl.features && wl.features.length) {
+          wl.features.forEach(f => waterPolygons.push({ props: f.props || {}, geom: transformGeom(f.geom, wl.extent) }));
+        }
+      });
 
       if (waterwayLayer && waterwayLayer.features) {
         waterwayLayer.features.forEach(f => {
@@ -1735,18 +1747,20 @@ const SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
     if (waterPolygons && waterPolygons.length) {
       ctx.fillStyle = 'rgba(128, 128, 0, 1.0)'; // R=128, G=128 (нулевой вектор)
       waterPolygons.forEach(f => {
+        ctx.beginPath();
+        let hasRings = false;
         for (let l = 0; l < f.geom.length; l++) {
           const ring = f.geom[l];
           if (ring.length < 6) continue;
-          ctx.beginPath();
+          hasRings = true;
           for (let i = 0; i < ring.length; i += 2) {
             const px = (ring[i] - (-area.widthM / 2)) * fx;
             const py = (ring[i + 1] - (-area.heightM / 2)) * fy;
             if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
           }
           ctx.closePath();
-          ctx.fill();
         }
+        if (hasRings) ctx.fill('evenodd');
       });
     }
 
@@ -1813,6 +1827,157 @@ const SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
 
     return cv;
   }
+
+  function sanitizeMountainLandcover(area, S, cls, can, osmWater, roadMask, treelineM) {
+  if (!S.demOk) return;
+  const { Nx, Ny, W, H, height } = S;
+  const N = Nx * Ny;
+  const cellX = W / Math.max(Nx - 1, 1);
+  const cellZ = H / Math.max(Ny - 1, 1);
+  const step = Math.max(1, Math.round(28 / Math.max(area.cellM, 1)));
+  const minSpan = Math.max(20, step * Math.min(cellX, cellZ) * 0.7);
+
+  const tsAll = new Float32Array(N);
+  const badWater = new Uint8Array(N);   // 1 — крутой склон, помеченный как вода
+  const wasWater = new Uint8Array(N);
+
+  // 1. Оцениваем реальный уклон и направленный уклон вниз (tsDown)
+  for (let j = 0; j < Ny; j++) {
+    const jU = Math.max(0, j - step), jD = Math.min(Ny - 1, j + step);
+    const jU1 = Math.max(0, j - 1),   jD1 = Math.min(Ny - 1, j + 1);
+    for (let i = 0; i < Nx; i++) {
+      const k = j * Nx + i;
+      const iL = Math.max(0, i - step), iR = Math.min(Nx - 1, i + step);
+      const iL1 = Math.max(0, i - 1),   iR1 = Math.min(Nx - 1, i + 1);
+
+      const h0 = height[k];
+      const dhx = (height[j * Nx + iR1] - height[j * Nx + iL1]) / (Math.max(iR1 - iL1, 1) * cellX);
+      const dhz = (height[jD1 * Nx + i] - height[jU1 * Nx + i]) / (Math.max(jD1 - jU1, 1) * cellZ);
+      tsAll[k] = Math.hypot(dhx, dhz);
+
+      if (cls[k] !== CLS_WATER || osmWater[k]) continue;
+      wasWater[k] = 1;
+
+      if (can[k] >= 12) { // по Canopy Height здесь растут деревья >= 3 м
+        badWater[k] = 1;
+        continue;
+      }
+
+      const dL = Math.max((i - iL) * cellX, minSpan);
+      const dR = Math.max((iR - i) * cellX, minSpan);
+      const dU = Math.max((j - jU) * cellZ, minSpan);
+      const dD = Math.max((jD - j) * cellZ, minSpan);
+
+      const dropL = i > iL ? Math.max(0, h0 - height[j * Nx + iL]) : 0;
+      const dropR = iR > i ? Math.max(0, h0 - height[j * Nx + iR]) : 0;
+      const dropU = j > jU ? Math.max(0, h0 - height[jU * Nx + i]) : 0;
+      const dropD = jD > j ? Math.max(0, h0 - height[jD * Nx + i]) : 0;
+
+      const maxDrop = Math.max(dropL, dropR, dropU, dropD);
+      const tsDown = Math.hypot(Math.max(dropL / dL, dropR / dR), Math.max(dropU / dU, dropD / dD));
+
+      // Уклон вниз > ~10° с реальным перепадом > 2.5 м — не может быть стоячей водой или широкой рекой
+      if (tsDown > 0.18 && maxDrop > 2.5) {
+        badWater[k] = 1;
+      }
+    }
+  }
+
+  // 2. Убираем мелкие «осколки» ложной воды на полках и в кратере, если они входили в крутую горную кляксу
+  const vis = new Uint8Array(N);
+  const q = new Int32Array(N);
+  const comp = [];
+
+  for (let start = 0; start < N; start++) {
+    if (!wasWater[start] || vis[start]) continue;
+    let head = 0, tail = 0;
+    q[tail++] = start;
+    vis[start] = 1;
+    comp.length = 0;
+
+    let steepCnt = 0, flatCnt = 0, hMinC = 1e9, hMaxC = -1e9, tsSum = 0;
+    while (head < tail) {
+      const k = q[head++];
+      comp.push(k);
+      const h = height[k];
+      if (h < hMinC) hMinC = h;
+      if (h > hMaxC) hMaxC = h;
+      tsSum += tsAll[k];
+      if (badWater[k]) steepCnt++; else flatCnt++;
+
+      const i = k % Nx, j = (k / Nx) | 0;
+      if (i > 0     && wasWater[k - 1]  && !vis[k - 1])  { vis[k - 1]  = 1; q[tail++] = k - 1; }
+      if (i < Nx-1  && wasWater[k + 1]  && !vis[k + 1])  { vis[k + 1]  = 1; q[tail++] = k + 1; }
+      if (j > 0     && wasWater[k - Nx] && !vis[k - Nx]) { vis[k - Nx] = 1; q[tail++] = k - Nx; }
+      if (j < Ny-1  && wasWater[k + Nx] && !vis[k + Nx]) { vis[k + Nx] = 1; q[tail++] = k + Nx; }
+    }
+
+    const tot = comp.length;
+    const avgTs = tsSum / tot;
+    const hSpan = hMaxC - hMinC;
+    const steepFrac = steepCnt / tot;
+
+    // Если исходное пятно преимущественно крутое, либо это горный склон с большим перепадом —
+    // зачищаем и мелкие плоские островки (кратер/полки) внутри него
+    const killWholeBlob =
+      (steepFrac > 0.45 && (flatCnt < 80 || hSpan > 25)) ||
+      (tot <= 8 && (avgTs > 0.16 || hSpan > 12));
+
+    if (killWholeBlob) {
+      for (let m = 0; m < tot; m++) badWater[comp[m]] = 1;
+    }
+  }
+
+  // 3. Переклассификация ложной застройки (30) и ложной воды (34) в скалы (32) / лес (14)
+  for (let j = 0; j < Ny; j++) {
+    for (let i = 0; i < Nx; i++) {
+      const k = j * Nx + i;
+
+      // Ложная застройка на крутых вулканических склонах (при отсутствии дорог/зданий OSM)
+      if (cls[k] === 30) {
+        const hasOsm = roadMask && roadMask[k] >= 20;
+        if (!hasOsm && (tsAll[k] > 0.36 || (height[k] > treelineM * 0.85 && tsAll[k] > 0.18))) {
+          cls[k] = 32; // Скалы / консолидированный грунт
+        }
+        continue;
+      }
+
+      if (!badWater[k]) continue;
+
+      if (can[k] >= 12) {
+        // Если есть лесной полог — подбираем ближайший лесной класс или смешанный лес (14)
+        let fCls = 14;
+        for (let r = 1; r <= 3 && fCls === 14; r++) {
+          const nb = [
+            i >= r ? cls[k - r] : 0, i + r < Nx ? cls[k + r] : 0,
+            j >= r ? cls[k - r * Nx] : 0, j + r < Ny ? cls[k + r * Nx] : 0
+          ];
+          for (let n = 0; n < 4; n++) {
+            const c = nb[n];
+            if (c && LC[c] && LC[c].group === 2) { fCls = c; break; }
+          }
+        }
+        cls[k] = fCls;
+      } else if (tsAll[k] > 0.25 || height[k] > treelineM * 0.78) {
+        cls[k] = 32; // Скалы / вулканическая осыпь
+      } else {
+        // Пологие участки пониже — берём ближайший валидный неводный класс
+        let rep = 32;
+        for (let r = 1; r <= 3 && rep === 32; r++) {
+          const nb = [
+            i >= r ? cls[k - r] : 0, i + r < Nx ? cls[k + r] : 0,
+            j >= r ? cls[k - r * Nx] : 0, j + r < Ny ? cls[k + r * Nx] : 0
+          ];
+          for (let n = 0; n < 4; n++) {
+            const c = nb[n];
+            if (c && c !== CLS_WATER && c !== 30) { rep = c; break; }
+          }
+        }
+        cls[k] = rep;
+      }
+    }
+  }
+}
 
   // ВСТАВИТЬ ПЕРЕД composeScene():
 function createObstaclesMask(area, streetFeatures, buildingFeatures, roadWidthScale = 1.0) {
@@ -2547,6 +2712,61 @@ function computeMorphologicalBathymetry(area, S, riverFeatures, waterPolygons, s
 
   // 4. Мягкое сглаживание дна для устранения ступеней
   return boxBlurF(bathy, Nx, Ny, 1);
+
+
+}
+
+// ===========================================================================
+// СКАЛЫ, ЧАСТЬ 1: «запечённая» резьба рельефа (ярусы + промоины)
+// ===========================================================================
+const STRATA_M = 10; // период слоистости, м (общий для CPU и шейдеров)
+
+function carveRockRelief(S, area, opt) {
+  opt = opt || {};
+  if (area.isMacro) return;
+  const { Nx, Ny, cls, rockPeak, height } = S;
+  const cellM = area.cellM;
+  if (cellM > 40) return;                      // на грубой сетке смысла нет
+
+  const src = new Float32Array(height);        // исходник, чтобы не накапливать
+  const cx = S.W / (Nx - 1), cz = S.H / (Ny - 1);
+  const amp   = (opt.amp != null ? opt.amp : 1.0) * clamp(cellM * 0.45, 0.6, 6.0); // глубина промоин, м
+  const layer = STRATA_M * Math.max(1, Math.round(cellM / STRATA_M));              // шаг уступов, м
+  const terr  = opt.terrace != null ? opt.terrace : 0.55;                          // сила «лестницы»
+
+  let hMin = S.hMin, hMax = S.hMax;
+  for (let j = 1; j < Ny - 1; j++) {
+    for (let i = 1; i < Nx - 1; i++) {
+      const k = j * Nx + i;
+      const rp = rockPeak[k];
+      if (rp < 0.2 || cls[k] === CLS_WATER) continue;
+      if (S.roadMask && S.roadMask[k] > 20) continue;
+
+      const dhx = (src[k + 1] - src[k - 1]) / (2 * cx);
+      const dhz = (src[k + Nx] - src[k - Nx]) / (2 * cz);
+      const ts = Math.hypot(dhx, dhz);
+      const m = smooth(0.2, 0.7, rp) * smooth(0.25, 0.8, ts + rp * 0.3);
+      if (m < 0.02) continue;
+
+      const wx = (i / (Nx - 1) - 0.5) * S.W, wz = (j / (Ny - 1) - 0.5) * S.H;
+
+      // 1) промоины/кулуары (ridged-шум в двух масштабах)
+      const g1 = 1 - Math.abs(2 * vnoise(wx * 0.012 + 11.3, wz * 0.012 + 4.1) - 1);
+      const g2 = 1 - Math.abs(2 * vnoise(wx * 0.035 + 3.7,  wz * 0.035 + 9.9) - 1);
+      const ridge = g1 * g1 * 0.65 + g2 * g2 * 0.35;
+      let h = src[k] + (ridge - 0.45) * amp * (0.5 + Math.min(ts, 1.5)) * m;
+
+      // 2) ярусы: плоские полки + крутые уступы, фаза плавает по шуму
+      const warp = (vnoise(wx * 0.006 + 1.7, wz * 0.006 + 8.3) - 0.5) * 0.9;
+      const t = h / layer + warp, fl = Math.floor(t), fr = t - fl;
+      const stepped = (fl + smooth(0.15, 0.85, fr) - warp) * layer;
+      h = lerp(h, stepped, terr * m * smooth(0.5, 1.1, ts));
+
+      height[k] = h;
+      if (h < hMin) hMin = h; else if (h > hMax) hMax = h;
+    }
+  }
+  S.hMin = hMin; S.hMax = hMax; S.relief = Math.max(hMax - hMin, 1.0);
 }
 
 
@@ -2579,6 +2799,12 @@ function computeMorphologicalBathymetry(area, S, riverFeatures, waterPolygons, s
     }
     S.waterFlowCanvas = waterCv;
 
+    const osmWater = new Uint8Array(N);
+    if (waterCv) {
+      const wOsm = waterCv.getContext('2d').getImageData(0, 0, Nx, Ny).data;
+      for (let i = 0; i < N; i++) if (wOsm[i * 4 + 3] > 140) osmWater[i] = 1;
+    }
+
 
     // ВАЖНО: Запекаем маску дорог и фундаментов для шейдера земли и очистки деревьев
     S.roadMask = (vData && ((vData.streetFeatures && vData.streetFeatures.length) || (vData.buildingFeatures && vData.buildingFeatures.length)))
@@ -2599,6 +2825,7 @@ function computeMorphologicalBathymetry(area, S, riverFeatures, waterPolygons, s
     S.height = S.demOk ? new Float32Array(src.dem.data.height) : new Float32Array(N);
 
     S.lcOk = !!ok('landcover'); S.canOk = !!ok('canopy'); S.osmOk = !S.lcOk && !!ok('osm');
+
     const cls = new Uint8Array(N), can = new Uint8Array(N);
     if (S.canOk) can.set(src.canopy.data.can);
     if (S.lcOk) cls.set(src.landcover.data.cls);
@@ -2607,16 +2834,29 @@ function computeMorphologicalBathymetry(area, S, riverFeatures, waterPolygons, s
     let osmForest = 14;
     if (osm) osmForest = osm.leaf === 'needleleaved' ? 10 : osm.leaf === 'broadleaved' ? 8 : 14;
     const osmGround = osm ? (osm.farm ? 1 : osm.wetland ? (osm.wetland === 'marsh' ? 24 : 23) : osm.heath || osm.scrub ? 15 : osm.grass ? 18 : osm.urban ? 30 : osm.sand ? 33 : osm.rock ? 32 : 0) : 0;
-    
+
+    const absLat = Math.abs((area && area.latC) || 45);
+    const treelineM = clamp(4300 - absLat * 52, 450, 4000);
+
+    // 1) Заполняем пропуски c === 0
     for (let i = 0; i < N; i++) {
       let c = cls[i];
       const h = can[i] / 4;
       if (c === 0) {
-        if (osm) c = h >= 3 ? osmForest : (osmGround || (osm.forest ? osmForest : 18));
+        if (S.demOk && S.height[i] <= 0.45 && h < 1) c = CLS_WATER;
+        else if (osm) c = h >= 3 ? osmForest : (osmGround || (osm.forest ? osmForest : 18));
         else if (S.canOk && h >= 3) c = 14;
-        else if (S.demOk && !S.lcOk && S.height[i] <= 0.3) c = CLS_WATER;
         cls[i] = c;
       }
+    }
+
+    // 2) Убираем ложную горную воду и «асфальт» по уклонам DEM
+    sanitizeMountainLandcover(area, S, cls, can, osmWater, S.roadMask, treelineM);
+
+    // 3) Обнуляем кроны на реальной воде и достраиваем условные кроны там, где нет Canopy Height
+    for (let i = 0; i < N; i++) {
+      const c = cls[i];
+      if (c === CLS_WATER) can[i] = 0;
       if (!S.canOk && LC[c].group === 2) {
         const base = LC[c].open ? 9 : 16;
         can[i] = Math.round(base * (0.75 + 0.5 * rnd()) * 4);
@@ -2862,9 +3102,7 @@ function computeMorphologicalBathymetry(area, S, riverFeatures, waterPolygons, s
 
     
     // --- Высотная поясность и маска каменистых пиков (treeline / snowline / rockPeak) ---
-    const absLat = Math.abs((area && area.latC) || 45);
-    // Граница леса: ~4000 м у экватора, ~1900-2100 м в Альпах/Кавказе, ~900-1200 м на севере
-    const treelineM = clamp(4300 - absLat * 52, 450, 4000);
+    // --- Высотная поясность и маска каменистых пиков (treeline / snowline / rockPeak) ---
     const baseSnowlineM = treelineM + clamp(1050 - absLat * 7.5, 450, 1050);
     S.treelineM = treelineM;
     S.baseSnowlineM = baseSnowlineM;
@@ -2953,8 +3191,11 @@ function computeMorphologicalBathymetry(area, S, riverFeatures, waterPolygons, s
         extra[k * 4 + 3] = (showRoads && S.roadMask) ? S.roadMask[k] : 0;
       }
     }
+
+
     S.rockPeak = rockPeakArr;
     S.extra = extra;
+    if (!opt || !opt.view || opt.view.rockRelief !== false) carveRockRelief(S, area);
 
     // --- Выравнивание поверхности воды один раз на CPU (убирает цикл из VS_TERRAIN) ---
     {
@@ -4349,8 +4590,8 @@ vec3 lin(vec3 c){ return pow(c, vec3(2.2)); }
 vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.,1.); }
 vec3 finishColor(vec3 c){ return pow(aces(c*uFogCol.w), vec3(1./2.2)); }
 
-vec3 fogMix(vec3 col, vec3 pos){
-  float mistS = uDawnMist.x;
+vec3 fogMixEx(vec3 col, vec3 pos, float mistK){
+  float mistS = uDawnMist.x * mistK;
   if (uSkyHor.w <= 1e-8 && mistS <= 0.001 && uSunCol.w <= 0.001) return col;
   vec3 rayVec = pos - uCam.xyz;
   float d = length(rayVec);
@@ -4358,8 +4599,15 @@ vec3 fogMix(vec3 col, vec3 pos){
   if (mistS > 0.001) {
     vec3 dir = rayVec / max(d, 1e-4);
     float topY = max(uDawnMist.y, 1.0);
-    float hPos = exp(-max(pos.y, 0.0) / topY);
-    float hCam = clamp(1.0 - max(uCam.y, 0.0) / (topY * 2.5), 0.15, 1.0);
+    float uPos = max(pos.y, 0.0) / topY;
+    float uCam = max(uCam.y, 0.0) / topY;
+    float sharp = clamp(uDawnMist.z, 0.0, 1.0);
+    float edgeW = mix(0.85, 0.05, sharp);
+    float sharpMix = smoothstep(0.0, 0.35, sharp);
+    float hPos = mix(exp(-uPos), 1.0 - smoothstep(max(1.0 - edgeW, 0.0), 1.0 + edgeW * 0.5, uPos), sharpMix);
+    float hCamExp = clamp(1.0 - uCam / 2.5, 0.15, 1.0);
+    float hCamSharp = 1.0 - smoothstep(max(1.0 - edgeW, 0.0), 1.0 + edgeW * 0.5, uCam);
+    float hCam = mix(hCamExp, hCamSharp, sharpMix);
     float hLayer = clamp(mix(hPos, max(hPos, hCam * 0.45), 0.35), 0.0, 1.0);
     // Пологие лучи проходят длинный путь в низинной дымке; сверху вниз дымка остаётся прозрачной
     float horizK = mix(0.22, 1.0, 1.0 - smoothstep(0.18, 0.72, abs(dir.y)));
@@ -4381,6 +4629,11 @@ vec3 fogMix(vec3 col, vec3 pos){
   vec3 nightFogCol = max(uFogCol.rgb, uSkyHor.rgb * 0.50);
   return mix(col, mix(uFogCol.rgb, nightFogCol, horizHaze), max(df, nightAerial));
 }
+
+vec3 fogMix(vec3 col, vec3 pos){
+  return fogMixEx(col, pos, 1.0);
+}
+
 
 // Холодная тень + тёплая кайма на границе. cs: 0 = просвет, 1 = тень
 vec3 cloudGrade(float cs){
@@ -4540,7 +4793,7 @@ void main(){
   float hz = pow(1. - clamp(y, 0., 1.), max(0.3, uAtmo8.x));
   vec3 col = mix(uSkyTop.rgb, uSkyHor.rgb, hz);
 
-  if (y < 0.) col = mix(uSkyHor.rgb * 0.7, uSkyHor.rgb * 0.3, smoothstep(0., -0.45, y));
+  if (y < 0.) col = mix(uSkyHor.rgb, uSkyHor.rgb * 0.3, smoothstep(0., -0.45, y));
 
   float sd = dot(rd, uSun.xyz);
   float altS = uSun.w;
@@ -4996,6 +5249,33 @@ void main(){
   float lowerFade = mix(1.0, 0.42, smoothstep(0.0, -0.22, y));
   col = mix(col, uFogCol.rgb * lowerFade, finalSkyFog);
 
+  // Гармоничная заливка горизонта и нижней полусферы при активном низинном тумане
+   float mistS = uDawnMist.x;
+  if (mistS > 0.001) {
+    vec3 mistBaseCol = mix(uFogCol.rgb, uAtmo9.rgb, uAtmo9.w);
+    float sunAlign   = clamp(dot(rd, uSun.xyz) * 0.5 + 0.5, 0.0, 1.0);
+    vec3 warmScatter = mix(lin(vec3(0.95, 0.64, 0.36)), uAtmo5.rgb, uAtmo8.y)
+                     * (uDawnMist.w * pow(sunAlign, 3.0) * 0.24);
+
+    // Цвет на уровне горизонта (совпадает с дымкой на дальних склонах в fogMix)
+    vec3 mistHorCol  = mix(mistBaseCol, uSkyHor.rgb, 0.18) + warmScatter * 0.85;
+
+    // Глубина ниже горизонта: плавная смесь тумана, теневого света (uAmb), неба и земли
+    vec3 sceneHarm   = mix(uAmb.rgb * 1.15, mix(uSkyTop.rgb, uGnd.rgb, 0.30), 0.42);
+    vec3 mistDeepCol = mix(mistBaseCol * 0.58, sceneHarm, 0.42);
+
+    float depthT     = smoothstep(0.02, -0.42, y);
+    vec3 mistSkyCol  = mix(mistHorCol, mistDeepCol, depthT);
+
+    float mistOn     = smoothstep(0.0, 0.25, mistS);
+    float mistHorAmt = clamp(mistS * 0.72, 0.0, 0.88)
+                     * exp(-max(y, 0.0) * mix(16.0, 8.0, clamp(mistS * 0.5, 0.0, 1.0)));
+    float mistLowAmt = smoothstep(0.03, -0.18, y) * mistOn * 0.96;
+    float mistSkyMix = clamp(max(mistHorAmt, mistLowAmt), 0.0, 0.98) * (1.0 - sunPierce * 0.78);
+
+    col = mix(col, mistSkyCol, mistSkyMix);
+  }
+
   // Пост-атмосферный ореол (bloom) самого солнца ПОСЛЕ облаков и тумана
   if (sd > 0.0 && dayV > 0.001) {
     float wideHaze = pow(sd, 10.0);
@@ -5039,6 +5319,570 @@ void main(){
   vWorld=vec3((uv.x-.5)*uScene.x,h,(uv.y-.5)*uScene.y); vUV=uv; vH=h;
   gl_Position=uVP*vec4(vWorld,1.);
 }`;
+
+
+const GLSL_ALBEDO_LIB = `
+float gRowAmp = 0.0, gRowAng = 0.0;
+int clsAt(ivec2 p){ p=clamp(p,ivec2(0),GRID()-ivec2(1)); return int(texelFetch(uClass,p,0).r*255.+.5); }
+
+vec3 mountainRock3D(vec3 wpos, vec3 N, float eAbs, float ridgeVal, float ts,
+                    float concav, float rockPeak, float n1, float n2){
+  vec3 w = triW(N);
+  float warp  = triS(wpos, w, 0.0011, vec4(0,1,0,0)) - 0.5;
+  float grain = triS(wpos, w, 0.09,   vec4(0,0,1,0));
+
+  vec3 cGranite = lin(vec3(0.54, 0.53, 0.51));
+  vec3 cSlate   = lin(vec3(0.20, 0.21, 0.24));
+  vec3 cScree   = lin(vec3(0.55, 0.47, 0.36));
+  vec3 cTundra  = lin(mix(vec3(0.24, 0.29, 0.13), vec3(0.44, 0.32, 0.14), uSeason.y));
+
+  float crest = clamp(ridgeVal * 0.85 + (0.5 - concav) * 0.45, 0.0, 1.0);
+  vec3 rock = mix(cSlate, cGranite, smoothstep(0.18, 0.86, crest));
+
+  float steep = smoothstep(0.55, 1.10, ts);
+  rock = mix(rock, strataTint(eAbs, warp) * (0.8 + 0.4 * grain), steep * 0.75);
+  rock *= 0.82 + 0.36 * grain;
+
+  float screeZone = (1.0 - smoothstep(0.45, 0.90, ts)) * smoothstep(0.12, 0.55, rockPeak);
+  rock = mix(rock, cScree * (0.85 + 0.30 * grain), screeZone * 0.55);
+
+  float lichenZone = (1.0 - smoothstep(0.32, 0.78, rockPeak)) * (1.0 - smoothstep(0.42, 0.82, ts));
+  float lichen = smoothstep(0.42, 0.70, n2 * 0.55 + concav * 0.45) * uSeason.x;
+  rock = mix(rock, cTundra, lichenZone * lichen * 0.58);
+
+  float gullyAO = smoothstep(0.48, 0.78, concav) * 0.34 + (1.0 - smoothstep(0.15, 0.55, ridgeVal)) * 0.24;
+  rock *= (1.0 - clamp(gullyAO, 0.0, 0.52) * smoothstep(0.25, 0.75, ts));
+  return rock;
+}
+
+vec4 evalCls(int c, vec2 wp, float ts, float eAbs, float n1, float n2, float fieldWarp, float forestProx, float concav){
+  vec4 par=uClsPar[c]; int g=int(par.x+.5); int tt=int(par.y+.5);
+  float leaf=uSeason.x, aut=uSeason.y, crop=uSeason.z;
+  vec3 col=lin(vec3(.3,.42,.18)); float water=0.;
+  if(g==6) return vec4(lin(vec3(.32,.40,.35)),1.0);
+  else if(g==1){
+    float spotNoise = fieldWarp * 0.62 + n2 * 0.38;
+    float wildPatch = smoothstep(0.50, 0.64, spotNoise + (n1 - 0.5) * 0.22);
+    float reliefMask = smoothstep(0.54, 0.66, concav) * 0.85 + smoothstep(0.12, 0.28, ts) * 0.9;
+    float organicMask = clamp(max(wildPatch, reliefMask) + (n1 - 0.5) * 0.22, 0.0, 1.0);
+    organicMask = smoothstep(0.25, 0.72, organicMask);
+
+    vec3 c0 = lin(vec3(.34,.25,.17)), c1 = lin(vec3(.42,.39,.20)),
+         c2 = lin(vec3(.25,.46,.13)), c3 = lin(vec3(.80,.68,.26)),
+         c4 = lin(vec3(.58,.48,.29));
+
+    vec3 orgCol = vec3(0.0);
+    if (organicMask > 0.005) {
+      float oFr   = fract(n1 * 10.5);
+      float oKind = fract(n2 * 5.8);
+      float oFr3  = fract(n1 * 3.1 + n2 * 1.7);
+      float oSt   = clamp(crop + (oFr - 0.5) * 0.4, 0.0, 1.0);
+      orgCol = oSt < .25 ? mix(c0,c1,oSt/.25) : (oSt < .6 ? mix(c1,c2,(oSt-.25)/.35) : mix(c2,c4,(oSt-.6)/.4));
+      if      (oKind < .20) orgCol = mix(orgCol, mix(lin(vec3(.30,.22,.14)), lin(vec3(.46,.35,.23)), oFr3), .72);
+      else if (oKind < .50) orgCol = mix(orgCol, lin(vec3(.20,.38,.12)), .55 * smoothstep(.10,.45,crop));
+      orgCol *= .90 + .20 * n1;
+    }
+
+    vec3 sqCol = vec3(0.0);
+    if (organicMask < 0.995) {
+      float cellSz = 250.0;
+      vec2 wNoise = texture(uNoiseTex, wp * 0.00045).rg;
+      vec2 wpW = wp + (wNoise - 0.5) * 44.0;
+      vec2 q = vec2(wpW.x * 0.970 - wpW.y * 0.242, wpW.x * 0.242 + wpW.y * 0.970) / vec2(cellSz, cellSz * 0.88);
+      vec2 iq = floor(q);
+      vec2 fq = fract(q);
+
+      vec2 raw1 = iq, raw2 = iq;
+      vec2 p1 = vec2(0.0), p2 = vec2(1.0, 0.0);
+      float d1 = 8.0, d2 = 8.0;
+      for (int j = -1; j <= 1; j++) {
+        for (int i = -1; i <= 1; i++) {
+          vec2 gOff = vec2(float(i), float(j));
+          vec2 cid = iq + gOff;
+          vec2 jit = (hash22(cid) - 0.5) * 0.52;
+          vec2 pt = gOff + 0.5 + jit - fq;
+          float d = dot(pt, pt);
+          if (d < d1) {
+            d2 = d1; p2 = p1; raw2 = raw1;
+            d1 = d; p1 = pt; raw1 = cid;
+          } else if (d < d2) {
+            d2 = d; p2 = pt; raw2 = cid;
+          }
+        }
+      }
+
+      vec2 fc = raw1;
+      float mergeSeed = hash21(floor(raw1 * 0.5) + vec2(3.1, 7.7));
+      if (mergeSeed < 0.28)      fc.x = floor(raw1.x * 0.5) * 2.0;
+      else if (mergeSeed < 0.54) fc.y = floor(raw1.y * 0.5) * 2.0;
+
+      vec2 fc2 = raw2;
+      float mergeSeed2 = hash21(floor(raw2 * 0.5) + vec2(3.1, 7.7));
+      if (mergeSeed2 < 0.28)      fc2.x = floor(raw2.x * 0.5) * 2.0;
+      else if (mergeSeed2 < 0.54) fc2.y = floor(raw2.y * 0.5) * 2.0;
+
+      float fr   = hash21(fc + vec2(11.3, 5.7));
+      float kind = hash21(fc + vec2(27.9, 19.1));
+      float fr3  = hash21(fc + vec2(43.2, 8.4));
+
+      float st = clamp(crop + (fr - 0.5) * 0.45, 0.0, 1.0);
+      sqCol = st < .2 ? mix(c0,c1,st/.2) : (st < .45 ? mix(c1,c2,(st-.2)/.25) : (st < .75 ? mix(c2,c3,(st-.45)/.3) : mix(c3,c4,(st-.75)/.25)));
+      if      (kind < .18) sqCol = mix(sqCol, mix(lin(vec3(.28,.20,.13)), lin(vec3(.45,.34,.22)), fr3), .85);
+      else if (kind < .44) sqCol = mix(sqCol, lin(vec3(.17,.36,.10)), .60 * smoothstep(.10,.45,crop));
+      else if (kind < .53) sqCol = mix(sqCol, lin(vec3(.86,.72,.14)), .50 * smoothstep(.25,.50,crop)*(1.-smoothstep(.7,.9,crop)));
+      else if (kind > .84) sqCol = mix(sqCol, mix(lin(vec3(.26,.36,.14)), lin(vec3(.48,.42,.24)), n1), .75);
+      sqCol *= .92 + .16 * fr3;
+
+      float ang = 0.24 + floor(fr * 4.0) * 1.5708 + (fr3 - 0.5) * 0.45;
+      gRowAng = ang;
+      float u = dot(wp, vec2(cos(ang), sin(ang))) + (n1 - 0.5) * 6.0;
+      float furrowMask = step(kind, 0.84);
+      gRowAmp = (0.3 + 0.7 * smoothstep(0.1, 0.5, st)) * 0.12 * furrowMask * (1.0 - organicMask);
+      float swath = (smoothstep(-.35,.35,sin(u*(6.28318/14.)))-.5) * .09 * (1.-smoothstep(.6,1.4,gPX*(6.28318/14.))) * step(.45,fr3);
+      sqCol *= 1. + swath * furrowMask;
+      sqCol *= .90 + .18 * n1;
+
+      vec2 dp = p2 - p1;
+      float dLen = length(dp);
+      bool sameMerged = dot(abs(fc - fc2), vec2(1.0)) < 0.5;
+      float edgeD = (sameMerged || dLen < 1e-4) ? 1e3 : dot(0.5 * (p1 + p2), dp / dLen) * cellSz;
+      edgeD += (n1 - 0.5) * 3.5;
+
+      float edgeSeed = hash21((fc + fc2) * 1.73 + abs(fc - fc2) * 5.19);
+      float hedgeGap = smoothstep(0.15, 0.40, vnoiseF(wp * 0.022 + edgeSeed * 19.0, gPX * 0.022));
+      if (edgeSeed > 0.42) {
+        float lw = 2.0 + 2.8 * n1;
+        float lv = (1. - smoothstep(lw*.5, lw*.5 + max(gPX,.5), edgeD)) * min(1., lw / max(gPX*1.5, lw)) * hedgeGap;
+        vec3 hedgeCol = mix(lin(vec3(.13,.21,.07)), lin(vec3(.24,.22,.10)), n2 * 0.65);
+        sqCol = mix(sqCol, hedgeCol, lv * .72);
+      } else {
+        float lw = 1.6;
+        float lv = (1. - smoothstep(lw*.5, lw*.5 + max(gPX,.5), edgeD)) * min(1., lw / max(gPX*1.5, lw));
+        sqCol = mix(sqCol, lin(vec3(.34,.29,.20)), lv * .38);
+      }
+    }
+
+    if (organicMask >= 0.995)      col = orgCol;
+    else if (organicMask <= 0.005) col = sqCol;
+    else                           col = mix(sqCol, orgCol, organicMask);
+
+    float humus = smoothstep(0.52, 0.78, concav);
+    float dryRidge = 1.0 - smoothstep(0.25, 0.46, concav);
+    col = mix(col, col * vec3(0.72, 0.66, 0.58), humus * 0.55);
+    col = mix(col, mix(col, lin(vec3(0.68, 0.58, 0.40)), 0.35), dryRidge * 0.45);
+    float microSoil = vnoiseF(wp * 0.35, gPX * 0.35);
+    col *= 0.93 + 0.14 * microSoil;
+  } else if(g==2){
+    if(tt==1) col=lin(mix(vec3(.12,.15,.07),vec3(.2,.2,.1),n1));
+    else if(tt==3) col=lin(mix(vec3(.14,.2,.08),vec3(.2,.26,.1),n1));
+    else { vec3 gr=lin(vec3(.2,.27,.09)), lit=lin(vec3(.34,.24,.12)); float lf=leaf*(1.-aut*.5); col=mix(lit,gr,lf); if(tt==4) col=mix(col,lin(vec3(.14,.17,.08)),.4); col*=.8+.4*n1; }
+    col*=.85+.3*n2;
+  } else if(g==3){
+    col=lin(mix(vec3(.30,.32,.14),vec3(.42,.36,.18),n1)); col=mix(col,lin(vec3(.45,.33,.15)),aut*.6); col=mix(lin(vec3(.36,.30,.22)),col,.3+.7*leaf); col*=.85+.3*n2;
+  } else if(g==4){
+    vec3 su=lin(vec3(.30,.46,.14)), dr=lin(vec3(.60,.55,.28)), wi=lin(vec3(.46,.42,.30));
+    col=mix(wi,mix(su,dr,aut*.7),leaf); col*=.85+.3*n1; col*=.92+.16*n2;
+  } else if(g==5){
+    vec3 peatDark   = vec3(0.11, 0.075, 0.045);
+    vec3 peatMud    = vec3(0.18, 0.12, 0.07);
+    vec3 bogMoss    = vec3(0.16, 0.22, 0.08);
+    vec3 rustOchre  = vec3(0.28, 0.16, 0.06);
+
+    float autK = clamp(aut * 1.35, 0.0, 1.0);
+    float springK = clamp((1.0 - leaf) * (1.0 - autK), 0.0, 1.0);
+    float coldK = smoothstep(5.0, -5.0, uClimate.z);
+
+    vec3 cSummer = mix(peatMud, bogMoss, smoothstep(0.32, 0.70, n1));
+    cSummer = mix(cSummer, peatDark, smoothstep(0.60, 0.85, n2) * 0.65);
+
+    vec3 cAutumn = mix(rustOchre, peatMud, n1 * 0.7);
+    cAutumn = mix(cAutumn, peatDark, smoothstep(0.4, 0.8, n2) * 0.5);
+
+    vec3 cSpring = mix(peatDark, mix(peatMud, vec3(0.13, 0.18, 0.07), n1), 0.65);
+    vec3 cWinter = mix(vec3(0.10, 0.07, 0.05), vec3(0.15, 0.11, 0.07), n1);
+
+    vec3 swampCol = mix(cSummer, cAutumn, autK);
+    swampCol = mix(swampCol, cSpring, springK);
+    swampCol = mix(swampCol, cWinter, coldK * 0.75);
+
+    if(c == 23) swampCol = mix(swampCol, peatDark, 0.40);
+    else if(c == 28) swampCol = mix(swampCol, vec3(0.22, 0.20, 0.17), 0.35);
+
+    col = lin(swampCol);
+
+    float pool = smoothstep(0.53, 0.65, vnoiseF(wp * 0.038 + 3.1, gPX * 0.038));
+    water = pool * (c == 23 ? 0.75 : 0.60);
+    col = mix(col, lin(peatDark * 0.7), smoothstep(0.45, 0.55, pool) * (1.0 - water));
+  } else if(g==7){
+    col=lin(mix(vec3(.30,.30,.32),vec3(.45,.43,.42),n1))*(.9+.2*n2);
+  } else if(g==8){
+    col=(par.z>.5)?lin(mix(vec3(.70,.62,.46),vec3(.80,.72,.55),n1)):rockCol(wp,n1);
+  } else if(g==10){
+    col=mix(lin(mix(vec3(.70,.62,.46),vec3(.80,.72,.55),n1)),lin(vec3(.55,.5,.28)),smoothstep(.4,.6,n2));
+  } else if(g==9){ col=lin(vec3(.92,.95,.98)); }
+  else { col=mix(lin(vec3(.27,.40,.17)),lin(vec3(.42,.40,.24)),smoothstep(200.,900.,eAbs)); col=mix(col,rockCol(wp,n1),smoothstep(1500.,2600.,eAbs)); col*=.85+.3*n1; }
+
+  float rk = smoothstep(0.92, 1.45, ts);
+  if(g==7) rk=0.; else if(g==2||g==3) rk *= 0.35;
+  col = mix(col, rockCol(wp, n1), rk);
+  return vec4(col, water);
+}
+
+const float ORG_AMP  = 1.0;
+const float ORG_SOFT = 0.30;
+
+float nzL(vec2 p, float f, vec4 m){
+  float lod = clamp(log2(max(gPX * f * 128.0, 1.0)), 0.0, 6.0);
+  return dot(textureLod(uNoiseTex, p * f, lod), m);
+}
+
+void organicClass(vec2 wp, vec2 uv, int c00, out int cA, out int cB, out float wB){
+  cA = c00; cB = c00; wB = 0.0;
+  vec2 gsz = vec2(GRID() - ivec2(1));
+  float cellM = uScene.x / gsz.x;
+  float fade = 1.0 - smoothstep(cellM * 0.8, cellM * 5.0, gPX);
+  if (fade < 0.02) return;
+  vec2 g = uv * gsz;
+  vec2 d1 = textureLod(uNoiseTex, wp / (cellM * 6.0), 0.0).rg - 0.5;
+  vec2 d2 = textureLod(uNoiseTex, wp / (cellM * 2.0) + 0.37, 0.0).ba - 0.5;
+  vec2 gw = g + (d1 * 1.7 + d2 * 1.0) * ORG_AMP * fade;
+  ivec2 ip = ivec2(floor(gw + 0.5));
+  vec2 fr = gw - vec2(ip);
+  ivec2 st = abs(fr.x) > abs(fr.y)
+    ? ivec2(fr.x > 0.0 ? 1 : -1, 0)
+    : ivec2(0, fr.y > 0.0 ? 1 : -1);
+  int a = clsAt(ip), b = clsAt(ip + st);
+  if (a == 0 || a == 34) a = c00;
+  if (b == 0 || b == 34) b = a;
+  cA = a; cB = b;
+  float e = 0.5 - max(abs(fr.x), abs(fr.y));
+  wB = 0.5 * (1.0 - smoothstep(0.0, ORG_SOFT, e)) * fade;
+}
+
+vec3 groundDetail(vec3 alb, int c, vec2 wp, float ts, float concav){
+  float df = 1.0 - smoothstep(2.0, 14.0, gPX);
+  float a = nzL(wp,         0.031, vec4(1,0,0,0));
+  float b = mix(0.5, nzL(wp + 17.3, 0.17, vec4(0,1,0,0)), df);
+  float m = mix(0.5, nzL(wp + 5.1,  0.83, vec4(0,0,1,0)), df);
+  vec4 par = uClsPar[c];
+  int g = int(par.x + 0.5), tt = int(par.y + 0.5);
+  vec3 col = alb * (0.86 + 0.28 * a);
+
+  if (g == 2) {
+    vec3 litter = lin(mix(vec3(.20,.14,.08), vec3(.42,.24,.07), uSeason.y));
+    vec3 needle = lin(vec3(.17,.12,.07));
+    col = mix(col, (tt == 1) ? needle : litter, smoothstep(.45,.75,a) * 0.5);
+    col *= mix(1.0, 0.55, smoothstep(.55,.75,b));
+    col = mix(col, lin(vec3(.12,.22,.06)), smoothstep(.62,.80,b) * smoothstep(.45,.70,concav) * 0.5);
+    col = mix(col, lin(vec3(.30,.22,.14)), smoothstep(.80,.88,m) * 0.6);
+    col *= 0.8 + 0.4 * m;
+  } else if (g == 4) {
+    float dry = smoothstep(.50,.78,a) * (0.4 + 0.6 * (1.0 - uSeason.x * 0.5));
+    col = mix(col, col * vec3(1.25,1.10,.60), dry * 0.6);
+    col *= 0.72 + 0.56 * b;
+    col = mix(col, col * 1.35, smoothstep(.78,.90,m) * 0.5);
+    col = mix(col, lin(vec3(.36,.28,.18)), smoothstep(.72,.86,a * .5 + b * .5) * 0.5);
+  } else if (g == 3) {
+    float bush = smoothstep(.52,.60,b);
+    col = mix(col, lin(vec3(.34,.27,.18)) * (0.8 + 0.4 * m), (1.0 - bush) * 0.35);
+    col = mix(col, col * 0.45, bush * 0.8);
+    col = mix(col, col * vec3(1.4,1.5,1.2), smoothstep(.60,.72,m) * bush * 0.5);
+  } else if (g == 8 || g == 10) {
+    if (par.z > 0.5) {
+      vec2 wd = normalize(uWind.xy + vec2(1e-4));
+      col *= 1.0 + 0.07 * sin(dot(wp, wd) * 2.4 + a * 12.0) * df;
+      col *= 0.92 + 0.16 * m;
+    } else {
+      col = mix(col, col * 1.5, smoothstep(.74,.80,m) * 0.6);
+      col *= 1.0 - 0.35 * (1.0 - smoothstep(0.0, 0.03, abs(b - 0.5))) * df;
+    }
+    if (g == 10) col = mix(col, lin(vec3(.30,.34,.15)), smoothstep(.60,.66,b) * 0.55);
+  } else if (g == 5) {
+    col *= 0.8 + 0.3 * b;
+    col = mix(col, lin(vec3(.30,.16,.07)), smoothstep(.65,.80,a) * 0.35);
+  } else if (g == 7) {
+    col *= 0.85 + 0.30 * m;
+  } else if (g == 1) {
+    col *= 0.92 + 0.16 * m;
+  } else {
+    col *= 0.85 + 0.30 * b;
+  }
+
+  float sl = smoothstep(.35,.95,ts);
+  if (g != 8 && g != 6)
+    col = mix(col, lin(vec3(.30,.24,.17)) * (0.7 + 0.5 * b), sl * 0.5 * ((g == 2) ? 0.6 : 1.0));
+  col *= 1.0 - 0.25 * smoothstep(.55,.80,concav);
+  return col;
+}
+`;
+
+const GLSL_WATER_LIB = `
+vec3 vnoiseD(vec2 p){
+  vec2 i=floor(p), f=fract(p);
+  vec2 u=f*f*(3.-2.*f), du=6.*f*(1.-f);
+  float a=hash21(i), b=hash21(i+vec2(1,0)), c=hash21(i+vec2(0,1)), d=hash21(i+vec2(1,1));
+  float k1=b-a, k2=c-a, k4=a-b-c+d;
+  return vec3(a+k1*u.x+k2*u.y+k4*u.x*u.y, du.x*(k1+k4*u.y), du.y*(k2+k4*u.x));
+}
+
+vec3 waveTexD(vec2 p, vec2 dpx, vec2 dpy){
+  vec4 t = textureGrad(uWaveTex, p * (1.0 / 32.0), dpx * (1.0 / 32.0), dpy * (1.0 / 32.0));
+  return vec3(clamp(t.r * 1.143, 0.0, 1.0), (t.gb * 2.0 - 1.0) * 4.0);
+}
+
+vec2 xformWaveD(vec2 v, vec2 w, vec2 nrm, float st, float pi, float ca, float sa, float il){
+  float pu = dot(v, w) * st;
+  float pv = dot(v, nrm) * pi;
+  vec2 pw = w * pu + nrm * pv;
+  return vec2(ca * pw.x - sa * pw.y, sa * pw.x + ca * pw.y) * il;
+}
+
+vec4 windWaves(vec2 wp, vec2 dwx, vec2 dwy, float d, float t){
+  float sea = clamp(uWater.z, 0.0, 20.0);
+  float L0  = max(uScene.x, uScene.y) / (50.0 * max(0.2, uWaterTune1.y));
+  vec2  w   = normalize(uWind.xy + vec2(1e-4));
+  vec2  nrm = vec2(-w.y, w.x);
+  vec2  off = uWater.xy;
+  float px  = gPX;
+
+  float seaN   = clamp(sea / 14.0, 0.0, 1.0);
+  float ripple = smoothstep(0.15, 2.2, sea);
+  float slope  = 1.25 * (1.0 - exp(-sea * 0.17 * uWaterTune3.w)) * uWaterTune1.x;
+
+  float gustAmt = (1.0 - smoothstep(3.0, 11.0, sea)) * clamp(uCloudExtra.z, 0.0, 2.0) * 0.5;
+  float gp    = textureGrad(uWaveTex, ((wp - off * 1.30) / (7.0 * L0) + 3.7) * (1.0 / 32.0),
+                            dwx / (224.0 * L0), dwy / (224.0 * L0)).r * 1.143;
+  float rough = mix(1.0, mix(0.25, 1.35, smoothstep(0.30, 0.72, gp)), gustAmt);
+
+  bool fullD = (uWaterFullDetail == 1);
+
+  vec3 wN = vec3(0.5);
+  {
+    float warpL = L0 * 2.2;
+    float warpFade = 1.0 - smoothstep(warpL * (fullD ? 0.9 : 0.7), warpL * (fullD ? 2.6 : 2.2), px);
+    if (warpFade > 0.05) {
+      wN = waveTexD((wp - off * 0.5) / warpL + t * 0.014 + 2.3, dwx / warpL, dwy / warpL);
+      wN.y *= warpFade * 0.65;
+      wN.z *= warpFade * 0.65;
+    }
+  }
+  vec2 warp = vec2(wN.y, wN.z) * 0.55;
+  vec2 ww = wp - off + warp * L0 * 0.55;
+
+  // Каждая выборка uWaveTex уже содержит 3 октавы -> 2 поворота дают 6 октав
+  float Lm      = L0 * mix(0.8, 2.4, seaN);
+  float stretch = mix(0.65, 1.15, seaN);
+  float perpInv = 1.0 / stretch;
+
+  vec2  G   = vec2(0.0);
+  float hs  = 0.0, aS = 0.0;
+
+  for (int i = 0; i < 2; i++) {
+    float fi  = float(i);
+    float lam = Lm * pow(0.55, fi);
+    float fade = 1.0 - smoothstep((fullD ? 0.14 : 0.10) * lam, (fullD ? 0.42 : 0.30) * lam, px);
+    if (fade < 0.01) continue;
+    float a = pow(0.62, fi) * fade * 0.38;
+
+    float ang = fi * 2.39996 + 0.6;
+    float ca = cos(ang), sa = sin(ang);
+
+    vec2 pin = ww - off * pow(0.85, fi);
+    vec2 rot = xformWaveD(pin, w, nrm, stretch, perpInv, ca, sa, 1.0 / lam);
+    vec2 drx = xformWaveD(dwx, w, nrm, stretch, perpInv, ca, sa, 1.0 / lam);
+    vec2 dry = xformWaveD(dwy, w, nrm, stretch, perpInv, ca, sa, 1.0 / lam);
+
+    vec3 n = waveTexD(rot + fi * 17.3 + 5.1, drx, dry);
+
+    vec2 g_rot   = vec2(n.y, n.z);
+    vec2 g_world = vec2(ca * g_rot.x + sa * g_rot.y,
+                       -sa * g_rot.x + ca * g_rot.y);
+    float gd_u = dot(g_world, w);
+    float gd_v = dot(g_world, nrm);
+    vec2 grad = stretch * gd_u * w + perpInv * gd_v * nrm;
+
+    G  += grad * a;
+    hs += n.x * a;
+    aS += a;
+  }
+  hs /= max(aS, 1e-3);
+
+  float windAmp = 0.3 + 0.7 * clamp(sea / 15.0, 0.0, 1.0);
+  hs = (hs - 0.5) * 2.0 * windAmp;
+
+  {
+    float lamB  = Lm * 1.1;
+    float fadeB = 1.0 - smoothstep((fullD ? 0.14 : 0.10) * lamB, (fullD ? 0.36 : 0.26) * lamB, px);
+    if (fadeB > 0.01) {
+      float phB = dot(w, ww) / lamB * 6.28318 + t * 0.7 + warp.x * 2.0;
+      float aB  = 0.10 * seaN * fadeB;
+      G += w * (cos(phB) * aB * 0.5);
+    }
+  }
+
+  float lr = L0 * mix(0.50, 0.22, seaN);
+  float rf = 1.0 - smoothstep((fullD ? 0.16 : 0.12) * lr, (fullD ? 0.75 : 0.55) * lr, px);
+  vec2 Gr = vec2(0.0);
+  if (rf > 0.05 && ripple > 0.001) {
+    vec2 pr1 = ww - off * 0.6;
+    vec2 qr  = vec2(dot(pr1, w) / lr, dot(pr1, nrm) / (lr * 2.4));
+    vec2 dqx = vec2(dot(dwx, w) / lr, dot(dwx, nrm) / (lr * 2.4));
+    vec2 dqy = vec2(dot(dwy, w) / lr, dot(dwy, nrm) / (lr * 2.4));
+    vec3 n1  = waveTexD(qr, dqx, dqy);
+    Gr = (w * n1.y + nrm * (n1.z / 2.4)) * ((0.075 + 0.18 * seaN) * ripple * rough * rf * uWaterTune3.x);
+  }
+
+  float damp = smoothstep(0.01, 0.25, d)
+             * mix(0.55, 1.0, smoothstep(0.0, 0.8, d))
+             * (1.0 - uClimate.y * 0.85);
+  vec2 Gt = (G * slope * mix(1.0, rough, 0.5) + Gr) * damp;
+
+  float foam = 0.0;
+  float capsOn = smoothstep(1.5, 6.0, sea);
+  if (capsOn > 0.02 && damp > 0.05) {
+    float foamStretch = max(0.15, uWaterTune4.z);
+    float foamWarp    = uWaterTune4.w;
+    float foamScale   = max(0.15, uWaterTune5.x);
+
+    vec2 fp = ww - off * 1.1;
+    float thr = uWaterTune1.z + 0.12 * smoothstep(2.0, 14.0, sea);
+
+    float cheap = clamp(smoothstep(fullD ? 0.68 : 0.55, fullD ? 0.95 : 0.85, d)
+                      + smoothstep(fullD ? 1.00 : 0.60, fullD ? 2.80 : 1.80, px)
+                      + (1.0 - smoothstep(2.0, 5.0, sea)) * 0.6, 0.0, 1.0);
+
+    float crest, breakup = 1.0;
+
+    if (cheap > 0.5) {
+      float fDiv = L0 * 1.4 * foamScale;
+      float coarse = textureGrad(uWaveTex, ((ww - off * 0.9) / fDiv + vec2(7.7, 4.3)) * (1.0 / 32.0),
+                                 dwx / (32.0 * fDiv), dwy / (32.0 * fDiv)).r * 1.143;
+      crest = clamp(hs, -0.6, 0.6) + (coarse - 0.5) * 0.38;
+    } else {
+      vec2 warpF = (waveTexD(fp * 0.09 * foamScale + vec2(1.7, 8.3), dwx * (0.09 * foamScale), dwy * (0.09 * foamScale)).yz)
+                   * (foamWarp * 0.45);
+      vec2 fpWarp = fp + warpF * (L0 * 0.5);
+
+      float sU = L0 * 0.75 * foamStretch / foamScale;
+      float sV = L0 * 0.45 / (foamStretch * foamScale);
+      vec2 fUv = vec2(dot(fpWarp, w) / sU, dot(fpWarp, nrm) / sV) + 7.7;
+      vec2 dfx = vec2(dot(dwx, w) / sU, dot(dwx, nrm) / sV);
+      vec2 dfy = vec2(dot(dwy, w) / sU, dot(dwy, nrm) / sV);
+      float streak = textureGrad(uWaveTex, fUv * (1.0 / 32.0), dfx * (1.0 / 32.0), dfy * (1.0 / 32.0)).r * 1.143;
+      float bubble = textureGrad(uWaveTex, (fpWarp * 0.35 * foamScale + vec2(11.2, 4.3)) * (1.0 / 32.0),
+                                 dwx * (0.35 * foamScale / 32.0), dwy * (0.35 * foamScale / 32.0)).r * 1.143;
+      crest = clamp(hs, -0.6, 0.6) + (streak - 0.5) * 0.42 + (bubble - 0.5) * 0.18;
+
+      float bk1 = textureGrad(uWaveTex, (ww * 0.22 * foamScale + vec2(3.1, 7.7)) * (1.0 / 32.0),
+                              dwx * (0.22 * foamScale / 32.0), dwy * (0.22 * foamScale / 32.0)).r * 1.143;
+      breakup = bk1 * 0.85 + bubble * 0.40;
+    }
+
+    float foamMask = smoothstep(thr - 0.04, thr + 0.12, crest);
+    foamMask *= (cheap > 0.5) ? 0.85 : smoothstep(0.08, 0.52, breakup);
+
+    float foamDistFade = 1.0 - smoothstep((fullD ? 0.14 : 0.10) * Lm, (fullD ? 0.52 : 0.40) * Lm, px);
+    foam = foamMask * capsOn * smoothstep(0.03, 0.20, d)
+         * foamDistFade * uWaterTune1.w;
+  }
+
+  return vec4(Gt, foam, hs);
+}
+
+vec2 surfZone(vec2 wp, float d, float t, float sea,
+              vec2 wDirW, vec2 shoreN, float isRiver) {
+  if (d > 0.55) return vec2(0.0, 0.0);
+
+  float barW      = uWaterTune2.x;
+  float brkSpeed  = uWaterTune2.y;
+  float bwDecay   = uWaterTune2.z;
+  float edgeAmt   = uWaterTune2.w;
+  float onshoreK  = uWaterTune3.y;
+  float spread    = uWaterTune3.z;
+
+  float backReach = max(0.01, uWaterTune5.y);
+  float backStr   = uWaterTune5.z;
+  float backTurb  = max(0.1, uWaterTune5.w);
+
+  float maxReach = max(barW * 1.15 + 0.05, 0.28 * backReach);
+  if (d > maxReach && barW > 0.9) return vec2(0.0, 0.0);
+
+  float onshore  = max(0.0, -dot(wDirW, shoreN));
+  float distanceFade = 1.0 - smoothstep(0.40, 0.90, d);
+  if (distanceFade < 0.005) return vec2(0.0, 0.0);
+  float onshoreS = smoothstep(0.0, max(0.01, onshoreK), onshore);
+
+  float barFreq = clamp((uWaterFullDetail == 1 ? 0.75 : 0.5) / max(gPX, 1.0), 0.005, 0.05);
+  float barN = vnoise(wp * barFreq + vec2(4.1, 2.7));
+  float dLoc = d + (barN - 0.5) * barW * 0.15;
+
+  float surfF  = smoothstep(barW, 0.03, dLoc) * smoothstep(0.0, 0.005, dLoc);
+
+  float waveK  = 7.5 + sea * 0.4;
+  float phIn   = -dLoc * waveK + t * brkSpeed * (0.75 + sea * 0.12);
+  float cyc    = fract(phIn);
+  float crest  = smoothstep(0.78, 0.96, cyc) * (1.0 - smoothstep(0.96, 1.0, cyc));
+  float face   = smoothstep(0.28, 0.82, cyc);
+  float shoal  = smoothstep(barW, 0.01, dLoc);
+  float breakF = (crest + face * 0.4) * surfF * onshoreS * shoal;
+  breakF      *= 0.7 + 0.6 * vnoise(wp * 0.7 + vec2(t * 0.4, 0.0));
+
+  float phRef  = dLoc * 9.0 - t * (1.05 + sea * 0.15) * brkSpeed;
+  float refW   = sin(phRef * 6.28318) * 0.5 + 0.5;
+  float decay  = exp(-dLoc * bwDecay);
+  float refF   = refW * decay * surfF * onshoreS * 0.8;
+
+  float edgeF  = (1.0 - smoothstep(0.0, 0.024, dLoc))
+               * (edgeAmt + 0.55 * onshoreS)
+               * (0.35 + 0.65 * vnoise(wp * 5.0 + vec2(0.0, t * 0.35)));
+
+  float phLag  = fract(phIn + 0.18);
+  float lagW   = smoothstep(0.05, 0.35, phLag) * (1.0 - smoothstep(0.70, 0.95, phLag));
+  float resF   = lagW * surfF * onshoreS * 0.45
+               * (0.45 + 0.55 * vnoise(wp * 2.8 + t * 0.45));
+
+  float backwashFoam = 0.0;
+  if (backStr > 0.01 && onshoreS > 0.05) {
+    vec2 shoreTan = vec2(-shoreN.y, shoreN.x);
+    float alongShore = dot(wp, shoreTan);
+
+    float warpBack = vnoise(wp * 0.06 * backTurb + vec2(t * 0.2, 0.0)) * 2.5;
+    float streamPhase = alongShore * (0.18 * backTurb) + warpBack;
+
+    float ripStream = vnoise(vec2(streamPhase, d * 18.0 - t * (0.8 + sea * 0.1) * brkSpeed));
+    ripStream = smoothstep(0.38, 0.76, ripStream);
+
+    float maxD = 0.22 * backReach;
+    float distFade = smoothstep(maxD, 0.01, d) * smoothstep(0.002, 0.03, d);
+    backwashFoam = ripStream * distFade * onshoreS * (backStr * 1.6);
+  }
+
+  float foam = clamp(max(max(max(breakF, refF), max(edgeF, resF)), backwashFoam), 0.0, 1.0);
+  foam *= (1.0 - isRiver * 0.55) * spread;
+  foam = clamp(foam, 0.0, 1.0);
+
+  float hBoost = breakF * 0.05 + refF * 0.02;
+  foam  *= distanceFade;
+  hBoost *= distanceFade;
+  return vec2(foam, hBoost);
+}
+
+uniform sampler2D uSkyRefl;
+uniform float uSkyReflEnc;
+vec3 sampleReflectedSky(vec3 rd) {
+  float y = clamp(rd.y, 0.002, 1.0);
+  float u = atan(rd.z, rd.x) * 0.15915494 + 0.5;
+  float v = sqrt(y);
+  vec3 c = textureLod(uSkyRefl, vec2(u, v), 0.0).rgb;
+  if (uSkyReflEnc > 0.5) {
+    c = pow(c, vec3(2.2));
+    c = c / max(1.0 - c, vec3(1e-4));
+  }
+  return c;
+}
+`;
+
+
 
 const FS_SKY_REFL = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + `
 uniform float uSkyReflEnc;
@@ -5110,1014 +5954,35 @@ void main(){
   o = vec4(col, 1.0);
 }`;
 
-  const FS_TERRAIN = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN + `
-uniform sampler2D uClass; uniform sampler2D uCanopy; uniform sampler2D uExtra; uniform sampler2D uShadow; uniform sampler2D uBasemap;
-uniform int uWaterReflect;
-uniform int uReflectSteps;
+const GLSL_STRATA = `
+vec3 strataTint(float eAbs, float warp){
+  float t = eAbs / ${STRATA_M}.0 + warp * 1.6;
+  float id = floor(t), f = fract(t);
+  float h1 = hash21(vec2(id, 3.7)), h2 = hash21(vec2(id, 9.1));
+  vec3 cool = lin(vec3(.50,.50,.52)), warm = lin(vec3(.62,.50,.38));
+  vec3 dark = lin(vec3(.28,.27,.28)), red  = lin(vec3(.58,.36,.28));
+  vec3 c = mix(cool, warm, h1);
+  c = mix(c, red,  step(0.82, h2) * 0.6);
+  c = mix(c, dark, step(0.90, h1) * 0.5);
+  c *= mix(0.60, 1.0, smoothstep(0.0, 0.10, f));   // тёмная щель под полкой
+  c *= 1.0 + 0.12 * smoothstep(0.80, 1.0, f);      // светлая кромка полки
+  return c;
+}`;
 
-uniform int uWaterFullDetail;
-uniform vec3 uClsCol[40]; uniform vec4 uClsPar[40]; uniform sampler2D uWaterFlow; uniform sampler2D uHeightRefl;
+
+const GLSL_TERRAIN_COMMON = `
+uniform sampler2D uClass; uniform sampler2D uCanopy; uniform sampler2D uExtra;
+uniform sampler2D uShadow; uniform sampler2D uBasemap; uniform sampler2D uWaterFlow;
+uniform vec3 uClsCol[40];
+uniform int uHasWater;          // 0 — на карте нет воды/берегов: вся водная логика отключена
 in vec3 vWorld; in vec2 vUV; in vec3 vN; in float vH;
 out vec4 fragColor;
-float gPX; 
-int clsAt(ivec2 p){ p=clamp(p,ivec2(0),GRID()-ivec2(1)); return int(texelFetch(uClass,p,0).r*255.+.5); }
-vec3 rockCol(vec2 wp, float n1){ return lin(mix(vec3(.38,.36,.33),vec3(.58,.55,.5),n1)); }
-// Быстрый ridged-шум по склону (вытянут вдоль ската горы, чтобы рисовались хребты и кулуары, а не кольца)
-float sampleRidgeNoise(vec2 wp, vec2 slopeDir, float macroN){
-  vec2 perpDir = vec2(-slopeDir.y, slopeDir.x);
-  // Анизотропные координаты: рёбра и промоины бегут вниз от гребня к подножию
-  vec2 st = vec2(dot(wp, perpDir), dot(wp, slopeDir) * 0.34);
-
-  vec2 uv1 = st * 0.0042 + vec2(macroN * 0.25);
-  vec2 uv2 = st * 0.0115 + vec2(0.37, 0.61);
-  vec2 uv3 = wp * 0.0220 + vec2(0.19, 0.83);
-
-  float nA = textureGrad(uNoiseTex, uv1, dFdx(uv1), dFdy(uv1)).r;
-  float nB = textureGrad(uNoiseTex, uv2, dFdx(uv2), dFdy(uv2)).g;
-  float nC = textureGrad(uNoiseTex, uv3, dFdx(uv3), dFdy(uv3)).b;
-
-  // Ridged Multifractal: 1 - |2n - 1| превращает плавные волны в острые гребешки
-  float r1 = pow(1.0 - abs(nA * 2.0 - 1.0), 1.55);
-  float r2 = pow(1.0 - abs(nB * 2.0 - 1.0), 1.45);
-  float r3 = 1.0 - abs(nC * 2.0 - 1.0);
-  return r1 * 0.56 + r2 * 0.30 + r3 * 0.14;
-}
-
-vec3 mountainRock(vec2 wp, float ridgeVal, float ts, float concav, float rockPeak, float n1, float n2){
-  float grain1 = vnoiseF(wp * 0.045, gPX * 0.045);
-  float grain2 = vnoiseF(wp * 0.18 + vec2(4.7, 2.3), gPX * 0.18);
-
-  vec3 cGranite = lin(vec3(0.54, 0.53, 0.51)); // Светлый выветренный гребень
-  vec3 cSlate   = lin(vec3(0.20, 0.21, 0.24)); // Тёмный сланец в жёлобах и тенях
-  vec3 cScree   = lin(vec3(0.55, 0.47, 0.36)); // Щебень / осыпь на выполаживаниях
-  vec3 cTundra  = lin(mix(vec3(0.24, 0.29, 0.13), vec3(0.44, 0.32, 0.14), uSeason.y));
-
-  // Гребни (высокий ridgeVal) светлые и фактурные, кулуары/расщелины — тёмные
-  float crestFactor = clamp(ridgeVal * 0.85 + (0.5 - concav) * 0.45, 0.0, 1.0);
-  vec3 rock = mix(cSlate, cGranite, smoothstep(0.18, 0.86, crestFactor));
-  rock *= 0.82 + 0.36 * grain2;
-
-  // Осыпь на умеренных склонах у подножия скал
-  float screeZone = (1.0 - smoothstep(0.45, 0.90, ts)) * smoothstep(0.12, 0.55, rockPeak);
-  rock = mix(rock, cScree * (0.85 + 0.30 * grain1), screeZone * 0.55);
-
-  // Островки альпийского мха и дёрна в защищённых от сползания ложбинках
-  float lichenZone = (1.0 - smoothstep(0.32, 0.78, rockPeak)) * (1.0 - smoothstep(0.42, 0.82, ts));
-  float lichenPatch = smoothstep(0.42, 0.70, n2 * 0.55 + concav * 0.45) * uSeason.x;
-  rock = mix(rock, cTundra, lichenZone * lichenPatch * 0.58);
-
-  // Затемнение глубоких жёлобов и трещин между рёбрами хребта
-  float gullyAO = smoothstep(0.48, 0.78, concav) * 0.34 + (1.0 - smoothstep(0.15, 0.55, ridgeVal)) * 0.24;
-  rock *= (1.0 - clamp(gullyAO, 0.0, 0.52) * smoothstep(0.25, 0.75, ts));
-
-  return rock;
-}
-vec3 heat(float t){ t=clamp(t,0.,1.);
-  return t<.33?mix(vec3(.1,.35,.15),vec3(.5,.8,.2),t/.33):(t<.66?mix(vec3(.5,.8,.2),vec3(.95,.75,.1),(t-.33)/.33):mix(vec3(.95,.75,.1),vec3(.85,.15,.1),(t-.66)/.34)); }
-vec3 hypso(float t){ t=clamp(t,0.,1.);
-  return t<.25?mix(vec3(.2,.5,.35),vec3(.45,.65,.3),t/.25):(t<.5?mix(vec3(.45,.65,.3),vec3(.85,.78,.4),(t-.25)/.25):(t<.8?mix(vec3(.85,.78,.4),vec3(.55,.38,.25),(t-.5)/.3):mix(vec3(.55,.38,.25),vec3(.95),(t-.8)/.2))); }
-
-vec4 evalCls(int c, vec2 wp, float ts, float eAbs, float n1, float n2, float fieldWarp, float forestProx, float concav){
-  vec4 par=uClsPar[c]; int g=int(par.x+.5); int tt=int(par.y+.5);
-  float leaf=uSeason.x, aut=uSeason.y, crop=uSeason.z;
-  vec3 col=lin(vec3(.3,.42,.18)); float water=0.;
-  if(g==6) return vec4(lin(vec3(.32,.40,.35)),1.0); // Естественный цвет дна водоёма
-  else if(g==1){
-    // --- 1. СНАЧАЛА МАСКА «КЛЯКС» И РЕЛЬЕФА (0 доп. чтений текстур) ---
-    float spotNoise = fieldWarp * 0.62 + n2 * 0.38;
-    // Плавные крупные дикие пятна (порог 0.50..0.64 даёт ~35% клякс среди полей)
-    float wildPatch = smoothstep(0.50, 0.64, spotNoise + (n1 - 0.5) * 0.22);
-    float reliefMask = smoothstep(0.54, 0.66, concav) * 0.85 + smoothstep(0.12, 0.28, ts) * 0.9;
-    float organicMask = clamp(max(wildPatch, reliefMask) + (n1 - 0.5) * 0.22, 0.0, 1.0);
-    organicMask = smoothstep(0.25, 0.72, organicMask);
-
-    vec3 c0 = lin(vec3(.34,.25,.17)), c1 = lin(vec3(.42,.39,.20)),
-         c2 = lin(vec3(.25,.46,.13)), c3 = lin(vec3(.80,.68,.26)),
-         c4 = lin(vec3(.58,.48,.29));
-
-    // --- 2. ОРГАНИЧЕСКИЕ «КЛЯКСЫ» (считаем только там, где есть клякса) ---
-    vec3 orgCol = vec3(0.0);
-    if (organicMask > 0.005) {
-      float oFr   = fract(n1 * 10.5);
-      float oKind = fract(n2 * 5.8);
-      float oFr3  = fract(n1 * 3.1 + n2 * 1.7);
-      float oSt   = clamp(crop + (oFr - 0.5) * 0.4, 0.0, 1.0);
-      orgCol = oSt < .25 ? mix(c0,c1,oSt/.25) : (oSt < .6 ? mix(c1,c2,(oSt-.25)/.35) : mix(c2,c4,(oSt-.6)/.4));
-      if      (oKind < .20) orgCol = mix(orgCol, mix(lin(vec3(.30,.22,.14)), lin(vec3(.46,.35,.23)), oFr3), .72);
-      else if (oKind < .50) orgCol = mix(orgCol, lin(vec3(.20,.38,.12)), .55 * smoothstep(.10,.45,crop));
-      orgCol *= .90 + .20 * n1;
-    }
-
-    // --- 3. ПОЛЯ (пропускаем целиком, если пиксель полностью внутри кляксы) ---
-    vec3 sqCol = vec3(0.0);
-    if (organicMask < 0.995) {
-      float cellSz = 250.0;
-      vec2 wNoise = texture(uNoiseTex, wp * 0.00045).rg;
-      vec2 wpW = wp + (wNoise - 0.5) * 44.0;
-      vec2 q = vec2(wpW.x * 0.970 - wpW.y * 0.242, wpW.x * 0.242 + wpW.y * 0.970) / vec2(cellSz, cellSz * 0.88);
-      vec2 iq = floor(q);
-      vec2 fq = fract(q);
-
-      vec2 raw1 = iq, raw2 = iq;
-      vec2 p1 = vec2(0.0), p2 = vec2(1.0, 0.0);
-      float d1 = 8.0, d2 = 8.0;
-      for (int j = -1; j <= 1; j++) {
-        for (int i = -1; i <= 1; i++) {
-          vec2 gOff = vec2(float(i), float(j));
-          vec2 cid = iq + gOff;
-          vec2 jit = (hash22(cid) - 0.5) * 0.52;
-          vec2 pt = gOff + 0.5 + jit - fq;
-          float d = dot(pt, pt);
-          if (d < d1) {
-            d2 = d1; p2 = p1; raw2 = raw1;
-            d1 = d; p1 = pt; raw1 = cid;
-          } else if (d < d2) {
-            d2 = d; p2 = pt; raw2 = cid;
-          }
-        }
-      }
-
-      vec2 fc = raw1;
-      float mergeSeed = hash21(floor(raw1 * 0.5) + vec2(3.1, 7.7));
-      if (mergeSeed < 0.28)      fc.x = floor(raw1.x * 0.5) * 2.0;
-      else if (mergeSeed < 0.54) fc.y = floor(raw1.y * 0.5) * 2.0;
-
-      vec2 fc2 = raw2;
-      float mergeSeed2 = hash21(floor(raw2 * 0.5) + vec2(3.1, 7.7));
-      if (mergeSeed2 < 0.28)      fc2.x = floor(raw2.x * 0.5) * 2.0;
-      else if (mergeSeed2 < 0.54) fc2.y = floor(raw2.y * 0.5) * 2.0;
-
-      float fr   = hash21(fc + vec2(11.3, 5.7));
-      float kind = hash21(fc + vec2(27.9, 19.1));
-      float fr3  = hash21(fc + vec2(43.2, 8.4));
-
-      float st = clamp(crop + (fr - 0.5) * 0.45, 0.0, 1.0);
-      sqCol = st < .2 ? mix(c0,c1,st/.2) : (st < .45 ? mix(c1,c2,(st-.2)/.25) : (st < .75 ? mix(c2,c3,(st-.45)/.3) : mix(c3,c4,(st-.75)/.25)));
-      if      (kind < .18) sqCol = mix(sqCol, mix(lin(vec3(.28,.20,.13)), lin(vec3(.45,.34,.22)), fr3), .85);
-      else if (kind < .44) sqCol = mix(sqCol, lin(vec3(.17,.36,.10)), .60 * smoothstep(.10,.45,crop));
-      else if (kind < .53) sqCol = mix(sqCol, lin(vec3(.86,.72,.14)), .50 * smoothstep(.25,.50,crop)*(1.-smoothstep(.7,.9,crop)));
-      else if (kind > .84) sqCol = mix(sqCol, mix(lin(vec3(.26,.36,.14)), lin(vec3(.48,.42,.24)), n1), .75); // отдельные заросшие поля
-      sqCol *= .92 + .16 * fr3;
-
-      float ang = 0.24 + floor(fr * 4.0) * 1.5708 + (fr3 - 0.5) * 0.45;
-      float u = dot(wp, vec2(cos(ang), sin(ang))) + (n1 - 0.5) * 6.0;
-      float furrowMask = step(kind, 0.84);
-      float rows  = sin(u*(6.28318/2.8)) * .12 * (1.-smoothstep(.7,2.0,gPX*(6.28318/2.8))) * (.3+.7*smoothstep(.1,.5,st));
-      float swath = (smoothstep(-.35,.35,sin(u*(6.28318/14.)))-.5) * .09 * (1.-smoothstep(.6,1.4,gPX*(6.28318/14.))) * step(.45,fr3);
-      sqCol *= 1. + (rows + swath) * furrowMask;
-      sqCol *= .90 + .18 * n1;
-
-      vec2 dp = p2 - p1;
-      float dLen = length(dp);
-      bool sameMerged = dot(abs(fc - fc2), vec2(1.0)) < 0.5;
-      float edgeD = (sameMerged || dLen < 1e-4) ? 1e3 : dot(0.5 * (p1 + p2), dp / dLen) * cellSz;
-      edgeD += (n1 - 0.5) * 3.5;
-
-      float edgeSeed = hash21((fc + fc2) * 1.73 + abs(fc - fc2) * 5.19);
-      float hedgeGap = smoothstep(0.15, 0.40, vnoiseF(wp * 0.022 + edgeSeed * 19.0, gPX * 0.022));
-      if (edgeSeed > 0.42) {
-        float lw = 2.0 + 2.8 * n1;
-        float lv = (1. - smoothstep(lw*.5, lw*.5 + max(gPX,.5), edgeD)) * min(1., lw / max(gPX*1.5, lw)) * hedgeGap;
-        vec3 hedgeCol = mix(lin(vec3(.13,.21,.07)), lin(vec3(.24,.22,.10)), n2 * 0.65);
-        sqCol = mix(sqCol, hedgeCol, lv * .72);
-      } else {
-        float lw = 1.6;
-        float lv = (1. - smoothstep(lw*.5, lw*.5 + max(gPX,.5), edgeD)) * min(1., lw / max(gPX*1.5, lw));
-        sqCol = mix(sqCol, lin(vec3(.34,.29,.20)), lv * .38);
-      }
-    }
-
-    if (organicMask >= 0.995)      col = orgCol;
-    else if (organicMask <= 0.005) col = sqCol;
-    else                           col = mix(sqCol, orgCol, organicMask);
-
-    // --- 4. РАЗНООБРАЗИЕ ПОЧВЫ ПО МИКРОРЕЛЬЕФУ И ВЛАЖНОСТИ ---
-    float humus = smoothstep(0.52, 0.78, concav);
-    float dryRidge = 1.0 - smoothstep(0.25, 0.46, concav);
-    col = mix(col, col * vec3(0.72, 0.66, 0.58), humus * 0.55);
-    col = mix(col, mix(col, lin(vec3(0.68, 0.58, 0.40)), 0.35), dryRidge * 0.45);
-    float microSoil = vnoiseF(wp * 0.35, gPX * 0.35);
-    col *= 0.93 + 0.14 * microSoil;
-  }
-
- else if(g==2){
-    if(tt==1) col=lin(mix(vec3(.12,.15,.07),vec3(.2,.2,.1),n1));
-    else if(tt==3) col=lin(mix(vec3(.14,.2,.08),vec3(.2,.26,.1),n1));
-    else { vec3 gr=lin(vec3(.2,.27,.09)), lit=lin(vec3(.34,.24,.12)); float lf=leaf*(1.-aut*.5); col=mix(lit,gr,lf); if(tt==4) col=mix(col,lin(vec3(.14,.17,.08)),.4); col*=.8+.4*n1; }
-    col*=.85+.3*n2;
-  } else if(g==3){
-    col=lin(mix(vec3(.30,.32,.14),vec3(.42,.36,.18),n1)); col=mix(col,lin(vec3(.45,.33,.15)),aut*.6); col=mix(lin(vec3(.36,.30,.22)),col,.3+.7*leaf); col*=.85+.3*n2;
-  } else if(g==4){
-    vec3 su=lin(vec3(.30,.46,.14)), dr=lin(vec3(.60,.55,.28)), wi=lin(vec3(.46,.42,.30));
-    col=mix(wi,mix(su,dr,aut*.7),leaf); col*=.85+.3*n1; col*=.92+.16*n2;
-  } else if(g==5){
-    // =========================================================================
-    // БОЛОТА (SWAMP, MARSH, WETLAND): ВЫРАЗИТЕЛЬНАЯ ТОРФЯНО-МШИСТАЯ ЗОНА
-    // =========================================================================
-    // Базовые компоненты: глубокий тёмный торф, сфагнум и ржавая болотная руда
-    vec3 peatDark   = vec3(0.11, 0.075, 0.045); // глубокий влажный чёрно-бурый торф
-    vec3 peatMud    = vec3(0.18, 0.12, 0.07);   // илистая почва и разлагающаяся органика
-    vec3 bogMoss    = vec3(0.16, 0.22, 0.08);   // сфагнум и коричнево-тёмно-зелёный мох
-    vec3 rustOchre  = vec3(0.28, 0.16, 0.06);   // окислы железа / ржавая болотная вода
-
-    // Сезонные вариации
-    float autK = clamp(aut * 1.35, 0.0, 1.0);
-    float springK = clamp((1.0 - leaf) * (1.0 - autK), 0.0, 1.0);
-    float coldK = smoothstep(5.0, -5.0, uClimate.z);
-
-    // Лето: мозаика торфяных кочек и тёмно-оливкового сфагнума
-    vec3 cSummer = mix(peatMud, bogMoss, smoothstep(0.32, 0.70, n1));
-    cSummer = mix(cSummer, peatDark, smoothstep(0.60, 0.85, n2) * 0.65);
-
-    // Осень: ржаво-бурые, медно-охристые и тёмно-коричневые тона отмирающего болота
-    vec3 cAutumn = mix(rustOchre, peatMud, n1 * 0.7);
-    cAutumn = mix(cAutumn, peatDark, smoothstep(0.4, 0.8, n2) * 0.5);
-
-    // Весна: холодная переувлажнённая тёмно-бурая жижа с первыми тёмно-зелёными мхами
-    vec3 cSpring = mix(peatDark, mix(peatMud, vec3(0.13, 0.18, 0.07), n1), 0.65);
-
-    // Зима / поздняя осень: застывший чёрно-коричневый торфяник
-    vec3 cWinter = mix(vec3(0.10, 0.07, 0.05), vec3(0.15, 0.11, 0.07), n1);
-
-    // Смешивание по сезону
-    vec3 swampCol = mix(cSummer, cAutumn, autK);
-    swampCol = mix(swampCol, cSpring, springK);
-    swampCol = mix(swampCol, cWinter, coldK * 0.75);
-
-    // Отличие лесного болота (23) от травяного (24) и солончакового (28)
-    if(c == 23) {
-      // Лесное болото темнее и глубже по тону (лесная подстилка, корни, гниль)
-      swampCol = mix(swampCol, peatDark, 0.40);
-    } else if(c == 28) {
-      // Солончаковый марш с серовато-бурым минеральным налётом
-      swampCol = mix(swampCol, vec3(0.22, 0.20, 0.17), 0.35);
-    }
-
-    col = lin(swampCol);
-
-    // Застойные лужи и топкие блюдца посреди кочек болота
-    float pool = smoothstep(0.53, 0.65, vnoiseF(wp * 0.038 + 3.1, gPX * 0.038));
-    water = pool * (c == 23 ? 0.75 : 0.60);
-    // Кромка вокруг застойных луж — насыщенная тёмная грязь
-    col = mix(col, lin(peatDark * 0.7), smoothstep(0.45, 0.55, pool) * (1.0 - water));
-  } else if(g==7){
-    col=lin(mix(vec3(.30,.30,.32),vec3(.45,.43,.42),n1))*(.9+.2*n2);
-  } else if(g==8){
-    col=(par.z>.5)?lin(mix(vec3(.70,.62,.46),vec3(.80,.72,.55),n1)):rockCol(wp,n1);
-  } else if(g==10){
-    col=mix(lin(mix(vec3(.70,.62,.46),vec3(.80,.72,.55),n1)),lin(vec3(.55,.5,.28)),smoothstep(.4,.6,n2));
-  } else if(g==9){ col=lin(vec3(.92,.95,.98)); }
-  else { col=mix(lin(vec3(.27,.40,.17)),lin(vec3(.42,.40,.24)),smoothstep(200.,900.,eAbs)); col=mix(col,rockCol(wp,n1),smoothstep(1500.,2600.,eAbs)); col*=.85+.3*n1; }
-
-  float rk = smoothstep(0.92, 1.45, ts);
-  if(g==7) rk=0.; else if(g==2||g==3) rk *= 0.35;
-  col = mix(col, rockCol(wp, n1), rk);
-  return vec4(col, water);
-}
-
-vec4 oneCls(int c, vec2 wp, float ts, float eAbs, float n1, float n2, float fieldWarp, float forestProx, float concav){
-  if(uMode.x>.5&&uMode.x<1.5) return vec4(lin(uClsCol[c]),0.);
-  return evalCls(c,wp,ts,eAbs,n1,n2,fieldWarp,forestProx,concav);
-}
-
-
-vec3 vnoiseD(vec2 p){
-  vec2 i=floor(p), f=fract(p);
-  vec2 u=f*f*(3.-2.*f), du=6.*f*(1.-f);
-  float a=hash21(i), b=hash21(i+vec2(1,0)), c=hash21(i+vec2(0,1)), d=hash21(i+vec2(1,1));
-  float k1=b-a, k2=c-a, k4=a-b-c+d;
-  return vec3(a+k1*u.x+k2*u.y+k4*u.x*u.y, du.x*(k1+k4*u.y), du.y*(k2+k4*u.x));
-}
-
-// xy — градиент высоты (безразмерный наклон), z — пена (барашки), w — высота 0..1
-vec4 windWaves(vec2 wp, float d, float t){
-  float sea = clamp(uWater.z, 0.0, 20.0);
-  float L0  = max(uScene.x, uScene.y) / (50.0 * max(0.2, uWaterTune1.y));
-  vec2  w   = normalize(uWind.xy + vec2(1e-4));
-  vec2  nrm = vec2(-w.y, w.x);
-  vec2  off = uWater.xy;
-  float px  = gPX;
-
-  float seaN   = clamp(sea / 14.0, 0.0, 1.0);
-  float ripple = smoothstep(0.15, 2.2, sea);
-  float slope  = 1.25 * (1.0 - exp(-sea * 0.17 * uWaterTune3.w)) * uWaterTune1.x;
-
-  float gustAmt = (1.0 - smoothstep(3.0, 11.0, sea)) * clamp(uCloudExtra.z, 0.0, 2.0) * 0.5;
-  float gp    = vnoise((wp - off * 1.30) / (7.0 * L0) + 3.7);
-  float rough = mix(1.0, mix(0.25, 1.35, smoothstep(0.30, 0.72, gp)), gustAmt);
-
-  // СЛОЙ 1. ДОМЕННЫЙ ВАРП
-  bool fullD = (uWaterFullDetail == 1);
-
-  // СЛОЙ 1. ДОМЕННЫЙ ВАРП
-  vec3 wN = vec3(0.5);
-  {
-    float warpL = L0 * 2.2;
-    float warpFade = 1.0 - smoothstep(warpL * (fullD ? 0.9 : 0.7), warpL * (fullD ? 2.6 : 2.2), px);
-    if (warpFade > 0.05) {
-      wN = vnoiseD((wp - off * 0.5) / warpL + t * 0.014 + 2.3);
-      wN.y *= warpFade;
-      wN.z *= warpFade;
-    }
-  }
-  vec2 warp = vec2(wN.y, wN.z) * 0.55;
-  vec2 ww = wp - off + warp * L0 * 0.55;
-
-  // СЛОЙ 2. АНИЗОТРОПНЫЕ ШУМОВЫЕ ВОЛНЫ
-   int nW = (fullD || uReflectSteps >= 10) ? 3 : 2;
-  float Lm      = L0 * mix(0.8, 2.4, seaN);
-  float stretch = mix(0.65, 1.15, seaN);   
-  float perpInv = 1.0 / stretch;
-
-  vec2  G   = vec2(0.0);
-  float hs  = 0.0, aS = 0.0;
-
-  for (int i = 0; i < 3; i++) {
-    if (i >= nW) break;
-    float fi  = float(i);
-    float lam = Lm * pow(0.62, fi);
-    float fade = 1.0 - smoothstep((fullD ? 0.14 : 0.10) * lam, (fullD ? 0.38 : 0.28) * lam, px);
-    if (fade < 0.01) continue;
-    float a = pow(0.66, fi) * fade * 0.35;
-
-    float ang = fi * 2.39996 + 0.6;
-    float ca = cos(ang), sa = sin(ang);
-
-    vec2 pin = ww - off * pow(0.85, fi);
-    float pu = dot(pin, w);
-    float pv = dot(pin, nrm);
-    pu *= stretch;
-    pv *= perpInv;
-    vec2 p_world = w * pu + nrm * pv;
-    vec2 rot = vec2(ca * p_world.x - sa * p_world.y,
-                    sa * p_world.x + ca * p_world.y);
-
-    vec3 n = vnoiseD(rot / lam + fi * 17.3 + 5.1);
-
-    vec2 g_rot   = vec2(n.y, n.z);
-    vec2 g_world = vec2(ca * g_rot.x + sa * g_rot.y,
-                       -sa * g_rot.x + ca * g_rot.y);
-    float gd_u = dot(g_world, w);
-    float gd_v = dot(g_world, nrm);
-    vec2 grad = stretch * gd_u * w + perpInv * gd_v * nrm;
-
-    G  += grad * a;
-    hs += n.x * a;
-    aS += a;
-  }
-  hs /= max(aS, 1e-3);
-  
-  float windAmp = 0.3 + 0.7 * clamp(sea / 15.0, 0.0, 1.0);
-  hs = (hs - 0.5) * 2.0 * windAmp;
-
-  // СЛОЙ 3. НАПРАВЛЕННЫЙ СИНУС
-  {
-    float lamB  = Lm * 1.1;
-    float fadeB = 1.0 - smoothstep((fullD ? 0.14 : 0.10) * lamB, (fullD ? 0.36 : 0.26) * lamB, px);
-    if (fadeB > 0.01) {
-      float phB = dot(w, ww) / lamB * 6.28318 + t * 0.7 + warp.x * 2.0;
-      float aB  = 0.10 * seaN * fadeB;
-      G += w * (cos(phB) * aB * 0.5);
-    }
-  }
-
-  // ============================================================
-  // СЛОЙ 4. РЯБЬ — LOD по глубине и размеру пикселя
-  // ============================================================
-  float lr = L0 * mix(0.50, 0.22, seaN);
-  // Даже на high гасим рябь до того, как размер пикселя сравняется с ячейкой шума (0.75 * lr)
-  float rf = 1.0 - smoothstep((fullD ? 0.16 : 0.12) * lr, (fullD ? 0.75 : 0.55) * lr, px);
-  vec2 Gr = vec2(0.0);
-  if (rf > 0.05 && ripple > 0.001) {
-    // На high расширяем зону 2-й октавы и по глубине d, и по px, но ограничиваем по lr от алиасинга
-    float oct2D0  = fullD ? 0.55 : 0.40;
-    float oct2D1  = fullD ? 0.98 : 0.85;
-    float oct2Px0 = fullD ? min(1.6, 0.16 * lr) : min(1.1, 0.12 * lr);
-    float oct2Px1 = fullD ? min(2.8, 0.36 * lr) : min(1.8, 0.28 * lr);
-    float skipOct2 = clamp(smoothstep(oct2D0, oct2D1, d) + smoothstep(oct2Px0, oct2Px1, px), 0.0, 1.0);
-    vec2 pr1 = ww - off * 0.6;
-    vec3 n1 = vnoiseD(vec2(dot(pr1, w) / lr, dot(pr1, nrm) / (lr * 2.4)));
-    vec2 g1 = w * n1.y + nrm * (n1.z / 2.4);
-
-    vec2 gAcc = g1;
-    if (skipOct2 < 0.95) {
-      vec2 pr2 = ww - vec2(off.x * 0.88 - off.y * 0.48,
-                           off.x * 0.48 + off.y * 0.88) * 0.15;
-      vec3 n2 = vnoiseD(vec2(dot(pr2, w) / lr, dot(pr2, nrm) / (lr * 2.4)) * 2.3
-                        + vec2(5.2, 1.3));
-      vec2 g2 = w * n2.y + nrm * (n2.z / 2.4);
-      gAcc = g1 + 0.6 * g2 * (1.0 - skipOct2);
-    }
-    Gr = gAcc * ((0.075 + 0.18 * seaN) * ripple * rough * rf * uWaterTune3.x);
-  }
-
-  float damp = smoothstep(0.01, 0.25, d)
-             * mix(0.55, 1.0, smoothstep(0.0, 0.8, d))
-             * (1.0 - uClimate.y * 0.85);
-  vec2 Gt = (G * slope * mix(1.0, rough, 0.5) + Gr) * damp;
-
-  // ============================================================
-  // СЛОЙ 5. БАРАШКИ — 3 уровня LOD
-  // ============================================================
-  float foam = 0.0;
-  float capsOn = smoothstep(1.5, 6.0, sea);
-  if (capsOn > 0.02 && damp > 0.05) {
-    float foamStretch = max(0.15, uWaterTune4.z);
-    float foamWarp    = uWaterTune4.w;
-    float foamScale   = max(0.15, uWaterTune5.x);
-
-    vec2 fp = ww - off * 1.1;
-    float thr = uWaterTune1.z + 0.12 * smoothstep(2.0, 14.0, sea);
-
-    // cheap: 0 = полный, 1 = быстрый (глубокая вода / крупный пиксель / слабый ветер)
-    float cheap = clamp(smoothstep(fullD ? 0.68 : 0.55, fullD ? 0.95 : 0.85, d)
-                      + smoothstep(fullD ? 1.00 : 0.60, fullD ? 2.80 : 1.80, px)
-                      + (1.0 - smoothstep(2.0, 5.0, sea)) * 0.6, 0.0, 1.0);
-
-    float crest, breakup = 1.0;
-
-    if (cheap > 0.5) {
-      // --- Быстрый путь: один шум, крупные барашки ---
-      float coarse = vnoise((ww - off * 0.9) / (L0 * 1.4 * foamScale)
-                            + vec2(7.7, 4.3));
-      crest = clamp(hs, -0.6, 0.6) + (coarse - 0.5) * 0.38;
-    } else {
-      // --- Полный путь (как было) ---
-      vec2 warpF = (vnoiseD(fp * 0.09 * foamScale + vec2(1.7, 8.3)).yz)
-                   * (foamWarp * 0.85);
-      vec2 fpWarp = fp + warpF * (L0 * 0.5);
-
-      float uDist = dot(fpWarp, w)   / (L0 * 0.75 * foamStretch / foamScale);
-      float vDist = dot(fpWarp, nrm) / (L0 * 0.45 / (foamStretch * foamScale));
-      float streak = vnoise(vec2(uDist, vDist) + 7.7);
-      float bubble = vnoise(fpWarp * 0.35 * foamScale + vec2(11.2, 4.3));
-      crest = clamp(hs, -0.6, 0.6) + (streak - 0.5) * 0.42
-                                   + (bubble - 0.5) * 0.18;
-
-      float bk1 = vnoise(ww * 0.22 * foamScale + vec2(3.1, 7.7));
-      float bk2 = vnoise(ww * 0.37 * foamScale + vec2(8.3, 2.1));
-      breakup = bk1 * 0.6 + bk2 * 0.4 + bubble * 0.25;
-    }
-
-    float foamMask = smoothstep(thr - 0.04, thr + 0.12, crest);
-    foamMask *= (cheap > 0.5) ? 0.85 : smoothstep(0.08, 0.52, breakup);
-
-    float foamDistFade = 1.0 - smoothstep((fullD ? 0.14 : 0.10) * Lm, (fullD ? 0.52 : 0.40) * Lm, px);
-    foam = foamMask * capsOn * smoothstep(0.03, 0.20, d)
-         * foamDistFade * uWaterTune1.w;
-  }
-
-  return vec4(Gt, foam, hs);
-
-}
-
-// =========================================================================
-// БЕРЕГОВОЙ ПРИБОЙ (SURF ZONE)
-// Волны накатывают на берег, разбиваются и дают обратную пену.
-//   wp        — мировые XZ
-//   d         — shore distance 0..1 (ex.r)
-//   t         — время
-//   sea       — uWater.z
-//   wDirW     — нормированное направление ветра в плоскости XZ
-//   shoreN    — нормаль берега (указывает ОТ берега В воду)
-//   isRiver   — 0..1 (масштаб ослабления)
-// Возвращает: x = пена (0..1), y = вспухание нормали (0..1)
-// =========================================================================
-vec2 surfZone(vec2 wp, float d, float t, float sea,
-              vec2 wDirW, vec2 shoreN, float isRiver) {
-  // Быстрый выход: прибой существует только у берега (d < 0.55)
-  if (d > 0.55) return vec2(0.0, 0.0);
-
-  float barW      = uWaterTune2.x;
-  float brkSpeed  = uWaterTune2.y;
-  float bwDecay   = uWaterTune2.z;
-  float edgeAmt   = uWaterTune2.w;
-  float onshoreK  = uWaterTune3.y;
-  float spread    = uWaterTune3.z;
-
-  float backReach = max(0.01, uWaterTune5.y); // Дальность отката в воду
-  float backStr   = uWaterTune5.z;            // Сила отката
-  float backTurb  = max(0.1, uWaterTune5.w);  // Иссечённость струй
-
-  // Учитываем дальность обратного отката при раннем отсечении
-  float maxReach = max(barW * 1.15 + 0.05, 0.28 * backReach);
-  if (d > maxReach && barW > 0.9) return vec2(0.0, 0.0);
-
-  float onshore  = max(0.0, -dot(wDirW, shoreN));
-  float distanceFade = 1.0 - smoothstep(0.40, 0.90, d);
-  if (distanceFade < 0.005) return vec2(0.0, 0.0);
-  float onshoreS = smoothstep(0.0, max(0.01, onshoreK), onshore);
-
-  float barFreq = clamp((uWaterFullDetail == 1 ? 0.75 : 0.5) / max(gPX, 1.0), 0.005, 0.05);
-float barN = vnoise(wp * barFreq + vec2(4.1, 2.7));
-float dLoc = d + (barN - 0.5) * barW * 0.15;
-
-  float surfF  = smoothstep(barW, 0.03, dLoc) * smoothstep(0.0, 0.005, dLoc);
-
-  float waveK  = 7.5 + sea * 0.4;
-  float phIn   = -dLoc * waveK + t * brkSpeed * (0.75 + sea * 0.12);
-  float cyc    = fract(phIn);
-  float crest  = smoothstep(0.78, 0.96, cyc) * (1.0 - smoothstep(0.96, 1.0, cyc));
-  float face   = smoothstep(0.28, 0.82, cyc);
-  float shoal  = smoothstep(barW, 0.01, dLoc);
-  float breakF = (crest + face * 0.4) * surfF * onshoreS * shoal;
-  breakF      *= 0.7 + 0.6 * vnoise(wp * 0.7 + vec2(t * 0.4, 0.0));
-
-  float phRef  = dLoc * 9.0 - t * (1.05 + sea * 0.15) * brkSpeed;
-  float refW   = sin(phRef * 6.28318) * 0.5 + 0.5;
-  float decay  = exp(-dLoc * bwDecay);
-  float refF   = refW * decay * surfF * onshoreS * 0.8;
-
-  float edgeF  = (1.0 - smoothstep(0.0, 0.024, dLoc))
-               * (edgeAmt + 0.55 * onshoreS)
-               * (0.35 + 0.65 * vnoise(wp * 5.0 + vec2(0.0, t * 0.35)));
-
-  float phLag  = fract(phIn + 0.18);
-  float lagW   = smoothstep(0.05, 0.35, phLag) * (1.0 - smoothstep(0.70, 0.95, phLag));
-  float resF   = lagW * surfF * onshoreS * 0.45
-               * (0.45 + 0.55 * vnoise(wp * 2.8 + t * 0.45));
-
-  // -------------------------------------------------------------
-  // ОБРАТНЫЙ НАКАТ (ПЕНА, УХОДЯЩАЯ ОТ БЕРЕГА ВГЛУБЬ ВОДЫ СТРУЯМИ)
-  // -------------------------------------------------------------
-  float backwashFoam = 0.0;
-  if (backStr > 0.01 && onshoreS > 0.05) {
-    vec2 shoreTan = vec2(-shoreN.y, shoreN.x);
-    float alongShore = dot(wp, shoreTan);
-
-    // Искривление струй отбоя ветром и вихрями
-    float warpBack = vnoise(wp * 0.06 * backTurb + vec2(t * 0.2, 0.0)) * 2.5;
-    float streamPhase = alongShore * (0.18 * backTurb) + warpBack;
-
-    // Продольные нити/рипы пены, текущие назад
-    float ripStream = vnoise(vec2(streamPhase, d * 18.0 - t * (0.8 + sea * 0.1) * brkSpeed));
-    ripStream = smoothstep(0.38, 0.76, ripStream);
-
-    float maxD = 0.22 * backReach;
-    float distFade = smoothstep(maxD, 0.01, d) * smoothstep(0.002, 0.03, d);
-    backwashFoam = ripStream * distFade * onshoreS * (backStr * 1.6);
-
-
-  }
-
-  float foam = clamp(max(max(max(breakF, refF), max(edgeF, resF)), backwashFoam), 0.0, 1.0);
-  foam *= (1.0 - isRiver * 0.55) * spread;
-  foam = clamp(foam, 0.0, 1.0);
-
-  float hBoost = breakF * 0.05 + refF * 0.02;
-  foam  *= distanceFade;
-hBoost *= distanceFade;
-  return vec2(foam, hBoost);
-}
-
-uniform sampler2D uSkyRefl;
-uniform float uSkyReflEnc;
-vec3 sampleReflectedSky(vec3 rd) {
-  float y = clamp(rd.y, 0.002, 1.0);
-  float u = atan(rd.z, rd.x) * 0.15915494 + 0.5;
-  float v = sqrt(y);
-  vec3 c = textureLod(uSkyRefl, vec2(u, v), 0.0).rgb;
-  if (uSkyReflEnc > 0.5) {
-    c = pow(c, vec3(2.2));
-    c = c / max(1.0 - c, vec3(1e-4));
-  }
-  return c;
-}
-vec3 shadeWater(vec3 V, vec2 wp, vec2 uv, float shore, vec3 bottom, vec3 sunC, float vis, float cs){
-  // ===== РЕЖИМ ПРОСТОЙ ВОДЫ (БЕЗ ВОЛН, ПЕНЫ И ТРАССИРОВКИ ОТРАЖЕНИЙ) =====
-  if (uWater.w > 0.5) {
-    vec3 N = vec3(0.0, 1.0, 0.0);
-    float d = clamp(shore, 0.0, 1.0);
-
-    // Голубовато-синий у берега -> насыщенный синий на глубине
-    vec3 shallowBlue = lin(vec3(0.14, 0.42, 0.72));
-    vec3 deepBlue    = lin(vec3(0.05, 0.18, 0.48));
-    vec3 baseCol = mix(shallowBlue, deepBlue, smoothstep(0.0, 0.55, d));
-
-    vec3 waterBody = baseCol * (uAmb.rgb * 1.45 + sunC * 0.35 * vis);
-
-    // Лёгкий френель неба и солнечный блик
-    float fres = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 4.0);
-    vec3 sky = mix(uSkyHor.rgb, uSkyTop.rgb, 0.5);
-    vec3 finalCol = mix(waterBody, sky, fres * 0.65);
-    finalCol += sunC * pow(max(dot(reflect(-V, N), uLight.xyz), 0.0), 120.0) * 0.8 * vis;
-    return finalCol;
-  }
-  float tGlobal = uCam.w * uMode.z;
-  float tFlow = tGlobal * max(0.1, uWaterTune4.y); // скорость течения
-  float tWave = tGlobal * max(0.1, uWaterTune4.x); // скорость волн и прибоя
-  float S = max(uScene.x, uScene.y);
-
-  float shoreJitter = (vnoise(wp * 0.4) - 0.5) * 0.015;
-  float d = clamp(shore + shoreJitter, 0.0, 1.0);
-
-  vec4 flowData = texture(uWaterFlow, uv);
-  vec2 flowDir = (flowData.rg - 0.5) * 2.0;
-  float flowSpeed = flowData.b;
-  float isRiver = smoothstep(0.15, 0.45, flowSpeed);
-
-  // Реальная глубина из батиметрии
-  float realDepthM = flowData.a * 60.0;
-  if (realDepthM < 0.05) {
-    realDepthM = max(0.0, shore) * 12.0;
-  }
-
-  vec3 wn;
-  float foam = 0.0;
-  float wHgt = 0.5;
-
-  // 1. ВОЛНЕНИЕ ОЗЁР И ДИНАМИЧЕСКОЕ ТЕЧЕНИЕ РЕК
-  if (isRiver > 0.05) {
-    vec2 flowNorm = normalize(flowDir + vec2(1e-4));
-    vec2 riverCoord = wp * 0.18;
-    float spd = (0.35 + flowSpeed * 0.9);
-    float phase0 = fract(tFlow * spd);
-    float phase1 = fract(tFlow * spd + 0.5);
-    float blendWeight = abs(2.0 * phase0 - 1.0);
-
-    vec2 uvFlow0 = riverCoord - flowNorm * phase0 * 3.5;
-    vec2 uvFlow1 = riverCoord - flowNorm * phase1 * 3.5;
-    vec2 perpDir = vec2(-flowNorm.y, flowNorm.x);
-    float stretch0 = dot(uvFlow0, flowNorm) * 0.5 + dot(uvFlow0, perpDir) * 1.8;
-    float stretch1 = dot(uvFlow1, flowNorm) * 0.5 + dot(uvFlow1, perpDir) * 1.8;
-
-    float wave0 = fbm(vec2(stretch0, dot(uvFlow0, perpDir) * 2.5));
-    float wave1 = fbm(vec2(stretch1, dot(uvFlow1, perpDir) * 2.5));
-    float riverHeight = mix(wave0, wave1, blendWeight);
-
-    vec2 e = vec2(0.04, 0.0);
-    float rhX = mix(fbm(vec2(stretch0 + e.x, dot(uvFlow0 + e, perpDir) * 2.5)),
-                    fbm(vec2(stretch1 + e.x, dot(uvFlow1 + e, perpDir) * 2.5)), blendWeight);
-    float rhZ = mix(fbm(vec2(stretch0 + e.y, dot(uvFlow0 + e.yx, perpDir) * 2.5)),
-                    fbm(vec2(stretch1 + e.y, dot(uvFlow1 + e.yx, perpDir) * 2.5)), blendWeight);
-
-    wn = normalize(vec3((riverHeight - rhX) * 2.8, 1.0, (riverHeight - rhZ) * 2.8));
-    foam = smoothstep(0.65, 0.90, riverHeight) * 0.55 * isRiver;
-  } else {
-    vec2 p = wp / (S / 50.0);
-    vec4 ww = windWaves(wp, d, tWave);
-    wn   = normalize(vec3(-ww.x, 1.0, -ww.y));
-    wHgt = ww.w;
-    foam = ww.z;
-  }
-
-
-  // =========================================================================
-  // БЕРЕГОВОЙ ПРИБОЙ: накат, разбивание и обратная пена
-  // =========================================================================
-   if (d < 0.6) {
-    float eu = 1.5 / max(uScene2.x, 1.0);
-    float ev = 1.5 / max(uScene2.y, 1.0);
-    float dL = (texture(uExtra, uv + vec2(-eu, 0.0)).r - 0.5) * 2.0;
-    float dR = (texture(uExtra, uv + vec2( eu, 0.0)).r - 0.5) * 2.0;
-    float dD = (texture(uExtra, uv + vec2(0.0, -ev)).r - 0.5) * 2.0;
-    float dU = (texture(uExtra, uv + vec2(0.0,  ev)).r - 0.5) * 2.0;
-    vec2  shoreN = normalize(vec2(dR - dL, dU - dD) + vec2(1e-5));
-
-    vec2  wDirW = normalize(uWind.xy + vec2(1e-5));
-    vec2  surf  = surfZone(wp, d, tWave, uWater.z, wDirW, shoreN, isRiver);
-
-    foam = max(foam, surf.x);
-    if (surf.y > 0.001) {
-      wn = normalize(wn + vec3(shoreN.x * surf.y * 3.0, 0.0, shoreN.y * surf.y * 3.0));
-    }
-  }
-
-  // 2. ЛЁД: маски считаем ДО воды. Если вода полностью скрыта льдом,
-  //    дорогие отражения и подводная часть не нужны (результат тот же: mix(.., litIce, 1.0)).
-  float freezeProg = uClimate.y;
-  float snowCover  = uGnd.w;
-  float netFreeze = 0.0, solidIce = 0.0, floes = 0.0, totalIceMask = 0.0, iceDist = 0.0;
-  if (freezeProg >= 0.003) {
-    float currentResist = isRiver * 0.42;
-    netFreeze = clamp((freezeProg - currentResist) / max(1.0 - currentResist, 0.01), 0.0, 1.0);
-    if (netFreeze >= 0.003) {
-      float macroCoast = vnoise(wp * 0.008) * 0.65 + vnoise(wp * 0.024 + vec2(3.1, 7.4)) * 0.35;
-      float coastJitter = (macroCoast - 0.5) * 0.26;
-      float iceReach = clamp(netFreeze * 1.18, 0.0, 1.0);
-      iceDist = d - coastJitter;
-
-      solidIce = 1.0 - smoothstep(iceReach - 0.07, iceReach + 0.07, iceDist);
-      if (netFreeze > 0.95) solidIce = 1.0;
-
-      float floeNoise = vnoise(wp * 0.032);
-      floes = smoothstep(0.40, 0.75, abs(fract(floeNoise * 3.0) - 0.5) * 2.0)
-              * (1.0 - smoothstep(iceReach, iceReach + 0.16, iceDist))
-              * smoothstep(iceReach - 0.10, iceReach, iceDist)
-              * netFreeze * (1.0 - solidIce);
-      totalIceMask = clamp(solidIce + floes * 0.75, 0.0, 1.0);
-    }
-  }
-  bool fullIce = totalIceMask >= 0.9999;
-
-  // 3. ОСВЕЩЕНИЕ, ФРЕНЕЛЬ И ОТРАЖЕНИЕ НЕБА (нужно и воде, и льду)
-  vec3 R = reflect(-V, wn);
-  if (R.y < 0.0) R = normalize(vec3(R.x, -R.y * 0.35 + 0.004, R.z));
-
-  vec3 traceR = R;
-  vec3 finalSky = sampleReflectedSky(R); // <-- добавить эту строку
-  vec3 reflectedEnv = finalSky;
-
-  vec3 iceNorm = vec3(0.0, 1.0, 0.0);
-  vec3 iceRefl = R;
-  float iceRoughness = 0.15;
-
-  // Шумы льда и второй сэмпл неба вызываются ТОЛЬКО при наличии замерзания
-  if (totalIceMask > 0.002) {
-    iceNorm = normalize(vec3((vnoise(wp * 0.08) - 0.5) * 0.035, 1.0, (vnoise(wp * 0.08 + vec2(4.3, 8.1)) - 0.5) * 0.035));
-    iceRefl = reflect(-V, iceNorm);
-    iceRoughness = mix(0.15, 0.35, smoothstep(0.0, 0.5, totalIceMask));
-    vec3 iceScatter = vec3(
-      vnoise(wp * 0.35) - 0.5,
-      (vnoise(wp * 0.35 + vec2(5.2, 1.3)) - 0.5) * 0.25,
-      vnoise(wp * 0.35 + vec2(2.7, 8.4)) - 0.5
-    );
-    vec3 roughIceR = normalize(iceRefl + iceScatter * iceRoughness);
-    traceR = normalize(mix(R, roughIceR, totalIceMask));
-    reflectedEnv = sampleReflectedSky(traceR);
-  }
-
-
-  float fresPre = 0.03 + 0.97 * pow(1.0 - max(dot(wn, V), 0.0), 5.0);
-  float traceNeed = max(smoothstep(0.04, 0.14, fresPre), step(0.002, totalIceMask)); // лёд трассируем всегда
-  if (uWaterReflect == 1 && traceR.y > 0.003 && traceNeed > 0.0) {
-    float maxDist = max(uScene.x, uScene.y) * 0.65;
-    int steps = clamp(int(float(uReflectSteps) * mix(0.55, 1.0, traceNeed)), 6, 28);
-
-
-    
-    // Максимально возможная высота объектов в сцене (рельеф + деревья)
-    float canMax = 63.75 * uScene2.z * 0.85;       // для canH: без изменений
-    float canSkip = canMax * uSnowLayer.w;         // реальный потолок крон
-    float maxSceneY = (uPrecip.z * uScene.z) + canSkip;
-    
-    // Если луч направлен выше самой высокой горы, он гарантированно уходит в небо
-    float rayOriginY = vH + 0.12;
-    if (rayOriginY + traceR.y * maxDist > maxSceneY) {
-      // Сокращаем дистанцию трассировки ровно до высоты потолка сцены
-      float distToCeiling = (maxSceneY - rayOriginY) / traceR.y;
-      if (distToCeiling < maxDist) {
-        maxDist = max(distToCeiling, 5.0);
-      }
-    }
-
-    int actualSteps = steps;
-    if (traceR.y > 0.12) {
-      // Чем круче луч задирается вверх, тем меньше шагов ему нужно
-      actualSteps = max(4, int(float(steps) * (1.0 - smoothstep(0.12, 0.65, traceR.y) * 0.65)));
-    }
-
-    float stepJit = hash21(gl_FragCoord.xy);
-    vec3 ro = vec3(wp.x, rayOriginY, wp.y);
-
-    for (int i = 1; i <= 28; i++) {
-      if (i > actualSteps) break;
-      float fi = (float(i) - 0.5 + stepJit * 0.35) / float(actualSteps);
-      float tRay = pow(fi, 1.35) * maxDist;
-      vec3 qRay = ro + traceR * tRay;
-
-      // Если текущая точка луча уже выше наивысшей точки сцены — гарантированный промах
-      if (qRay.y > maxSceneY) break;
-
-      vec2 quv = vec2(qRay.x / uScene.x + 0.5, qRay.z / uScene.y + 0.5);
-      if (quv.x < 0.0 || quv.x > 1.0 || quv.y < 0.0 || quv.y > 1.0) break;
-
-
-      float qWater = textureLod(uWaterFlow, quv, 0.0).a;
-       float th = (textureLod(uHeightRefl, quv, 0.0).r - uScene.w) * uScene.z;
-
-       if (qRay.y > maxSceneY) break;
-
-       float groundDist = qRay.y - th;
-       if (groundDist > canSkip && qWater < 0.25) {
-         continue;
-       }
-
-       // Над водой (qWater >= 0.25) игнорируем самопересечение с кривым R16F-рельефом,
-       // пока луч не встретит реальную высокую скалу или дерево
-       float selfBias = mix(0.35, 3.0, step(0.25, qWater)) * max(uScene.z, 1.0);
-       bool hit = (groundDist <= -selfBias) && (qWater < 0.25 || th > vH + selfBias);
-       bool hitTree = false;
-       if (!hit) {
-         float canH = textureLod(uCanopy, quv, 0.0).r * canMax;
-         hit = (canH > 1.0) && (qRay.y <= th + canH) && (qRay.y > th + 0.35);
-         hitTree = hit;
-       }
-
-      if (hit) {
-        vec3 hitCol;
-        if (hitTree) {
-          vec3 treeLeaf = mix(lin(vec3(0.08, 0.19, 0.09)), lin(vec3(0.62, 0.42, 0.08)), uSeason.y);
-          treeLeaf = mix(treeLeaf, lin(vec3(0.28, 0.22, 0.16)), (1.0 - uSeason.x) * 0.8);
-          hitCol = treeLeaf * (uAmb.rgb * 1.4 + sunC * 0.55);
-        } else {
-          if (uMode.x > 4.5 && uMode.x < 5.5) {
-            hitCol = pow(textureLod(uBasemap, quv, 0.0).rgb, vec3(2.2)) * 0.85;
-          } else {
-            hitCol = lin(vec3(0.35, 0.38, 0.24)) * (uAmb.rgb * 1.25 + sunC * 0.45);
-          }
-        }
-        float distFade = smoothstep(maxDist * 0.85, maxDist * 0.18, tRay);
-        if (totalIceMask > 0.02) {
-          hitCol = mix(hitCol, finalSky, 0.40 * totalIceMask);
-        }
-        reflectedEnv = mix(finalSky, hitCol, distFade * 0.85);
-        break;
-      }
-    }
-  }
-
-  vec3 waterFinal = vec3(0.0);
-  vec3 colEdge = vec3(0.0);
-  if (!fullIce) {
-    float overcastW = smoothstep(0.20, 0.85, uSkyTop.w); // <-- ДОБАВИТЬ ЭТУ СТРОКУ
-    float winterW = clamp(max(uGnd.w, smoothstep(3.0, -4.0, uClimate.z)) * 0.95 + uClimate.y * 0.85, 0.0, 1.0);
-    float autumnW = clamp(uSeason.y * (1.0 - winterW), 0.0, 1.0);
-    float springW = clamp((1.0 - winterW) * (1.0 - autumnW) * (1.0 - uSeason.x * 0.7) * smoothstep(-2.0, 14.0, uClimate.z), 0.0, 1.0);
-    float summerW = clamp((1.0 - winterW) * (1.0 - autumnW) * (1.0 - springW) * smoothstep(8.0, 24.0, uClimate.z), 0.0, 1.0);
-    float stormW = clamp(max(uPrecip.x, uPrecip.y) * 1.3, 0.0, 1.0);
-    vec3 cSummerEdge = uWaterColSummerE.rgb;
-    vec3 cSummerMid  = uWaterColSummerM.rgb;
-    vec3 cSummerDeep = uWaterColSummerD.rgb;
-    vec3 cWinterEdge = uWaterColWinterE.rgb;
-    vec3 cWinterMid  = uWaterColWinterM.rgb;
-    vec3 cWinterDeep = uWaterColWinterD.rgb;
-    vec3 cAutumnEdge = uWaterColAutumnE.rgb;
-    vec3 cAutumnMid  = uWaterColAutumnM.rgb;
-    vec3 cAutumnDeep = uWaterColAutumnD.rgb;
-    vec3 cSpringEdge = uWaterColSpringE.rgb;
-    vec3 cSpringMid  = uWaterColSpringM.rgb;
-    vec3 cSpringDeep = uWaterColSpringD.rgb;
-    vec3 cOvercastEdge = uWaterColOvercastE.rgb;
-    vec3 cOvercastMid  = uWaterColOvercastM.rgb;
-    vec3 cOvercastDeep = uWaterColOvercastD.rgb;
-
-    colEdge = cSummerEdge * summerW + cWinterEdge * winterW + cAutumnEdge * autumnW + cSpringEdge * springW;
-    vec3 colMid  = cSummerMid  * summerW + cWinterMid  * winterW + cAutumnMid  * autumnW + cSpringMid  * springW;
-    vec3 colDeep = cSummerDeep * summerW + cWinterDeep * winterW + cAutumnDeep * autumnW + cSpringDeep * springW;
-
-    float totW = summerW + winterW + autumnW + springW;
-    if (totW > 0.001) { colEdge /= totW; colMid /= totW; colDeep /= totW; }
-
-    float grayFactor = clamp(overcastW * 0.75 + stormW * 0.35, 0.0, 1.0);
-    colEdge = mix(colEdge, cOvercastEdge, grayFactor);
-    colMid  = mix(colMid,  cOvercastMid,  grayFactor);
-    colDeep = mix(colDeep, cOvercastDeep, grayFactor);
-
-    float edgeBlend = smoothstep(0.0, 0.45, d);
-    float deepBlend = smoothstep(0.30, 0.90, d);
-    vec3 waterGradient = mix(colEdge, colMid, edgeBlend);
-    waterGradient = mix(waterGradient, colDeep, deepBlend);
-    vec3 riverPalette = mix(colMid, colDeep, 0.35);
-    vec3 baseWater = mix(waterGradient, riverPalette, isRiver * 0.45);
-    float waveK = clamp(uWater.z / 12.0, 0.0, 1.0);
-
-    float troughFactor = 1.0 - smoothstep(-0.4, -0.1, wHgt);
-    baseWater = mix(baseWater, baseWater * 0.5, troughFactor * 0.4 * waveK);
-
-    float seaR = clamp(uWater.z / 12.0, 0.0, 1.0);
-
-    float sunBreak = (1.0 - cs) * vis;
-    float sss = pow(1.0 - clamp(d, 0.0, 1.0), 2.2) * sunBreak * (1.0 - overcastW * 0.75);
-    vec3 internalGlow = colEdge * (sunC * 0.45) * sss;
-
-    vec3 waterBody = baseWater * (uAmb.rgb * 1.35 + sunC * (0.24 + sss * 0.25) * vis);
-    float depthFade = clamp(1.0 - exp(-realDepthM * 0.35), 0.0, 1.0);
-    float bottomFade = max(smoothstep(0.0, 0.25, d), depthFade);
-    vec3 litBottom = bottom * (uAmb.rgb * 1.1 + sunC * 0.4 * vis);
-    waterBody = mix(litBottom, waterBody, bottomFade);
-    waterBody += internalGlow;
-
-    float fres = 0.03 + 0.97 * pow(1.0 - max(dot(wn, V), 0.0), 5.0);
-    fres *= mix(1.0, 0.65, seaR);
-
-    waterFinal = mix(waterBody, reflectedEnv, clamp(fres, 0.0, 1.0));
-    float glintPow = isRiver > 0.5 ? 240.0 : mix(520.0, 350.0, seaR);
-    waterFinal += sunC * pow(max(dot(R, uLight.xyz), 0.0), glintPow) * (3.5 * mix(1.0, 0.08, seaR)) * vis;
-    if (uWind.w > 0.002 || uBolt.w > 0.002) {
-      vec3 bWorld = vec3(wp.x, vH, wp.y);
-      float bDist = length(bWorld - uBolt.xyz);
-      float bRad  = max(uScene.x, uScene.y) * 0.34;
-      float bLoc  = uBolt.w / (1.0 + (bDist / bRad) * (bDist / bRad));
-      vec3 bDir   = normalize(uBolt.xyz + vec3(0.0, 40.0, 0.0) - bWorld);
-      float bSpec = pow(max(dot(R, bDir), 0.0), mix(90.0, 32.0, seaR)) * (1.2 + 1.4 * bLoc);
-      waterFinal += uBoltCol.rgb * ((uWind.w * 0.16 + bLoc * 0.55) * fres + bSpec * 0.85);
-    }
-    waterFinal += lin(vec3(0.95)) * foam * 0.45 * (uAmb.rgb + sunC * 0.5 * vis);
-  }
-
-  // 4. ЛЁДОСТАВ
-  if (totalIceMask < 0.002) return waterFinal;
-
-  // ОПРЕДЕЛЕНИЕ ПОЗДНЕЙ ВЕСНЫ:
-  float springLeaf = smoothstep(0.30, 0.75, uSeason.x) * (1.0 - smoothstep(0.05, 0.30, uSeason.y));
-  float thawWarmth = smoothstep(-1.0, 7.0, uClimate.z);
-  float lateSpringK = clamp(springLeaf * 0.85 + thawWarmth * springLeaf * 0.5, 0.0, 1.0);
-
-  // ОПРЕДЕЛЕНИЕ ПОЗДНЕЙ ОСЕНИ (предзимье, перволедье):
-  float lateAutumnK = smoothstep(0.25, 0.75, uSeason.y) * smoothstep(0.65, 0.35, uSeason.x);
-
-  // Зимняя палитра (яркая сине-бирюзовая)
-  vec3 winterDeepBlue  = lin(vec3(0.04, 0.28, 0.48));
-  vec3 winterMidTeal   = lin(vec3(0.14, 0.52, 0.64));
-  vec3 winterFrostTint = lin(vec3(0.80, 0.92, 0.98));
-
-  // Поздневесенняя палитра (серая, сыро-синяя, свинцово-водянистая)
-  vec3 springDeepBlue  = lin(vec3(0.13, 0.18, 0.24));
-  vec3 springMidTeal   = lin(vec3(0.22, 0.28, 0.33));
-  vec3 springFrostTint = lin(vec3(0.44, 0.50, 0.56));
-
-  // Позднеосенняя палитра ("чёрный лёд", глубокий тёмно-серо-синий #28313e):
-  vec3 autumnDeepBlue  = lin(vec3(0.106, 0.137, 0.173)); // глубина (~ #1b232c)
-  vec3 autumnMidTeal   = lin(vec3(0.157, 0.192, 0.243)); // чистый #28313e
-  vec3 autumnFrostTint = lin(vec3(0.260, 0.310, 0.380)); // приглушенные холодные прожилки трещин
-
-  vec3 iceDeepBlue  = mix(winterDeepBlue,  springDeepBlue,  lateSpringK);
-  vec3 iceMidTeal   = mix(winterMidTeal,   springMidTeal,   lateSpringK);
-  vec3 iceFrostTint = mix(winterFrostTint, springFrostTint, lateSpringK);
-
-  // Применяем палитру #28313e для поздней осени
-  iceDeepBlue  = mix(iceDeepBlue,  autumnDeepBlue,  lateAutumnK);
-  iceMidTeal   = mix(iceMidTeal,   autumnMidTeal,   lateAutumnK);
-  iceFrostTint = mix(iceFrostTint, autumnFrostTint, lateAutumnK);
-
-  float iceThickness = clamp((1.0 - d * 0.45) * netFreeze + solidIce * 0.35, 0.0, 1.0);
-  vec3 iceBaseCol = mix(iceDeepBlue, iceMidTeal, iceThickness);
-
-
-  // Трещины и снег влияют только там, где есть сплошной лёд (множитель solidIce)
-  float totalCracks = 0.0;
-  if (solidIce > 0.0) {
-    vec2 cp = wp * 0.012;
-    vec2 warp = vec2(vnoise(cp * 0.6 + vec2(1.7, 9.2)), vnoise(cp * 0.6 + vec2(8.3, 2.8))) * 1.75;
-    vec2 p1 = cp + warp;
-    mat2 rot60 = mat2(0.5, -0.866, 0.866, 0.5);
-    vec2 p2 = rot60 * cp + warp.yx;
-
-    float n1 = abs(vnoise(p1 * 1.5) - 0.5) * 2.0;
-    float n2 = abs(vnoise(p2 * 1.5 + vec2(4.1, 7.3)) - 0.5) * 2.0;
-    float crackDist = min(n1, n2);
-    float mainCracks = smoothstep(0.04, 0.0, crackDist);
-    float crackHalo  = smoothstep(0.12, 0.0, crackDist) * 0.35;
-    float crackMask = smoothstep(0.35, 0.72, vnoise(wp * 0.0035 + vec2(2.1, 5.4)));
-    totalCracks = (mainCracks + crackHalo) * crackMask * solidIce;
-    iceBaseCol = mix(iceBaseCol, iceFrostTint, totalCracks * 0.85);
-  }
-
-vec3 litIce = iceBaseCol * (uAmb.rgb * 1.35 + sunC * 0.35 * vis);
-
-  float iceFresnel = 0.04 + 0.96 * pow(1.0 - max(dot(iceNorm, V), 0.0), mix(4.5, 3.2, lateSpringK));
-  // Теперь лёд отражает рельеф и деревья (reflectedEnv), а не просто плоский градиент неба
-  litIce = mix(litIce, reflectedEnv, iceFresnel * mix(0.55, 0.75, lateSpringK));
-
-  // Блик солнца на льду становится более матовым и рассеянным
-  float iceSpecPow = mix(140.0, 35.0, iceRoughness);
-  float iceSpec = pow(max(dot(iceRefl, uLight.xyz), 0.0), iceSpecPow) * mix(3.0, 1.2, iceRoughness) * vis;
-  litIce += sunC * iceSpec * (1.0 - totalCracks * 0.4);
-
-  if (snowCover > 0.03 && solidIce > 0.0 && lateAutumnK < 0.5) {
-    vec2 wDir = normalize(uWind.xy + vec2(1e-4));
-    vec2 pDir = vec2(-wDir.y, wDir.x);
-    vec2 driftCoord = vec2(dot(wp, wDir) * 0.015, dot(wp, pDir) * 0.05);
-    float sastrugi = vnoise(driftCoord) * 0.32;
-    float snowNoise = vnoise(wp * 0.035) * 0.5 + 0.5;
-
-    float snowThreshold = mix(1.15, -0.40, pow(snowCover, 1.1)) - sastrugi;
-    float snowMask = smoothstep(snowThreshold, snowThreshold + 0.22, snowNoise);
-
-    if (snowCover > 0.85) {
-      float buryIce = (snowCover - 0.85) / 0.15;
-      snowMask = mix(snowMask, 1.0, buryIce);
-    }
-    float blizzBury = max(uCloudParams.w, clamp(uPrecip.y * 1.4, 0.0, 1.0));
-    if (blizzBury > 0.15 && snowCover > 0.5) {
-      snowMask = mix(snowMask, 1.0, blizzBury);
-    }
-    vec3 terrainSnowCol = lin(vec3(0.95, 0.97, 1.0)) * (uAmb.rgb + sunC * vis);
-    
-    // Весенняя талая серо-синяя снежная каша на льду:
-    vec3 wetSlushCol = lin(vec3(0.45, 0.52, 0.58)) * (uAmb.rgb * 1.1 + sunC * 0.5 * vis);
-    vec3 finalIceSnow = mix(terrainSnowCol, wetSlushCol, lateSpringK * 0.85);
-
-    litIce = mix(litIce, finalIceSnow, clamp(snowMask, 0.0, 1.0) * solidIce);
-  }
-
-  return fullIce ? litIce : mix(waterFinal, litIce, totalIceMask);
-}
-void main(){
-  vec3 V = normalize(uCam.xyz - vWorld);
-  vec3 N = normalize(vN);
-  vec2 wp = vWorld.xz;
-
-  vec2 dwpX = dFdx(wp);
-  vec2 dwpY = dFdy(wp);
-  vec2 fwWp = abs(dwpX) + abs(dwpY);
-  gPX = max(fwWp.x, fwWp.y); 
-
-  float mode = uMode.x;
-  vec4 ex = texture(uExtra, vUV);
-  int c00 = clamp(int(texture(uClass, vUV).r * 255.0 + 0.5), 0, 39);
-
+float gPX;
+ 
+// Солнце/облака/альпенглоу: одинаково нужно и земле, и воде (раньше считалось внутри main)
+struct SunCtx { float cs; float wxNightDark; vec3 directSun; vec3 sunCActive; float termVis; float alpenMask; vec3 alpenTint; };
+SunCtx calcSun(vec2 wp){
+  SunCtx r;
   float night = uSunCol.w;
   float wxNightDark = mix(1.0, uNightTune2.x, night * smoothstep(0.2, 0.8, uSkyTop.w));
   float cs = cloudShadow(wp);
@@ -6125,144 +5990,300 @@ void main(){
   float sunIntensity = (uSkyTop.w < 0.02) ? uCloudExtra.y : mix(max(0.05, uCloudExtra.y), cloudDarkness, cs);
   vec3 spotWarmth = mix(vec3(1.0), vec3(1.22, 1.06, 0.82), clamp((uCloudExtra.y - 1.0) * 0.35, 0.0, 1.0));
   vec3 sunC = uSunCol.rgb * spotWarmth * uLight.w * sunIntensity;
-
+ 
   float termVis, alpenMask, alpenEdge;
   vec3 alpenTint;
   evalAlpenglow(vWorld.y, termVis, alpenMask, alpenTint, alpenEdge);
   vec3 sunCActive = mix(sunC, alpenTint * max(length(sunC), 0.01) * 1.08, alpenEdge * 0.72);
   vec3 directSun = sunCActive * termVis;
-
-  vec2 sh = uMode.y > 0.5 ? texture(uShadow, vUV).rg : vec2(1.0);
-
-  vec4 flowData = texture(uWaterFlow, vUV);
-  float shoreSigned = (ex.r - 0.5) * 2.0;
-  float shoreNoise = (vnoiseF(wp * 0.04, gPX * 0.04) - 0.5) * 0.06;
-  float shorePerturbed = shoreSigned + shoreNoise;
-
-  float streamMask = smoothstep(0.04, 0.35, flowData.a) * smoothstep(0.05, 0.25, flowData.b);
-  bool canRenderWater = (mode < 0.5 || (mode > 4.5 && mode < 5.5));
-  float flatSlope = smoothstep(0.65, 0.90, N.y);
-  float lakeWater = max(smoothstep(-0.02, 0.05, shorePerturbed), (c00 == 34 ? smoothstep(-0.08, 0.02, shorePerturbed) : 0.0));
-  float waterBlend = (canRenderWater && uWater.w > -0.5) ? clamp(max(lakeWater, streamMask) * flatSlope, 0.0, 1.0) : 0.0;
-
-  if (waterBlend >= 0.995) {
-    float effShore = max(shorePerturbed, streamMask * 0.12);
-    float realDepthM = flowData.a * 60.0;
-    if (realDepthM < 0.05) {
-      realDepthM = max(0.0, effShore) * 12.0;
-    }
-    float depthFade = clamp(1.0 - exp(-realDepthM * 0.35), 0.0, 1.0);
-    float bottomFade = max(smoothstep(0.0, 0.25, effShore), depthFade);
-
-    vec3 albW = vec3(0.0);
-    if (bottomFade < 0.999) {
-      if (mode > 4.5 && mode < 5.5) {
-        albW = pow(textureLod(uBasemap, vUV, 0.0).rgb, vec3(2.2));
-      } else if (c00 == 34) {
-        albW = lin(vec3(0.32, 0.40, 0.35));
-      } else {
-        float ts = sqrt(max(1.0 - N.y * N.y, 0.0)) / max(N.y, 0.05);
-        float eAbs = vH / max(uScene.z, 1e-3) + uScene.w;
-        float n1 = texture(uNoiseTex, wp * 0.004).r;
-        float n2 = texture(uNoiseTex, wp * 0.001 + vec2(0.37, 0.71)).g;
-        float fieldWarp = texture(uNoiseTex, wp * 0.0003).b;
-        albW = oneCls(c00, wp, ts, eAbs, n1, n2, fieldWarp, 0.0, ex.g).rgb;
-      }
-    }
-
-    vec3 colW = shadeWater(V, wp, vUV, effShore, albW, directSun * wxNightDark, sh.g, cs);
-    if (uRoadParams.w > 0.5) {
-      vec2 gDist = abs(fract(wp / 1000.0 - 0.5) - 0.5) / max(fwWp / 1000.0, vec2(1e-5));
-      float gLine = 1.0 - clamp(min(gDist.x, gDist.y) - 0.90, 0.0, 1.0);
-      vec2 gDist100 = abs(fract(wp / 100.0 - 0.5) - 0.5) / max(fwWp / 100.0, vec2(1e-5));
-      float gSub = (1.0 - clamp(min(gDist100.x, gDist100.y) * 1.45 - 0.02, 0.0, 1.0)) * 0.25;
-      colW = mix(colW, lin(vec3(0.95, 0.98, 1.0)), clamp(gLine * 0.85 + gSub, 0.0, 0.9) * 0.85);
-    }
-    colW = fogMix(colW, vWorld);
-    fragColor = vec4(finishColor(colW), 1.0);
-    return;
+  r.cs = cs; r.wxNightDark = wxNightDark; r.directSun = directSun; r.sunCActive = sunCActive;
+  r.termVis = termVis; r.alpenMask = alpenMask; r.alpenTint = alpenTint;
+  return r;
+}
+ 
+// 1 км сетка + 100 м подсетка (раньше дублировалась в двух ветках main)
+vec3 applyGrid(vec3 col, vec2 wp, vec2 fwWp){
+  if (uRoadParams.w > 0.5) {
+    vec2 gDist = abs(fract(wp / 1000.0 - 0.5) - 0.5) / max(fwWp / 1000.0, vec2(1e-5));
+    float gLine = 1.0 - clamp(min(gDist.x, gDist.y) - 0.90, 0.0, 1.0);
+    vec2 gDist100 = abs(fract(wp / 100.0 - 0.5) - 0.5) / max(fwWp / 100.0, vec2(1e-5));
+    float gSub = (1.0 - clamp(min(gDist100.x, gDist100.y) * 1.45 - 0.02, 0.0, 1.0)) * 0.25;
+    float gTotal = clamp(gLine * 0.85 + gSub, 0.0, 0.9);
+    col = mix(col, lin(vec3(0.95, 0.98, 1.0)), gTotal * 0.85);
   }
-
-  // === ДАЛЬШЕ — ТОЛЬКО СУША И БЕРЕГОВАЯ КРОМКА ===
-float ts = sqrt(max(1.0 - N.y * N.y, 0.0)) / max(N.y, 0.05);
-  float eAbs = vH / max(uScene.z, 1e-3) + uScene.w;
-
+  return col;
+}
+`;
+ 
+// [ДОБАВИТЬ] примитивы скал (triplanar-ridge). Берутся из старых строк 5419, 5441–5459
+const GLSL_ROCK_PRIM = `vec3 rockCol(vec2 wp, float n1){ return lin(mix(vec3(.38,.36,.33),vec3(.58,.55,.5),n1)); }
+const float ROCK_BUMP = 2.0;   // «амплитуда» бампа, регулируйте
+ 
+vec3 triW(vec3 n){ vec3 w = pow(abs(n), vec3(4.0)); return w / (w.x + w.y + w.z + 1e-4); }
+ 
+float triS(vec3 p, vec3 w, float f, vec4 m){
+  float lod = clamp(log2(max(gPX * f * 128.0, 1.0)), 0.0, 6.0);
+  vec4 x = textureLod(uNoiseTex, p.zy * f, lod);
+  vec4 y = textureLod(uNoiseTex, p.xz * f, lod);
+  vec4 z = textureLod(uNoiseTex, p.xy * f, lod);
+  return dot(x, m) * w.x + dot(y, m) * w.y + dot(z, m) * w.z;
+}
+float ridgedF(float n){ float r = 1.0 - abs(n * 2.0 - 1.0); return r * r; }
+ 
+float triRidge(vec3 p, vec3 w){
+  float a = triS(p, w, 0.0035, vec4(1,0,0,0));
+  float b = triS(p, w, 0.011,  vec4(0,1,0,0));
+  float c = triS(p, w, 0.034,  vec4(0,0,1,0));
+  return ridgedF(a) * 0.55 + ridgedF(b) * 0.30 + ridgedF(c) * 0.15;
+}`;
+ 
+// [ДОБАВИТЬ] ЕДИНАЯ маска воды для проходов земли и воды
+const GLSL_WATER_MASK = `
+// Маска воды. ОБЯЗАТЕЛЬНО одна и та же в проходе земли и в проходе воды,
+// иначе на кромке появятся щели или двойное покрытие.
+struct WaterMask { float blend; float shoreSigned; float shorePerturbed; float streamMask; float effShore; vec4 flow; };
+WaterMask calcWaterMask(vec2 wp, vec2 uv, vec4 ex, int c00, float nY, float mode){
+  WaterMask m;
+  m.flow = vec4(0.5, 0.5, 0.0, 0.0);
+  m.shoreSigned = (ex.r - 0.5) * 2.0;
+  m.shorePerturbed = m.shoreSigned;
+  m.streamMask = 0.0; m.blend = 0.0; m.effShore = m.shoreSigned;
+  bool canRenderWater = (mode < 0.5 || (mode > 4.5 && mode < 5.5));
+  if (uHasWater == 0 || !canRenderWater || uWater.w <= -0.5) return m;   // uniform-ветка: derivatives целы
+ 
+  m.flow = texture(uWaterFlow, uv);
+  m.streamMask = smoothstep(0.04, 0.35, m.flow.a) * smoothstep(0.05, 0.25, m.flow.b);
+  // далеко от воды (шум берега даёт максимум ±0.03) — ни одного vnoise
+  if (c00 != 34 && m.streamMask < 0.002 && m.shoreSigned < -0.16) return m;
+ 
+  float shoreNoise = (vnoiseF(wp * 0.04, gPX * 0.04) - 0.5) * 0.06;
+  m.shorePerturbed = m.shoreSigned + shoreNoise;
+  float flatSlope = smoothstep(0.65, 0.90, nY);
+  float lakeWater = max(smoothstep(-0.02, 0.05, m.shorePerturbed),
+                        (c00 == 34 ? smoothstep(-0.08, 0.02, m.shorePerturbed) : 0.0));
+  m.blend = clamp(max(lakeWater, m.streamMask) * flatSlope, 0.0, 1.0);
+  m.effShore = max(m.shorePerturbed, m.streamMask * 0.12);
+  return m;
+}
+`;
+ 
+// [ДОБАВИТЬ] чтение запечённых каскадов (macro + near)
+const GLSL_BAKE_SAMPLE = `
+precision highp sampler2DArray;
+// Слои: 0/1 = макро-каскад (вся сцена), 2/3 = ближний каскад (окно вокруг камеры)
+//   A: rgb = альбедо (гамма 1/2.2), a = «водность» (болотные лужи, класс воды)
+//   B: r = маска скал, g = ridged-значение, b = угол борозд /2π, a = амплитуда борозд /0.125
+uniform sampler2DArray uBakeArr;
+uniform vec4 uBakeRect1;   // xy = min uv сцены, zw = размер окна в uv; z <= 0 — ближний каскад выключен
+void sampleBake(vec2 uvS, out vec4 a, out vec4 b){
+  a = texture(uBakeArr, vec3(uvS, 0.0));
+  b = texture(uBakeArr, vec3(uvS, 1.0));
+  if (uBakeRect1.z > 0.0) {                               // uniform-ветка
+    vec2 q  = (uvS - uBakeRect1.xy) / uBakeRect1.zw;
+    vec2 qc = clamp(q, 0.0, 1.0);
+    vec4 a1 = texture(uBakeArr, vec3(qc, 2.0));           // оба сэмпла безусловные (derivatives)
+    vec4 b1 = texture(uBakeArr, vec3(qc, 3.0));
+    vec2 e  = min(q, 1.0 - q);
+    float k = smoothstep(0.0, 0.06, min(e.x, e.y));       // плавный переход на краю окна
+    a = mix(a, a1, k); b = mix(b, b1, k);
+  }
+}
+`;
+ 
+// -----------------------------------------------------------------------------------------------------
+// ШЕЙДЕР №0 (новый, разовый): BAKE — запекает ВСЮ тяжёлую статику суши в 2 слоя RGBA8
+//   organicClass + evalCls (Вороной пашни) + groundDetail + маска скал + triRidge + mountainRock3D
+// -----------------------------------------------------------------------------------------------------
+const GLSL_BAKE_MAIN = `
+uniform sampler2D uClass; uniform sampler2D uExtra; uniform vec4 uClsPar[40];
+uniform vec4  uBakeRect;     // xy = min uv сцены, zw = размер в uv (1,1 = вся сцена)
+uniform float uBakeTexelM;   // размер текселя в метрах — подставляется вместо screen gPX
+in vec2 vUV;
+layout(location = 0) out vec4 oA;
+layout(location = 1) out vec4 oB;
+float gPX;
+${GLSL_ROCK_PRIM}
+${GLSL_ALBEDO_LIB}
+ 
+void main(){
+  vec2 uvS = uBakeRect.xy + vUV * uBakeRect.zw;
+  vec2 wp  = (uvS - 0.5) * uScene.xy;
+  gPX = uBakeTexelM;
+ 
+  vec2 gsz  = vec2(GRID() - ivec2(1));
+  vec2 e    = 1.0 / gsz;
+  vec2 cell = uScene.xy / gsz;
+  float hl = Hbil(uvS - vec2(e.x, 0.0)), hr = Hbil(uvS + vec2(e.x, 0.0));
+  float hu = Hbil(uvS - vec2(0.0, e.y)), hd = Hbil(uvS + vec2(0.0, e.y));
+  float h0 = Hbil(uvS);
+  vec3 N = normalize(vec3((hl - hr) / (2.0 * cell.x), 1.0, (hu - hd) / (2.0 * cell.y)));
+  float ts   = sqrt(max(1.0 - N.y * N.y, 0.0)) / max(N.y, 0.05);
+  float eAbs = h0 / max(uScene.z, 1e-3) + uScene.w;
+ 
+  vec4 ex = texture(uExtra, uvS);
+  int c00 = clamp(int(texture(uClass, uvS).r * 255.0 + 0.5), 0, 39);
   float n1 = texture(uNoiseTex, wp * 0.004).r;
   float n2 = texture(uNoiseTex, wp * 0.001 + vec2(0.37, 0.71)).g;
   float fieldWarp = texture(uNoiseTex, wp * 0.0003).b;
-
-
-  vec4 gr = oneCls(c00, wp, ts, eAbs, n1, n2, fieldWarp, 0.0, ex.g);
-
-
+ 
+  int cA = c00, cB = c00; float wB = 0.0;
+  if (c00 != 34) organicClass(wp, uvS, c00, cA, cB, wB);
+ 
+  gRowAmp = 0.0;
+  vec4 gr = evalCls(cA, wp, ts, eAbs, n1, n2, fieldWarp, 0.0, ex.g);
+  float rAmp = gRowAmp, rAng = gRowAng;
+  if (wB > 0.01 && cB != cA) {
+    gRowAmp = 0.0;
+    vec4 gr2 = evalCls(cB, wp, ts, eAbs, n1, n2, fieldWarp, 0.0, ex.g);
+    gr = mix(gr, gr2, wB);
+    rAmp = mix(rAmp, gRowAmp, wB);
+    if (wB > 0.5) rAng = gRowAng;
+  }
   if (c00 == 34) gr.a = 1.0;
-
+ 
   vec3 alb = gr.rgb;
   float water = gr.a;
-  float can = texture(uCanopy, vUV).r * 63.75;
-
- float mtnRockMask = 0.0;
-  float rockRidge = 0.5;
-  vec2 slopeDir = length(N.xz) > 0.02 ? normalize(N.xz) : vec2(0.707, 0.707);
-
-  if (mode < 0.5 && water < 0.5 && c00 != 30 && c00 != 34) {
-    bool isFor = (c00 >= 5 && c00 <= 14);
+  if (water < 0.5 && c00 != 34 && c00 != 30) alb = groundDetail(alb, cA, wp, ts, ex.g);
+ 
+  // --- маска скал (как раньше в main) + макро-ridge и горная порода ---
+  float mtnRockMask = 0.0, rockRidge = 0.5;
+  if (water < 0.5 && c00 != 30 && c00 != 34) {
+    bool isFor = (cA >= 5 && cA <= 14);
     float soilN = n1 * 0.55 + n2 * 0.45;
-    // В ложбинах (ex.g > 0.5) грунт и трава забираются выше по склону, на рёбрах скалы раньше
     float organicShift = (soilN - 0.5) * 0.38 + (0.5 - ex.g) * 0.26;
-
     float altRock  = smoothstep(uAlpine.x - 160.0, uAlpine.x + 520.0, eAbs + organicShift * 420.0);
     float peakRock = smoothstep(0.22, 0.88, ex.b + organicShift * 0.45);
     float slopeRk  = isFor ? smoothstep(0.84, 1.38, ts + organicShift * 0.35)
                            : smoothstep(0.62, 1.18, ts + organicShift * 0.35);
-
     mtnRockMask = clamp(max(slopeRk, max(altRock * (isFor ? 0.80 : 0.95), peakRock)), 0.0, 1.0);
-    // Плавная S-кривая на краю вместо линейного обрезания
     mtnRockMask = smoothstep(0.05, 0.95, mtnRockMask);
   }
-
-  // На скалах считаем острый ridged-бамп (грани хребтов), на остальной земле — мягкий микрорельеф
-  if (water < 0.5 && ex.a < 0.5) {
-    float detFade = 1.0 - smoothstep(2.5, 24.0, gPX);
-    if (mtnRockMask > 0.02) {
-      rockRidge = sampleRidgeNoise(wp, slopeDir, n1);
-      if (detFade > 0.01) {
-        float eps = clamp(gPX * 1.2, 1.5, 10.0);
-        float rX = sampleRidgeNoise(wp + vec2(eps, 0.0), slopeDir, n1);
-        float rZ = sampleRidgeNoise(wp + vec2(0.0, eps), slopeDir, n1);
-        float ridgeBump = mix(0.25, 0.95, mtnRockMask) * detFade;
-        N = normalize(N + vec3((rockRidge - rX) * ridgeBump * 1.4, 0.0, (rockRidge - rZ) * ridgeBump * 1.4));
-      }
-      vec3 mRock = mountainRock(wp, rockRidge, ts, ex.g, ex.b, n1, n2);
-      alb = mix(alb, mRock, mtnRockMask);
-    } else if (detFade > 0.01) {
-      vec2 dUV = wp * 0.045;
-      float eN = 0.02;
-      float h0 = textureGrad(uNoiseTex, dUV, dwpX * 0.045, dwpY * 0.045).r;
-      float hx = textureGrad(uNoiseTex, dUV + vec2(eN, 0.0), dwpX * 0.045, dwpY * 0.045).r;
-      float hz = textureGrad(uNoiseTex, dUV + vec2(0.0, eN), dwpX * 0.045, dwpY * 0.045).r;
-      float bumpStr = mix(0.08, 0.30, smoothstep(0.35, 0.95, ts)) * detFade;
-      N = normalize(N + vec3((h0 - hx) * bumpStr, 0.0, (h0 - hz) * bumpStr));
-    }
+  if (ex.a >= 0.5 || water >= 0.5) mtnRockMask = 0.0;     // дороги и вода — без скал
+  if (mtnRockMask > 0.02) {
+    vec3 wpos3 = vec3(wp.x, h0, wp.y);
+    rockRidge = triRidge(wpos3, triW(N));                  // 9 выборок — один раз при запекании
+    vec3 mRock = mountainRock3D(wpos3, N, eAbs, rockRidge, ts, ex.g, ex.b, n1, n2);
+    alb = mix(alb, mRock, mtnRockMask);
   }
-
+ 
+  oA = vec4(pow(clamp(alb, 0.0, 1.0), vec3(1.0 / 2.2)), clamp(water, 0.0, 1.0));
+  oB = vec4(mtnRockMask, rockRidge, rAng * 0.15915494, clamp(rAmp / 0.125, 0.0, 1.0));
+}
+`;
+ 
+// -----------------------------------------------------------------------------------------------------
+// ШЕЙДЕР №1: ЛЁГКАЯ ЗЕМЛЯ (FS_TERRAIN). Один исходник → два варианта:
+//   основной  : альбедо из bake, ~1 выборка вместо evalCls/organicClass/mountainRock3D
+//   TERRAIN_ALT : режимы uMode.x > 0.5 (классы, кроны, уклоны, гипсометрия, спутник) — компилируется лениво
+// -----------------------------------------------------------------------------------------------------
+const GLSL_TERRAIN_MAIN = `
+#ifdef TERRAIN_ALT
+vec3 heat(float t){ t=clamp(t,0.,1.);
+  return t<.33?mix(vec3(.1,.35,.15),vec3(.5,.8,.2),t/.33):(t<.66?mix(vec3(.5,.8,.2),vec3(.95,.75,.1),(t-.33)/.33):mix(vec3(.95,.75,.1),vec3(.85,.15,.1),(t-.66)/.34)); }
+vec3 hypso(float t){ t=clamp(t,0.,1.);
+  return t<.25?mix(vec3(.2,.5,.35),vec3(.45,.65,.3),t/.25):(t<.5?mix(vec3(.45,.65,.3),vec3(.85,.78,.4),(t-.25)/.25):(t<.8?mix(vec3(.85,.78,.4),vec3(.55,.38,.25),(t-.5)/.3):mix(vec3(.55,.38,.25),vec3(.95),(t-.8)/.2))); }
+#endif
+ 
+void main(){
+  vec3 V = normalize(uCam.xyz - vWorld);
+  vec3 N = normalize(vN);
+  vec3 Ng = N;
+  vec2 wp = vWorld.xz;
+  vec2 dwpX = dFdx(wp);
+  vec2 dwpY = dFdy(wp);
+  vec2 fwWp = abs(dwpX) + abs(dwpY);
+  gPX = max(fwWp.x, fwWp.y);
+ 
+  float mode = uMode.x;
+  vec4 ex = texture(uExtra, vUV);
+  int c00 = clamp(int(texture(uClass, vUV).r * 255.0 + 0.5), 0, 39);
+ 
+  // ===== 1. Самый дешёвый выход: пиксель целиком под водой рисует проход воды =====
+  WaterMask wm = calcWaterMask(wp, vUV, ex, c00, Ng.y, mode);
+  if (wm.blend >= 0.995) { fragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  float waterBlend = wm.blend, shoreSigned = wm.shoreSigned, shorePerturbed = wm.shorePerturbed, streamMask = wm.streamMask;
+  bool canRenderWater = (mode < 0.5 || (mode > 4.5 && mode < 5.5));
+ 
+  SunCtx sc = calcSun(wp);
+  float night = uSunCol.w;
+  float cs = sc.cs, wxNightDark = sc.wxNightDark, termVis = sc.termVis, alpenMask = sc.alpenMask;
+  vec3 alpenTint = sc.alpenTint, sunCActive = sc.sunCActive, directSun = sc.directSun;
+  float cloudDarkness = uCloudParams.z;
+  vec2 sh = uMode.y > 0.5 ? texture(uShadow, vUV).rg : vec2(1.0);
+ 
+  // ===== 2. Геометрия и шумы, нужные снегу/свету =====
+  float ts = sqrt(max(1.0 - Ng.y * Ng.y, 0.0)) / max(Ng.y, 0.05);
+  float eAbs = vH / max(uScene.z, 1e-3) + uScene.w;
+  float n1 = texture(uNoiseTex, wp * 0.004).r;
+  float n2 = texture(uNoiseTex, wp * 0.001 + vec2(0.37, 0.71)).g;
+  float can = texture(uCanopy, vUV).r * 63.75;
+ 
+  // ===== 3. Поверхность: из bake-текстуры (основной режим) или аналитика (ALT-режимы) =====
+  vec3 alb; float water; float mtnRockMask = 0.0; float rockRidge = 0.5;
+#ifdef TERRAIN_ALT
+  water = (c00 == 34) ? 1.0 : 0.0;
   if (mode > 4.5 && mode < 5.5) {
-    vec3 sat = texture(uBasemap, vUV).rgb;
-    alb = pow(sat, vec3(2.2));
-  } else if (mode > 1.5) {
-    bool isW = (c00 == 34);
+    alb = pow(texture(uBasemap, vUV).rgb, vec3(2.2));
+  } else if (mode < 1.5) {
+    alb = lin(uClsCol[c00]);
+  } else {
     if (mode < 2.5) alb = can < 1.0 ? lin(vec3(0.42, 0.42, 0.4)) : lin(heat(can / 30.0));
     else if (mode < 3.5) alb = lin(heat(degrees(atan(ts)) / 45.0));
     else alb = lin(hypso((vH / max(uScene.z, 1e-3)) / max(uPrecip.z, 1.0)));
-    if (isW) alb = lin(vec3(0.1, 0.3, 0.7));
+    if (c00 == 34) alb = lin(vec3(0.1, 0.3, 0.7));
     water = 0.0;
   }
-
+#else
+  {
+    vec4 bA, bB;
+    sampleBake(vUV, bA, bB);
+    alb = lin(bA.rgb);
+    water = bA.a;
+    mtnRockMask = bB.r;
+    rockRidge = bB.g;
+    // борозды пашни: запечены только угол и сила, рисунок считается вблизи по экранному gPX
+    float rowAmp = bB.a * 0.125;
+    if (rowAmp > 0.002 && gPX < 0.9) {
+      float ang = bB.b * 6.2831853;
+      float u = dot(wp, vec2(cos(ang), sin(ang))) + (n1 - 0.5) * 6.0;
+      float rows = sin(u * (6.28318 / 2.8)) * rowAmp * (1.0 - smoothstep(0.7, 2.0, gPX * (6.28318 / 2.8)));
+      alb *= 1.0 + rows;
+    }
+  }
+#endif
+ 
+  // ===== 4. Микробамп нормали (скалы: запечённый ridge + 1 HF-октава; прочее: 3 выборки) =====
+  if (water < 0.5 && ex.a < 0.5) {
+    float detFade = 1.0 - smoothstep(2.5, 24.0, gPX);
+    if (detFade > 0.01) {
+      if (mtnRockMask > 0.02) {
+        vec3 w3 = triW(N);
+        float hf = ridgedF(triS(vWorld, w3, 0.034, vec4(0, 0, 1, 0)));
+        float rr = mix(rockRidge, hf, 0.5 * (1.0 - smoothstep(0.3, 2.0, gPX)));
+        float hb = rr * ROCK_BUMP * mix(0.35, 1.0, mtnRockMask) * detFade;
+        vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
+        vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
+        float det = dot(dpx, r1);
+        vec3 sg = sign(det) * (dFdx(hb) * r1 + dFdy(hb) * r2);
+        N = normalize(abs(det) * N - sg);
+      } else {
+        vec2 dUV = wp * 0.045;
+        float eN = 0.02;
+        float h0 = textureGrad(uNoiseTex, dUV, dwpX * 0.045, dwpY * 0.045).r;
+        float hx = textureGrad(uNoiseTex, dUV + vec2(eN, 0.0), dwpX * 0.045, dwpY * 0.045).r;
+        float hz = textureGrad(uNoiseTex, dUV + vec2(0.0, eN), dwpX * 0.045, dwpY * 0.045).r;
+        float bumpStr = mix(0.08, 0.30, smoothstep(0.35, 0.95, ts)) * detFade;
+        N = normalize(N + vec3((h0 - hx) * bumpStr, 0.0, (h0 - hz) * bumpStr));
+      }
+    }
+  }
+ 
+  // ===== 5. Снег, свет, блики, молнии, пляж, обрыв, пена наката — БЕЗ изменений =====
   float snowCover = uGnd.w;
   if (uSnowLayer.y > 0.5 && uSnowLayer.x > 0.01) snowCover = max(snowCover, 0.97);
   float isLateAutumn = smoothstep(0.25, 0.75, uSeason.y) * smoothstep(0.65, 0.35, uSeason.x);
   snowCover *= (1.0 - isLateAutumn);
-
+ 
   float alpineSnow = 0.0;
   if (mode < 1.5 && uAlpine.w > 0.005 && water < 0.5) {
     float altOverSnow  = smoothstep(uAlpine.y - 260.0, uAlpine.y + 300.0, eAbs);
@@ -6275,40 +6296,40 @@ float ts = sqrt(max(1.0 - N.y * N.y, 0.0)) / max(N.y, 0.05);
     alpineSnow = smoothstep(0.30, 0.66, altOverSnow + couloirBonus + northBonus + snowNoiseAmp)
                * ledgeHold * uAlpine.w;
   }
-
+ 
   vec3 preSnowAlb = alb;
   float sn = 0.0;
   if (mode < 1.5 && snowCover > 0.002) {
     vec4 warpSample = textureGrad(uNoiseTex, wp * 0.00035 + vec2(0.18, 0.43), dwpX * 0.00035, dwpY * 0.00035);
     vec2 snowWp = wp + (warpSample.rg - 0.5) * 190.0;
-
+ 
     vec2 wDir = normalize(uWind.xy + vec2(1e-4));
     vec2 pDir = vec2(-wDir.y, wDir.x);
     vec2 wCoord = vec2(dot(snowWp, wDir) * 0.0014, dot(snowWp, pDir) * 0.0048);
     float windNoise = textureGrad(uNoiseTex, wCoord, vec2(dot(dwpX, wDir) * 0.0014, dot(dwpX, pDir) * 0.0048), vec2(dot(dwpY, wDir) * 0.0014, dot(dwpY, pDir) * 0.0048)).b;
     float edgeNoise = textureGrad(uNoiseTex, snowWp * 0.0032, dwpX * 0.0032, dwpY * 0.0032).a;
     float snowNoise = mix(edgeNoise, windNoise, 0.50) * 0.70 + warpSample.b * 0.30;
-
+ 
     float hollowAcc = (ex.g - 0.5) * 0.75;
     float forestAcc = smoothstep(1.5, 12.0, can) * 0.14;
     float northAspect = clamp(-dot(N.xz, uSun.xz), -0.5, 0.5) * 0.12;
-
+ 
     float snowThreshold = mix(1.22, -0.42, pow(snowCover, 1.15)) - hollowAcc - forestAcc - northAspect;
     float slopeMask = smoothstep(0.42, 0.75, N.y);
     float waterSnowBlock = mix(1.0 - water, 1.0, smoothstep(0.3, 0.9, uClimate.y));
-
+ 
     sn = smoothstep(snowThreshold - 0.12, snowThreshold + 0.14, snowNoise) * slopeMask * waterSnowBlock;
   }
-
+ 
   sn = max(sn, alpineSnow);
   if (mode < 1.5 && sn > 0.002) {
     alb = mix(preSnowAlb, lin(vec3(0.95, 0.97, 1.0)), sn);
   }
-
+ 
   if (ex.a > 0.60 && (mode < 1.5 || (mode > 4.5 && mode < 5.5))) {
     alb = mix(alb, uRoadParams.rgb, smoothstep(0.60, 0.85, ex.a) * 0.92 * (1.0 - sn));
   }
-
+ 
   float moonSoft = clamp(uNightTune1.y, 0.01, 1.0);
   vec2 nHor = N.xz;
   float horLen = length(nHor);
@@ -6316,44 +6337,44 @@ float ts = sqrt(max(1.0 - N.y * N.y, 0.0)) / max(N.y, 0.05);
   vec3 Lglide = (night < 0.5 && uLight.y < 0.10)
     ? normalize(vec3(uLight.x, mix(uLight.y, 0.10, alpenMask), uLight.z))
     : uLight.xyz;
-
+ 
   float rawNdl = dot(N, Lglide);
   float dayNdl = max(rawNdl, 0.0) * mix(1.0, slopeShade, alpenMask * step(uLight.y, 0.10));
   float nightNdl = clamp((dot(N, uLight.xyz) + moonSoft) / (1.0 + moonSoft), 0.0, 1.0);
-
+ 
   float altDeg = uSun.w;
   float goldenMask = smoothstep(-5.0, 2.0, altDeg) * (1.0 - smoothstep(7.0, 18.0, altDeg));
   float elevN = clamp(vH / max(uPrecip.z * uScene.z, 1.0), 0.0, 1.0);
   float rayHeightBoost = 1.0 + goldenMask * (0.08 + 0.22 * smoothstep(0.15, 0.85, elevN)); 
   float dayDiff = pow(dayNdl, mix(1.0, 0.82, goldenMask));
   float ndl = mix(dayDiff, nightNdl, night);
-
+ 
   float skyVis = mix(1.08, 0.52, smoothstep(0.22, 0.88, ex.g));
   float ao = skyVis * mix(0.84, 1.0, N.y * 0.5 + 0.5);
   float directCav = mix(1.0, 0.85, smoothstep(0.65, 0.95, ex.g));
-
+ 
   float ambCloudFactor = (uSkyTop.w < 0.02) ? 1.0 : mix(1.0, max(0.04, cloudDarkness * 1.6), cs * smoothstep(0.02, 0.25, uSkyTop.w));
   vec3 amb = mix(uGnd.rgb, uAmb.rgb, N.y * 0.5 + 0.5) * ao * ambCloudFactor * wxNightDark;
-
+ 
   // Увлажнённая почва становится темнее, а не блестит как пластик
   float wetDarken = uAmb.w * (1.0 - sn) * 0.22;
   alb *= (1.0 - wetDarken);
-
+ 
   float roughnessSpec = 0.0;
   vec3 alpenGlint = vec3(0.0);
   if (night < 0.5 && sh.g > 0.05 && dayNdl > 0.01 && water < 0.5) {
     vec3 Hvec = normalize(V + Lglide);
     float ndh = max(dot(N, Hvec), 0.0);
-
+ 
     // Влажный блеск — только пятнами луж (по вогнутости ex.g и шуму), а не сплошным слоем
     float puddleMask = smoothstep(0.50, 0.68, ex.g) * smoothstep(0.45, 0.70, n1);
     float wetSp = uAmb.w * puddleMask * 0.22 * pow(ndh, 64.0);
-
+ 
     // На снегу — более резкий, искристый; на сухих скалах — почти матовый
     float snSp  = sn * 0.14 * pow(ndh, 48.0);
     float rkSp  = smoothstep(0.65, 1.0, ts) * 0.03 * pow(ndh, 32.0);
     roughnessSpec = (wetSp + snSp + rkSp) * sh.g * (1.0 - cs * 0.7) * termVis;
-
+ 
     // alpenGlint — только на снегу и крутых горных гранях, без заливки плоской земли
     float glintSurf = max(sn * 0.8, smoothstep(0.55, 1.0, ts) * 0.35);
     if (alpenMask > 0.01 && glintSurf > 0.01) {
@@ -6364,7 +6385,7 @@ float ts = sqrt(max(1.0 - N.y * N.y, 0.0)) / max(N.y, 0.05);
       alpenGlint = alpenTint * glintLight * (specTerm * fres * glintSurf * 0.65) * alpenMask * sh.g * (1.0 - cs * 0.80);
     }
   }
-
+ 
   vec3 landAlb = alb;
   if (night > 0.01) {
     float ndv = max(dot(N, V), 0.0);
@@ -6374,7 +6395,7 @@ float ts = sqrt(max(1.0 - N.y * N.y, 0.0)) / max(N.y, 0.05);
     amb += nightFill * night;
     landAlb = mix(alb, max(alb, vec3(0.011, 0.015, 0.017)), night * (0.30 + 0.55 * slopeGraze));
   }
-
+ 
   vec3 land = (landAlb * (directSun * rayHeightBoost * ndl * sh.g * directCav * wxNightDark + amb) + directSun * roughnessSpec * wxNightDark + alpenGlint * wxNightDark) * cloudGrade(cs);
   if (uWind.w > 0.002 || uBolt.w > 0.002) {
     float bDist = length(vWorld - uBolt.xyz);
@@ -6384,11 +6405,11 @@ float ts = sqrt(max(1.0 - N.y * N.y, 0.0)) / max(N.y, 0.05);
     float bNdl  = clamp(dot(N, bDir) * 0.70 + 0.30, 0.0, 1.0);
     land += landAlb * uBoltCol.rgb * (uWind.w * 0.15 + bLoc * 0.90 * bNdl);
   }
-
+ 
   if (uCloudTuneE.x > 0.5) land = mix(land, lin(vec3(cs, 0.25, 1.0 - cs)), 0.8);
-
+ 
   vec3 col = land;
-
+ 
   if (uWater.w < 0.5 && canRenderWater && mode < 1.5
       && shoreSigned > -0.55 && shoreSigned < 0.35) {
     float beachMask = smoothstep(-0.55, -0.25, shoreSigned)
@@ -6406,19 +6427,14 @@ float ts = sqrt(max(1.0 - N.y * N.y, 0.0)) / max(N.y, 0.05);
       col *= 1.0 + (grain - 0.5) * 0.22 * beachMask;
     }
   }
-
+ 
   if (canRenderWater && water > 0.5 && waterBlend < 0.99) {
     vec3 cliffCol = rockCol(wp, n1);
     vec3 cliffLit = cliffCol * (directSun * rayHeightBoost * ndl * sh.g * directCav * wxNightDark + amb) * cloudGrade(cs);
     col = mix(cliffLit, col, waterBlend);
   }
-
-  if (waterBlend > 0.005) {
-    float effShore = max(shorePerturbed, streamMask * 0.12);
-    vec3 wCol = shadeWater(V, wp, vUV, effShore, alb, directSun * wxNightDark, sh.g, cs);
-    col = mix(col, wCol, waterBlend);
-  }
-
+ 
+ 
   if (uWater.w < 0.5 && mode < 1.5 && waterBlend < 0.85 && shoreSigned > -0.08 && shoreSigned < 0.0) {
     float waveAct = smoothstep(0.4, 2.5, uWater.z) * (1.0 - smoothstep(0.15, 0.65, uClimate.y));
     if (waveAct > 0.005) {
@@ -6443,21 +6459,616 @@ float ts = sqrt(max(1.0 - N.y * N.y, 0.0)) / max(N.y, 0.05);
       }
     }
   }
-  if (uRoadParams.w > 0.5) {
-    vec2 gDist = abs(fract(wp / 1000.0 - 0.5) - 0.5) / max(fwWp / 1000.0, vec2(1e-5));
-    float gLine = 1.0 - clamp(min(gDist.x, gDist.y) - 0.90, 0.0, 1.0);
-    vec2 gDist100 = abs(fract(wp / 100.0 - 0.5) - 0.5) / max(fwWp / 100.0, vec2(1e-5));
-    float gSub = (1.0 - clamp(min(gDist100.x, gDist100.y) * 1.45 - 0.02, 0.0, 1.0)) * 0.25;
-    float gTotal = clamp(gLine * 0.85 + gSub, 0.0, 0.9);
-    col = mix(col, lin(vec3(0.95, 0.98, 1.0)), gTotal * 0.85);
-  }
+  col = applyGrid(col, wp, fwWp);
   col = fogMix(col, vWorld);
   fragColor = vec4(finishColor(col), 1.0);
+}
+`;
+ 
+// -----------------------------------------------------------------------------------------------------
+// ШЕЙДЕР №2: ВОДА. Простой вариант (~30 строк) и полный.
+// -----------------------------------------------------------------------------------------------------
+const GLSL_WATER_SIMPLE_MAIN = `
+vec3 shadeWaterSimple(vec3 V, float shore, vec3 sunC, float vis){
+    vec3 N = vec3(0.0, 1.0, 0.0);
+    float d = clamp(shore, 0.0, 1.0);
+ 
+    // Голубовато-синий у берега -> насыщенный синий на глубине
+    vec3 shallowBlue = lin(vec3(0.14, 0.42, 0.72));
+    vec3 deepBlue    = lin(vec3(0.05, 0.18, 0.48));
+    vec3 baseCol = mix(shallowBlue, deepBlue, smoothstep(0.0, 0.55, d));
+ 
+    vec3 waterBody = baseCol * (uAmb.rgb * 1.45 + sunC * 0.35 * vis);
+ 
+    // Лёгкий френель неба и солнечный блик
+    float fres = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 4.0);
+    vec3 sky = mix(uSkyHor.rgb, uSkyTop.rgb, 0.5);
+    vec3 finalCol = mix(waterBody, sky, fres * 0.65);
+    finalCol += sunC * pow(max(dot(reflect(-V, N), uLight.xyz), 0.0), 120.0) * 0.8 * vis;
+    return finalCol;
+}
+void main(){
+  vec3 V = normalize(uCam.xyz - vWorld);
+  vec3 Ng = normalize(vN);
+  vec2 wp = vWorld.xz;
+  vec2 fwWp = abs(dFdx(wp)) + abs(dFdy(wp));
+  gPX = max(fwWp.x, fwWp.y);
+  vec4 ex = texture(uExtra, vUV);
+  int c00 = clamp(int(texture(uClass, vUV).r * 255.0 + 0.5), 0, 39);
+  WaterMask wm = calcWaterMask(wp, vUV, ex, c00, Ng.y, uMode.x);
+  if (wm.blend < 0.005) discard;
+  SunCtx sc = calcSun(wp);
+  float vis = uMode.y > 0.5 ? texture(uShadow, vUV).g : 1.0;
+  vec3 col = shadeWaterSimple(V, wm.effShore, sc.directSun * sc.wxNightDark, vis);
+  col = applyGrid(col, wp, fwWp);
+  col = fogMix(col, vWorld);
+  fragColor = vec4(finishColor(col), wm.blend >= 0.995 ? 1.0 : wm.blend);
+}
+`;
+ 
+const GLSL_WATER_RIVER_REFL = `
+uniform sampler2D uWaveTex;   // RGBA8 256², REPEAT+mips: r = h, gb = dh/dq (±4), тайл = 32 q-единицы
+vec3 riverWave(vec2 q, vec2 dq1, vec2 dq2){
+  vec4 t = textureGrad(uWaveTex, q * (1.0 / 32.0), dq1 * (1.0 / 32.0), dq2 * (1.0 / 32.0));
+  return vec3(t.r, (t.gb * 2.0 - 1.0) * 4.0);
+}
+uniform sampler2D uReflTex;   // RG16F + max-mips: r = высота земли (raw), g = кроны (0..1)
+uniform int uWaterReflect; uniform int uReflectSteps; uniform int uWaterFullDetail;
+`;
+ 
+// новый shadeWater: лёд первым, волны/река/прибой только при открытой воде,
+// отражения — 1 выборка RG16F-текстуры (земля+кроны) с max-mip вместо 3 выборок на шаг
+const GLSL_SHADE_WATER = `
+vec3 shadeWater(vec3 V, vec2 wp, vec2 uv, float shore, vec3 bottom, vec3 sunC, float vis, float cs){
+  float tGlobal = uCam.w * uMode.z;
+  float tFlow = tGlobal * max(0.1, uWaterTune4.y); // скорость течения
+  float tWave = tGlobal * max(0.1, uWaterTune4.x); // скорость волн и прибоя
+  float S = max(uScene.x, uScene.y);
+ 
+  float shoreJitter = (vnoise(wp * 0.4) - 0.5) * 0.015;
+  float d = clamp(shore + shoreJitter, 0.0, 1.0);
+ 
+  vec4 flowData = texture(uWaterFlow, uv);
+  vec2 flowDir = (flowData.rg - 0.5) * 2.0;
+  float flowSpeed = flowData.b;
+  float isRiver = smoothstep(0.15, 0.45, flowSpeed);
+ 
+  // Реальная глубина из батиметрии
+  float realDepthM = flowData.a * 60.0;
+  if (realDepthM < 0.05) {
+    realDepthM = max(0.0, shore) * 12.0;
+  }
+  vec3 wn = vec3(0.0, 1.0, 0.0);
+  float foam = 0.0;
+  float wHgt = 0.5;
+  vec2 dwx = dFdx(wp), dwy = dFdy(wp);      // до ветвлений: нужны для textureGrad внутри if
+ 
+  // ===== A. ЛЁД ПЕРВЫМ: если вода полностью скрыта — волны/река/прибой вообще не считаются =====
+  // 2. ЛЁД: маски считаем ДО воды. Если вода полностью скрыта льдом,
+  //    дорогие отражения и подводная часть не нужны (результат тот же: mix(.., litIce, 1.0)).
+  float freezeProg = uClimate.y;
+  float snowCover  = uGnd.w;
+  float netFreeze = 0.0, solidIce = 0.0, floes = 0.0, totalIceMask = 0.0, iceDist = 0.0;
+  if (freezeProg >= 0.003) {
+    float currentResist = isRiver * 0.42;
+    netFreeze = clamp((freezeProg - currentResist) / max(1.0 - currentResist, 0.01), 0.0, 1.0);
+    if (netFreeze >= 0.003) {
+      float macroCoast = vnoise(wp * 0.008) * 0.65 + vnoise(wp * 0.024 + vec2(3.1, 7.4)) * 0.35;
+      float coastJitter = (macroCoast - 0.5) * 0.26;
+      float iceReach = clamp(netFreeze * 1.18, 0.0, 1.0);
+      iceDist = d - coastJitter;
+ 
+      solidIce = 1.0 - smoothstep(iceReach - 0.07, iceReach + 0.07, iceDist);
+      if (netFreeze > 0.95) solidIce = 1.0;
+ 
+      float floeNoise = vnoise(wp * 0.032);
+      floes = smoothstep(0.40, 0.75, abs(fract(floeNoise * 3.0) - 0.5) * 2.0)
+              * (1.0 - smoothstep(iceReach, iceReach + 0.16, iceDist))
+              * smoothstep(iceReach - 0.10, iceReach, iceDist)
+              * netFreeze * (1.0 - solidIce);
+      totalIceMask = clamp(solidIce + floes * 0.75, 0.0, 1.0);
+    }
+  }
+  bool fullIce = totalIceMask >= 0.9999;
+ 
+  // ===== B. ВОЛНЫ / РЕКА / ПРИБОЙ только если есть открытая вода =====
+  if (!fullIce) {
+    if (isRiver > 0.05) {
+      // Две выборки текстуры (высота + градиент) вместо 6 × fbm(4 октавы)
+      vec2 flowNorm = normalize(flowDir + vec2(1e-4));
+      vec2 perpDir = vec2(-flowNorm.y, flowNorm.x);
+      vec2 riverCoord = wp * 0.18;
+      float spd = 0.35 + flowSpeed * 0.9;
+      float phase0 = fract(tFlow * spd);
+      float phase1 = fract(tFlow * spd + 0.5);
+      float blendWeight = abs(2.0 * phase0 - 1.0);
+      vec2 u0 = riverCoord - flowNorm * phase0 * 3.5;
+      vec2 u1 = riverCoord - flowNorm * phase1 * 3.5;
+      vec2 q0 = vec2(dot(u0, flowNorm) * 0.5 + dot(u0, perpDir) * 1.8, dot(u0, perpDir) * 2.5);
+      vec2 q1 = vec2(dot(u1, flowNorm) * 0.5 + dot(u1, perpDir) * 1.8, dot(u1, perpDir) * 2.5);
+      float qs = 0.18 * 2.6;                  // макс. масштаб world → q
+      vec3 w0 = riverWave(q0, dwx * qs, dwy * qs);
+      vec3 w1 = riverWave(q1, dwx * qs, dwy * qs);
+      float riverHeight = mix(w0.x, w1.x, blendWeight);
+      vec2 ga = mix(w0.yz, w1.yz, blendWeight);                         // (dh/dqa, dh/dqb)
+      vec2 gU = (flowNorm * 0.5 + perpDir * 1.8) * ga.x + perpDir * 2.5 * ga.y;
+      vec2 gW = gU * 0.18;                                              // dh/d(wp)
+      const float RIVER_NORMAL_K = 0.65;                                // подстройка «рябистости» реки
+      wn = normalize(vec3(-gW.x * RIVER_NORMAL_K, 1.0, -gW.y * RIVER_NORMAL_K));
+      foam = smoothstep(0.65, 0.90, riverHeight) * 0.55 * isRiver;
+    } else {
+      vec4 ww = windWaves(wp, dwx, dwy, d, tWave);
+      wn   = normalize(vec3(-ww.x, 1.0, -ww.y));
+      wHgt = ww.w;
+      foam = ww.z;
+    }
+   if (d < 0.6) {
+    float eu = 1.5 / max(uScene2.x, 1.0);
+    float ev = 1.5 / max(uScene2.y, 1.0);
+    float dL = (texture(uExtra, uv + vec2(-eu, 0.0)).r - 0.5) * 2.0;
+    float dR = (texture(uExtra, uv + vec2( eu, 0.0)).r - 0.5) * 2.0;
+    float dD = (texture(uExtra, uv + vec2(0.0, -ev)).r - 0.5) * 2.0;
+    float dU = (texture(uExtra, uv + vec2(0.0,  ev)).r - 0.5) * 2.0;
+    vec2  shoreN = normalize(vec2(dR - dL, dU - dD) + vec2(1e-5));
+ 
+    vec2  wDirW = normalize(uWind.xy + vec2(1e-5));
+    vec2  surf  = surfZone(wp, d, tWave, uWater.z, wDirW, shoreN, isRiver);
+ 
+    foam = max(foam, surf.x);
+    if (surf.y > 0.001) {
+      wn = normalize(wn + vec3(shoreN.x * surf.y * 3.0, 0.0, shoreN.y * surf.y * 3.0));
+    }
+  }
+  }
+ 
+  // 3. ОСВЕЩЕНИЕ, ФРЕНЕЛЬ И ОТРАЖЕНИЕ НЕБА (нужно и воде, и льду)
+  vec3 R = reflect(-V, wn);
+  if (R.y < 0.0) R = normalize(vec3(R.x, -R.y * 0.35 + 0.004, R.z));
+ 
+  vec3 traceR = R;
+  vec3 finalSky = sampleReflectedSky(R); // <-- добавить эту строку
+  vec3 reflectedEnv = finalSky;
+ 
+  vec3 iceNorm = vec3(0.0, 1.0, 0.0);
+  vec3 iceRefl = R;
+  float iceRoughness = 0.15;
+ 
+  // Шумы льда и второй сэмпл неба вызываются ТОЛЬКО при наличии замерзания
+  if (totalIceMask > 0.002) {
+    iceNorm = normalize(vec3((vnoise(wp * 0.08) - 0.5) * 0.035, 1.0, (vnoise(wp * 0.08 + vec2(4.3, 8.1)) - 0.5) * 0.035));
+    iceRefl = reflect(-V, iceNorm);
+    iceRoughness = mix(0.15, 0.35, smoothstep(0.0, 0.5, totalIceMask));
+    vec3 iceScatter = vec3(
+      vnoise(wp * 0.35) - 0.5,
+      (vnoise(wp * 0.35 + vec2(5.2, 1.3)) - 0.5) * 0.25,
+      vnoise(wp * 0.35 + vec2(2.7, 8.4)) - 0.5
+    );
+    vec3 roughIceR = normalize(iceRefl + iceScatter * iceRoughness);
+    traceR = normalize(mix(R, roughIceR, totalIceMask));
+    reflectedEnv = sampleReflectedSky(traceR);
+  }
+ 
+ 
+  float fresPre = 0.03 + 0.97 * pow(1.0 - max(dot(wn, V), 0.0), 5.0);
+  float traceNeed = max(smoothstep(0.04, 0.14, fresPre), step(0.002, totalIceMask)); // лёд трассируем всегда
+  if (uWaterReflect == 1 && traceR.y > 0.003 && traceNeed > 0.0) {
+    float sz = max(uScene.z, 1.0);
+    float canMax = 63.75 * uScene2.z * 0.85;
+    float canSkip = canMax * uSnowLayer.w;
+    float maxSceneY = (uPrecip.z * uScene.z) + canSkip;
+    float maxDist = max(uScene.x, uScene.y) * 0.65;
+    float rayOriginY = vH + 0.12;
+    if (rayOriginY + traceR.y * maxDist > maxSceneY) {
+      float distToCeiling = (maxSceneY - rayOriginY) / traceR.y;
+      if (distToCeiling < maxDist) maxDist = max(distToCeiling, 5.0);
+    }
+    int steps = clamp(int(float(uReflectSteps) * mix(0.55, 1.0, traceNeed)), 6, 28);
+    int actualSteps = steps;
+    if (traceR.y > 0.12) {
+      actualSteps = max(4, int(float(steps) * (1.0 - smoothstep(0.12, 0.65, traceR.y) * 0.65)));
+    }
+    float stepJit = hash21(gl_FragCoord.xy);
+    vec3 ro = vec3(wp.x, rayOriginY, wp.y);
+    vec2 invS = 1.0 / uScene.xy;
+    float cellM = max(uScene.x / max(uScene2.x - 1.0, 1.0), uScene.y / max(uScene2.y - 1.0, 1.0));
+    float selfBias = sz;                                   // единый bias вместо qWater-ветвления
+ 
+    for (int i = 1; i <= 28; i++) {
+      if (i > actualSteps) break;
+      float fi = (float(i) - 0.5 + stepJit * 0.35) / float(actualSteps);
+      float tRay = pow(fi, 1.35) * maxDist;
+      vec3 qRay = ro + traceR * tRay;
+      if (qRay.y > maxSceneY) break;
+      vec2 quv = vec2(qRay.x * invS.x + 0.5, qRay.z * invS.y + 0.5);
+      if (quv.x < 0.0 || quv.x > 1.0 || quv.y < 0.0 || quv.y > 1.0) break;
+ 
+      // ОДНА выборка (земля+кроны), mip растёт с расстоянием: меньше кэш-промахов
+      float lod = clamp(log2(max(tRay / (cellM * 3.0), 1.0)), 0.0, 5.0);
+      vec2 hc = textureLod(uReflTex, quv, lod).rg;
+      float th = (hc.r - uScene.w) * uScene.z;
+      float groundDist = qRay.y - th;
+      if (groundDist > canSkip) continue;
+ 
+      bool hit = (groundDist <= -selfBias) && (th > vH + selfBias);
+      bool hitTree = false;
+      if (!hit) {
+        float canH = hc.g * canMax;
+        hit = (canH > 1.0) && (qRay.y <= th + canH) && (qRay.y > th + 0.35);
+        hitTree = hit;
+      }
+      if (hit) {
+        vec3 hitCol;
+        if (hitTree) {
+          vec3 treeLeaf = mix(lin(vec3(0.08, 0.19, 0.09)), lin(vec3(0.62, 0.42, 0.08)), uSeason.y);
+          treeLeaf = mix(treeLeaf, lin(vec3(0.28, 0.22, 0.16)), (1.0 - uSeason.x) * 0.8);
+          hitCol = treeLeaf * (uAmb.rgb * 1.4 + sunC * 0.55);
+        } else {
+          if (uMode.x > 4.5 && uMode.x < 5.5) {
+            hitCol = pow(textureLod(uBasemap, quv, 0.0).rgb, vec3(2.2)) * 0.85;
+          } else {
+            hitCol = lin(vec3(0.35, 0.38, 0.24)) * (uAmb.rgb * 1.25 + sunC * 0.45);
+          }
+        }
+        float distFade = smoothstep(maxDist * 0.85, maxDist * 0.18, tRay);
+        if (totalIceMask > 0.02) {
+          hitCol = mix(hitCol, finalSky, 0.40 * totalIceMask);
+        }
+        reflectedEnv = mix(finalSky, hitCol, distFade * 0.85);
+        break;
+      }
+    }
+  }
+ 
+  vec3 waterFinal = vec3(0.0);
+  vec3 colEdge = vec3(0.0);
+  if (!fullIce) {
+    float overcastW = smoothstep(0.20, 0.85, uSkyTop.w); // <-- ДОБАВИТЬ ЭТУ СТРОКУ
+    float winterW = clamp(max(uGnd.w, smoothstep(3.0, -4.0, uClimate.z)) * 0.95 + uClimate.y * 0.85, 0.0, 1.0);
+    float autumnW = clamp(uSeason.y * (1.0 - winterW), 0.0, 1.0);
+    float springW = clamp((1.0 - winterW) * (1.0 - autumnW) * (1.0 - uSeason.x * 0.7) * smoothstep(-2.0, 14.0, uClimate.z), 0.0, 1.0);
+    float summerW = clamp((1.0 - winterW) * (1.0 - autumnW) * (1.0 - springW) * smoothstep(8.0, 24.0, uClimate.z), 0.0, 1.0);
+    float stormW = clamp(max(uPrecip.x, uPrecip.y) * 1.3, 0.0, 1.0);
+    vec3 cSummerEdge = uWaterColSummerE.rgb;
+    vec3 cSummerMid  = uWaterColSummerM.rgb;
+    vec3 cSummerDeep = uWaterColSummerD.rgb;
+    vec3 cWinterEdge = uWaterColWinterE.rgb;
+    vec3 cWinterMid  = uWaterColWinterM.rgb;
+    vec3 cWinterDeep = uWaterColWinterD.rgb;
+    vec3 cAutumnEdge = uWaterColAutumnE.rgb;
+    vec3 cAutumnMid  = uWaterColAutumnM.rgb;
+    vec3 cAutumnDeep = uWaterColAutumnD.rgb;
+    vec3 cSpringEdge = uWaterColSpringE.rgb;
+    vec3 cSpringMid  = uWaterColSpringM.rgb;
+    vec3 cSpringDeep = uWaterColSpringD.rgb;
+    vec3 cOvercastEdge = uWaterColOvercastE.rgb;
+    vec3 cOvercastMid  = uWaterColOvercastM.rgb;
+    vec3 cOvercastDeep = uWaterColOvercastD.rgb;
+ 
+    colEdge = cSummerEdge * summerW + cWinterEdge * winterW + cAutumnEdge * autumnW + cSpringEdge * springW;
+    vec3 colMid  = cSummerMid  * summerW + cWinterMid  * winterW + cAutumnMid  * autumnW + cSpringMid  * springW;
+    vec3 colDeep = cSummerDeep * summerW + cWinterDeep * winterW + cAutumnDeep * autumnW + cSpringDeep * springW;
+ 
+    float totW = summerW + winterW + autumnW + springW;
+    if (totW > 0.001) { colEdge /= totW; colMid /= totW; colDeep /= totW; }
+ 
+    float grayFactor = clamp(overcastW * 0.75 + stormW * 0.35, 0.0, 1.0);
+    colEdge = mix(colEdge, cOvercastEdge, grayFactor);
+    colMid  = mix(colMid,  cOvercastMid,  grayFactor);
+    colDeep = mix(colDeep, cOvercastDeep, grayFactor);
+ 
+    float edgeBlend = smoothstep(0.0, 0.45, d);
+    float deepBlend = smoothstep(0.30, 0.90, d);
+    vec3 waterGradient = mix(colEdge, colMid, edgeBlend);
+    waterGradient = mix(waterGradient, colDeep, deepBlend);
+    vec3 riverPalette = mix(colMid, colDeep, 0.35);
+    vec3 baseWater = mix(waterGradient, riverPalette, isRiver * 0.45);
+    float waveK = clamp(uWater.z / 12.0, 0.0, 1.0);
+ 
+    float troughFactor = 1.0 - smoothstep(-0.4, -0.1, wHgt);
+    baseWater = mix(baseWater, baseWater * 0.5, troughFactor * 0.4 * waveK);
+ 
+    float seaR = clamp(uWater.z / 12.0, 0.0, 1.0);
+ 
+    float sunBreak = (1.0 - cs) * vis;
+    float sss = pow(1.0 - clamp(d, 0.0, 1.0), 2.2) * sunBreak * (1.0 - overcastW * 0.75);
+    vec3 internalGlow = colEdge * (sunC * 0.45) * sss;
+ 
+    vec3 waterBody = baseWater * (uAmb.rgb * 1.35 + sunC * (0.24 + sss * 0.25) * vis);
+    float depthFade = clamp(1.0 - exp(-realDepthM * 0.35), 0.0, 1.0);
+    float bottomFade = max(smoothstep(0.0, 0.25, d), depthFade);
+    vec3 litBottom = bottom * (uAmb.rgb * 1.1 + sunC * 0.4 * vis);
+    waterBody = mix(litBottom, waterBody, bottomFade);
+    waterBody += internalGlow;
+ 
+    float fres = 0.03 + 0.97 * pow(1.0 - max(dot(wn, V), 0.0), 5.0);
+    fres *= mix(1.0, 0.65, seaR);
+ 
+    waterFinal = mix(waterBody, reflectedEnv, clamp(fres, 0.0, 1.0));
+    float glintPow = isRiver > 0.5 ? 240.0 : mix(520.0, 350.0, seaR);
+    waterFinal += sunC * pow(max(dot(R, uLight.xyz), 0.0), glintPow) * (3.5 * mix(1.0, 0.08, seaR)) * vis;
+    if (uWind.w > 0.002 || uBolt.w > 0.002) {
+      vec3 bWorld = vec3(wp.x, vH, wp.y);
+      float bDist = length(bWorld - uBolt.xyz);
+      float bRad  = max(uScene.x, uScene.y) * 0.34;
+      float bLoc  = uBolt.w / (1.0 + (bDist / bRad) * (bDist / bRad));
+      vec3 bDir   = normalize(uBolt.xyz + vec3(0.0, 40.0, 0.0) - bWorld);
+      float bSpec = pow(max(dot(R, bDir), 0.0), mix(90.0, 32.0, seaR)) * (1.2 + 1.4 * bLoc);
+      waterFinal += uBoltCol.rgb * ((uWind.w * 0.16 + bLoc * 0.55) * fres + bSpec * 0.85);
+    }
+    waterFinal += lin(vec3(0.95)) * foam * 0.45 * (uAmb.rgb + sunC * 0.5 * vis);
+  }
+ 
+  // 4. ЛЁДОСТАВ
+  if (totalIceMask < 0.002) return waterFinal;
+ 
+  // ОПРЕДЕЛЕНИЕ ПОЗДНЕЙ ВЕСНЫ:
+  float springLeaf = smoothstep(0.30, 0.75, uSeason.x) * (1.0 - smoothstep(0.05, 0.30, uSeason.y));
+  float thawWarmth = smoothstep(-1.0, 7.0, uClimate.z);
+  float lateSpringK = clamp(springLeaf * 0.85 + thawWarmth * springLeaf * 0.5, 0.0, 1.0);
+ 
+  // ОПРЕДЕЛЕНИЕ ПОЗДНЕЙ ОСЕНИ (предзимье, перволедье):
+  float lateAutumnK = smoothstep(0.25, 0.75, uSeason.y) * smoothstep(0.65, 0.35, uSeason.x);
+ 
+  // Зимняя палитра (яркая сине-бирюзовая)
+  vec3 winterDeepBlue  = lin(vec3(0.04, 0.28, 0.48));
+  vec3 winterMidTeal   = lin(vec3(0.14, 0.52, 0.64));
+  vec3 winterFrostTint = lin(vec3(0.80, 0.92, 0.98));
+ 
+  // Поздневесенняя палитра (серая, сыро-синяя, свинцово-водянистая)
+  vec3 springDeepBlue  = lin(vec3(0.13, 0.18, 0.24));
+  vec3 springMidTeal   = lin(vec3(0.22, 0.28, 0.33));
+  vec3 springFrostTint = lin(vec3(0.44, 0.50, 0.56));
+ 
+  // Позднеосенняя палитра ("чёрный лёд", глубокий тёмно-серо-синий #28313e):
+  vec3 autumnDeepBlue  = lin(vec3(0.106, 0.137, 0.173)); // глубина (~ #1b232c)
+  vec3 autumnMidTeal   = lin(vec3(0.157, 0.192, 0.243)); // чистый #28313e
+  vec3 autumnFrostTint = lin(vec3(0.260, 0.310, 0.380)); // приглушенные холодные прожилки трещин
+ 
+  vec3 iceDeepBlue  = mix(winterDeepBlue,  springDeepBlue,  lateSpringK);
+  vec3 iceMidTeal   = mix(winterMidTeal,   springMidTeal,   lateSpringK);
+  vec3 iceFrostTint = mix(winterFrostTint, springFrostTint, lateSpringK);
+ 
+  // Применяем палитру #28313e для поздней осени
+  iceDeepBlue  = mix(iceDeepBlue,  autumnDeepBlue,  lateAutumnK);
+  iceMidTeal   = mix(iceMidTeal,   autumnMidTeal,   lateAutumnK);
+  iceFrostTint = mix(iceFrostTint, autumnFrostTint, lateAutumnK);
+ 
+  float iceThickness = clamp((1.0 - d * 0.45) * netFreeze + solidIce * 0.35, 0.0, 1.0);
+  vec3 iceBaseCol = mix(iceDeepBlue, iceMidTeal, iceThickness);
+ 
+ 
+  // Трещины и снег влияют только там, где есть сплошной лёд (множитель solidIce)
+  float totalCracks = 0.0;
+  if (solidIce > 0.0) {
+    vec2 cp = wp * 0.012;
+    vec2 warp = vec2(vnoise(cp * 0.6 + vec2(1.7, 9.2)), vnoise(cp * 0.6 + vec2(8.3, 2.8))) * 1.75;
+    vec2 p1 = cp + warp;
+    mat2 rot60 = mat2(0.5, -0.866, 0.866, 0.5);
+    vec2 p2 = rot60 * cp + warp.yx;
+ 
+    float n1 = abs(vnoise(p1 * 1.5) - 0.5) * 2.0;
+    float n2 = abs(vnoise(p2 * 1.5 + vec2(4.1, 7.3)) - 0.5) * 2.0;
+    float crackDist = min(n1, n2);
+    float mainCracks = smoothstep(0.04, 0.0, crackDist);
+    float crackHalo  = smoothstep(0.12, 0.0, crackDist) * 0.35;
+    float crackMask = smoothstep(0.35, 0.72, vnoise(wp * 0.0035 + vec2(2.1, 5.4)));
+    totalCracks = (mainCracks + crackHalo) * crackMask * solidIce;
+    iceBaseCol = mix(iceBaseCol, iceFrostTint, totalCracks * 0.85);
+  }
+ 
+vec3 litIce = iceBaseCol * (uAmb.rgb * 1.35 + sunC * 0.35 * vis);
+ 
+  float iceFresnel = 0.04 + 0.96 * pow(1.0 - max(dot(iceNorm, V), 0.0), mix(4.5, 3.2, lateSpringK));
+  // Теперь лёд отражает рельеф и деревья (reflectedEnv), а не просто плоский градиент неба
+  litIce = mix(litIce, reflectedEnv, iceFresnel * mix(0.55, 0.75, lateSpringK));
+ 
+  // Блик солнца на льду становится более матовым и рассеянным
+  float iceSpecPow = mix(140.0, 35.0, iceRoughness);
+  float iceSpec = pow(max(dot(iceRefl, uLight.xyz), 0.0), iceSpecPow) * mix(3.0, 1.2, iceRoughness) * vis;
+  litIce += sunC * iceSpec * (1.0 - totalCracks * 0.4);
+ 
+  if (snowCover > 0.03 && solidIce > 0.0 && lateAutumnK < 0.5) {
+    vec2 wDir = normalize(uWind.xy + vec2(1e-4));
+    vec2 pDir = vec2(-wDir.y, wDir.x);
+    vec2 driftCoord = vec2(dot(wp, wDir) * 0.015, dot(wp, pDir) * 0.05);
+    float sastrugi = vnoise(driftCoord) * 0.32;
+    float snowNoise = vnoise(wp * 0.035) * 0.5 + 0.5;
+ 
+    float snowThreshold = mix(1.15, -0.40, pow(snowCover, 1.1)) - sastrugi;
+    float snowMask = smoothstep(snowThreshold, snowThreshold + 0.22, snowNoise);
+ 
+    if (snowCover > 0.85) {
+      float buryIce = (snowCover - 0.85) / 0.15;
+      snowMask = mix(snowMask, 1.0, buryIce);
+    }
+    float blizzBury = max(uCloudParams.w, clamp(uPrecip.y * 1.4, 0.0, 1.0));
+    if (blizzBury > 0.15 && snowCover > 0.5) {
+      snowMask = mix(snowMask, 1.0, blizzBury);
+    }
+    vec3 terrainSnowCol = lin(vec3(0.95, 0.97, 1.0)) * (uAmb.rgb + sunC * vis);
+    
+    // Весенняя талая серо-синяя снежная каша на льду:
+    vec3 wetSlushCol = lin(vec3(0.45, 0.52, 0.58)) * (uAmb.rgb * 1.1 + sunC * 0.5 * vis);
+    vec3 finalIceSnow = mix(terrainSnowCol, wetSlushCol, lateSpringK * 0.85);
+ 
+    litIce = mix(litIce, finalIceSnow, clamp(snowMask, 0.0, 1.0) * solidIce);
+  }
+ 
+  return fullIce ? litIce : mix(waterFinal, litIce, totalIceMask);
 }`;
+ 
+const GLSL_WATER_MAIN = `
+void main(){
+  vec3 V = normalize(uCam.xyz - vWorld);
+  vec3 Ng = normalize(vN);
+  vec2 wp = vWorld.xz;
+  vec2 fwWp = abs(dFdx(wp)) + abs(dFdy(wp));
+  gPX = max(fwWp.x, fwWp.y);
+  float mode = uMode.x;
+  vec4 ex = texture(uExtra, vUV);
+  int c00 = clamp(int(texture(uClass, vUV).r * 255.0 + 0.5), 0, 39);
+ 
+  WaterMask wm = calcWaterMask(wp, vUV, ex, c00, Ng.y, mode);
+  if (wm.blend < 0.005) discard;
+ 
+  SunCtx sc = calcSun(wp);
+  vec2 sh = uMode.y > 0.5 ? texture(uShadow, vUV).rg : vec2(1.0);
+ 
+  // дно, просвечивающее у берега: берём из bake-текстуры (раньше — полный evalCls)
+  float realDepthM = wm.flow.a * 60.0;
+  if (realDepthM < 0.05) realDepthM = max(0.0, wm.effShore) * 12.0;
+  float depthFade  = clamp(1.0 - exp(-realDepthM * 0.35), 0.0, 1.0);
+  float bottomFade = max(smoothstep(0.0, 0.25, wm.effShore), depthFade);
+  vec3 albW = vec3(0.0);
+  if (bottomFade < 0.999) {
+    if (mode > 4.5 && mode < 5.5)  albW = pow(textureLod(uBasemap, vUV, 0.0).rgb, vec3(2.2));
+    else if (c00 == 34)            albW = lin(vec3(0.32, 0.40, 0.35));
+    else { vec4 bA, bB; sampleBake(vUV, bA, bB); albW = lin(bA.rgb); }
+  }
+ 
+  vec3 col = shadeWater(V, wp, vUV, wm.effShore, albW, sc.directSun * sc.wxNightDark, sh.g, sc.cs);
+  col = applyGrid(col, wp, fwWp);
+  col = fogMix(col, vWorld);
+  fragColor = vec4(finishColor(col), wm.blend >= 0.995 ? 1.0 : wm.blend);
+}
+`;
 
+
+const makeTerrainFS = (alt) => GLSL_HEAD + (alt ? '#define TERRAIN_ALT 1\n' : '')
+  + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN
+  + GLSL_TERRAIN_COMMON + GLSL_ROCK_PRIM + GLSL_WATER_MASK
+  + (alt ? '' : GLSL_BAKE_SAMPLE)
+  + GLSL_TERRAIN_MAIN;
+const FS_TERRAIN      = makeTerrainFS(false);
+const FS_TERRAIN_ALT  = makeTerrainFS(true);
+const FS_TERRAIN_BAKE = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN + GLSL_STRATA + GLSL_BAKE_MAIN;
+const FS_WATER_SIMPLE = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN
+  + GLSL_TERRAIN_COMMON + GLSL_WATER_MASK + GLSL_WATER_SIMPLE_MAIN;
+const FS_WATER_FULL   = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN
+  + GLSL_TERRAIN_COMMON + GLSL_WATER_MASK + GLSL_BAKE_SAMPLE
+  + GLSL_WATER_RIVER_REFL + GLSL_WATER_LIB + GLSL_SHADE_WATER + GLSL_WATER_MAIN;
   
+const GLSL_WIND_LIB = `
+float smoother01(float x){
+  x = clamp(x, 0.0, 1.0);
+  return x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
+}
 
-  const VS_TREE = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN + `
+float sampleGustField(float u, float v, float gFreq, float gSize, float spdMps, float t, float sm, float stormK){
+  float travel = t * spdMps;
+  float soft   = mix(0.03, 0.38, sm);
+
+  // 1. Пятна: вытянутые очаги порывов
+  vec2  pSpot = vec2((u - travel) / (gSize * 1.25), v / (gSize * 0.85));
+  vec2  sWarp = vec2(vnoise(pSpot * 0.72 + vec2(3.1, 7.4)), vnoise(pSpot * 0.72 + vec2(8.7, 1.9))) - 0.5;
+  float nSpot = vnoise(pSpot + sWarp * 0.65) * 0.72
+              + vnoise(pSpot * 2.3 + vec2(11.3, 5.7) - vec2(t * 0.22 * uWindAdv3.z, 0.0)) * 0.28;
+  nSpot = clamp((nSpot - 0.5) * mix(1.42, 1.75, stormK) + 0.5, 0.0, 1.0);
+  float thrSpot   = mix(0.74, 0.28, pow(gFreq, 0.85)) - stormK * 0.08;
+  float noiseGust = smoother01((nSpot - (thrSpot - soft)) / max(2.0 * soft, 1e-4));
+
+  // 2. Шквальные фронты: широкие волны ветра поперёк потока
+  float crestWarp = (vnoise(vec2(u / (gSize * 2.5), v / (gSize * 3.2)) + vec2(2.1, 5.3)) - 0.5) * 0.85;
+  float wPh       = ((u - travel * 1.15) / gSize + crestWarp) * 6.2831853;
+  float crestEnv  = 0.65 + 0.35 * vnoise(vec2((u - travel * 0.65) / (gSize * 2.4), v / (gSize * 4.2)) + vec2(9.2, 1.7));
+  float rawWave   = (0.5 + 0.5 * sin(wPh + 0.32 * sin(wPh))) * crestEnv;
+  float thrWave   = mix(0.76, 0.18, pow(gFreq, 0.85)) - stormK * 0.08;
+  float waveGust  = smoother01((rawWave - (thrWave - soft)) / max(2.0 * soft, 1e-4));
+
+  float arcMix       = clamp(uWindAdv3.y + stormK * 0.42, 0.0, 1.0);
+  float combinedGust = mix(noiseGust, waveGust, arcMix);
+
+  // 3. Паузы между шквалами (в шторм дают упругий откат и новый накат волны)
+  float chaosTh    = mix(0.66, 0.22, gFreq) - stormK * 0.06;
+  float chaosScale = 1.0 / max(gSize * 2.8, 100.0);
+  float chaosN     = vnoise(vec2((u - travel * 0.55) * chaosScale, v * chaosScale) + vec2(4.7, 8.3) + t * 0.05);
+  float cSoft      = mix(0.14, 0.34, sm);
+  float chaosMask  = mix(1.0, smoother01((chaosN - (chaosTh - cSoft * 0.85)) / max(cSoft * 1.85, 1e-4)), clamp(uWindAdv3.w, 0.0, 1.0));
+
+  // В сильный ветер между шквалами порывы откатываются чуть назад, усиливая ощущение раскачки
+  float stormPulse = mix(combinedGust * chaosMask, (combinedGust * chaosMask) * 1.08 - 0.04, stormK);
+  return stormPulse;
+}
+
+float evalWindGust(vec2 posXZ, vec2 windDir, float wSpd, float uTime, float wForce, float windMult, float biomeWindMod){
+  float gFreq = clamp(uWindAdv2.w, 0.0, 1.0);
+  if (gFreq <= 0.001) return 0.0;
+
+  float stormK  = smoothstep(8.0, 20.0, wSpd);
+  float gSize   = max(8.0, uWindAdv2.z);
+  vec2  perpDir = vec2(-windDir.y, windDir.x);
+  float u = dot(posXZ, windDir);
+  float v = dot(posXZ, perpDir);
+
+  // Реалистичная скорость фронта порыва (~1.1–1.4 скорости ветра, без смазывания на 80 м/с)
+  float spdMps = (2.2 + wSpd * 0.95) * mix(0.28, 1.38, clamp((uWindAdv3.z - 0.1) / 4.9, 0.0, 1.0));
+  float sm     = clamp(uWindAdv3.x, 0.0, 1.0);
+
+  float gustEnv;
+  if (sm <= 0.02) {
+    gustEnv = sampleGustField(u, v, gFreq, gSize, spdMps, uTime, sm, stormK);
+  } else {
+    float passT = gSize / max(abs(spdMps), 4.0);
+    float dtLag = sm * clamp(passT * 0.20, 0.16, 0.78);
+
+    float g0 = sampleGustField(u, v, gFreq, gSize, spdMps, uTime, sm, stormK);
+    float g1 = sampleGustField(u, v, gFreq, gSize, spdMps, uTime - dtLag, sm, stormK);
+    float g2 = sampleGustField(u, v, gFreq, gSize, spdMps, uTime - dtLag * 2.0, sm, stormK);
+    float g3 = sampleGustField(u, v, gFreq, gSize, spdMps, uTime - dtLag * 3.2, sm, stormK);
+    float g4 = sampleGustField(u, v, gFreq, gSize, spdMps, uTime - dtLag * 4.5, sm, stormK);
+
+    float w0 = mix(1.0,  0.26, sm);
+    float w1 = mix(0.0,  0.60, sm);
+    float w2 = mix(0.0,  0.56, sm);
+    float w3 = mix(0.0, -0.26, sm);
+    float w4 = mix(0.0, -0.16, sm);
+
+    gustEnv = w0 * g0 + w1 * g1 + w2 * g2 + w3 * g3 + w4 * g4;
+  }
+
+  gustEnv = max(gustEnv, -0.04);
+  return gustEnv * (uWindAdv2.y * 0.95) * wForce * windMult * biomeWindMod;
+}
+
+float evalTreeGust(vec2 posXZ, vec2 windDir, float wSpd, float uTime, float wForce, float windMult, float biomeWindMod){
+  float gFreq = clamp(uWindAdv2.w, 0.0, 1.0);
+  if (gFreq <= 0.001) return 0.0;
+
+  float stormK  = smoothstep(8.0, 20.0, wSpd);
+  float gSize   = max(8.0, uWindAdv2.z);
+  vec2  perpDir = vec2(-windDir.y, windDir.x);
+  float u = dot(posXZ, windDir);
+  float v = dot(posXZ, perpDir);
+
+  float spdMps = (2.2 + wSpd * 0.95) * mix(0.28, 1.38, clamp((uWindAdv3.z - 0.1) / 4.9, 0.0, 1.0));
+  float sm     = clamp(uWindAdv3.x, 0.0, 1.0);
+
+  float gustEnv;
+  if (sm <= 0.02) {
+    gustEnv = sampleGustField(u, v, gFreq, gSize, spdMps, uTime, sm, stormK);
+  } else {
+    float passT = gSize / max(abs(spdMps), 4.0);
+    float dtLag = sm * clamp(passT * 0.30, 0.22, 1.05);
+
+    float g0 = sampleGustField(u, v, gFreq, gSize, spdMps, uTime, sm, stormK);
+    float g1 = sampleGustField(u, v, gFreq, gSize, spdMps, uTime - dtLag * 0.55, sm, stormK);
+    float g2 = sampleGustField(u, v, gFreq, gSize, spdMps, uTime - dtLag * 1.25, sm, stormK);
+    float g3 = sampleGustField(u, v, gFreq, gSize, spdMps, uTime - dtLag * 2.15, sm, stormK);
+    float g4 = sampleGustField(u, v, gFreq, gSize, spdMps, uTime - dtLag * 3.25, sm, stormK);
+
+    float w0 = mix(1.0, 0.26, sm);
+    float w1 = mix(0.0, 0.34, sm);
+    float w2 = mix(0.0, 0.24, sm);
+    float w3 = mix(0.0, 0.11, sm);
+    float w4 = mix(0.0, 0.05, sm);
+
+    gustEnv = w0 * g0 + w1 * g1 + w2 * g2 + w3 * g3 + w4 * g4;
+  }
+
+  return gustEnv * (uWindAdv2.y * 0.95) * wForce * windMult * biomeWindMod;
+}
+`;
+  const VS_TREE = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN + GLSL_WIND_LIB + `
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNrm;
 layout(location=2) in vec2 aPartGrad;
@@ -6467,6 +7078,7 @@ layout(location=4) in vec4 iB;
 uniform int uType;
 uniform int uIsConifer; 
 uniform float uTreeW;
+uniform sampler2D uExtra;
 uniform sampler2D uShadow;
 
 uniform vec4 uTreeParamsConifer;
@@ -6615,8 +7227,12 @@ void main(){
     indAut = clamp(baseAut + (rnd - 0.5) * 0.28, 0.0, 1.0);
   }
 
-  vec3 lp = aPos;
+  if (aPart > 0.5 && aPart < 1.5 && dec > 0.5 && leaf < 0.04) {
+    gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+    return;
+  }
 
+  vec3 lp = aPos;
   // Снежные шапки на лапах хвойных
   float isLateAutumnVS = smoothstep(0.25, 0.75, uSeason.y) * smoothstep(0.65, 0.35, uSeason.x);
   float tempMeltVS = smoothstep(1.5, -0.5, uClimate.z);
@@ -6633,85 +7249,99 @@ void main(){
   vec3 pos = vec3(lp.x * R, lp.y * hm, lp.z * R);
   pos.xz = vec2(ca * pos.x - sa * pos.z, sa * pos.x + ca * pos.z);
 
-  // Ветер и качание
+  // Ветер и качание (адаптировано под эталонную физику)
   float hRel = clamp(lp.y, 0.0, 1.0);
-  float bendCurve = pow(hRel, 2.15);
-
-  float wSpd = clamp(uWind.z, 0.0, 10.0);
+  float wSpd = max(0.0, uWind.z);
   float uTime = uCam.w * uMode.z;
 
-
   vec2 posXZ = iA.xy;
-  float stiffness = max(0.2, tParams.z) * (isConifer ? 1.45 : 1.05);
+  float stiffness = max(0.25, tParams.z) * (isConifer ? 0.92 : 0.72);
   float windMult = 1.0 / stiffness;
 
-  float uBendAngle      = uWindAdvPad.x;
-  float uBendChaos      = uWindAdvPad.y;
-  float uBend           = uWindAdv1.x;
-  float uSwayStrength   = uWindAdv1.y;
-  float uTurbulence     = uWindAdv1.z;
-  float uTurbAmp        = uWindAdv1.w;
+  vec2 windDir = vec2(cos(uWindAdvPad.x), sin(uWindAdvPad.x));
+  vec2 finalDir = windDir;
+  float totalAngle = 0.0;
 
-  float uTurbSpeed      = uWindAdv2.x;
-  float uGustStrength   = uWindAdv2.y;
-  float uGustSize       = uWindAdv2.z;
-  float uGustFreq       = uWindAdv2.w;
+  if (wSpd > 0.01) {
+    vec4 ex = texture(uExtra, uv);
+    float stormRamp = pow(max(wSpd - 6.0, 0.0) / 10.0, 1.55);
+    float wForce = clamp(wSpd / 10.0 + stormRamp * 1.45, 0.0, 4.5);
+    float stormK = smoothstep(8.0, 20.0, wSpd);
 
-  float uGustSmoothness = uWindAdv3.x;
-  float uGustArc        = uWindAdv3.y;
-  float uGustSpeed      = uWindAdv3.z;
-  float uWindChaos      = uWindAdv3.w;
+    float isValley = smoothstep(0.54, 0.78, ex.g);
+    float biomeWindMod = mix(1.0, 0.35, isValley);
+    float relElev = clamp(gy / max(uPrecip.z * uScene.z, 1.0), 0.0, 1.0);
+    float isMountain = smoothstep(0.65, 0.90, max(relElev * smoothstep(60.0, 200.0, uPrecip.z), ex.b));
+    biomeWindMod = mix(biomeWindMod, 1.60, isMountain);
 
-  float finalAngle = uBendAngle + (rnd - 0.5) * uBendChaos * 6.28318;
-  vec2 staticBendDir = vec2(cos(finalAngle), sin(finalAngle));
-  vec2 windDir = vec2(cos(uBendAngle), sin(uBendAngle));
+    float chaosSpan = uWindAdvPad.y * 1.4 * mix(1.0, 0.35, smoothstep(0.4, 2.2, wForce));
+    float finalAngle = uWindAdvPad.x + (rnd - 0.5) * chaosSpan;
+    vec2 staticBendDir = vec2(cos(finalAngle), sin(finalAngle));
 
-  float wNorm = wSpd / 8.0;
-  float wForce = pow(wNorm, 1.35);
+    vec2 eddyDrift = windDir * (uTime * uWindAdv2.x * (0.25 + 0.15 * stormK));
+    float turbMacro = vnoise(posXZ / max(18.0, uWindAdv1.w * 24.0) - eddyDrift);
+    float turbMed   = vnoise(posXZ / max(8.0,  uWindAdv1.w * 9.0)  - eddyDrift * 1.6 + vec2(4.7, 9.1));
+    float turbRaw   = (turbMacro * 0.72 + turbMed * 0.28) * 2.0 - 1.0;
+    float turb      = turbRaw * (uWindAdv1.z * 0.28) * min(wForce, 2.5) * windMult * biomeWindMod;
 
-  float distAlong = dot(posXZ, windDir);
-  vec2 orthoDir = vec2(-windDir.y, windDir.x);
-  float distOrtho = dot(posXZ, orthoDir);
+    float finalGust  = evalTreeGust(posXZ, windDir, wSpd, uTime, wForce, windMult, biomeWindMod);
+    float actualBend = (uWindAdv1.x * 0.72) * min(wForce, 2.8) * windMult * biomeWindMod;
 
-  float swaySpeed = 1.0 + wSpd * 0.35;
-  float swayAmp = uSwayStrength * (0.05 + wForce * 0.95) * windMult;
-  float sway = (sin(distAlong * 0.025 - uTime * swaySpeed + rnd * 6.28318) * 0.5 + 0.5) * swayAmp;
+    float rawMean = actualBend + finalGust + turb * 0.55;
+    float minMean = mix(0.0, actualBend * 0.45, smoothstep(0.03, 0.30, actualBend));
+    rawMean = max(rawMean, minMean);
 
-  float turbAmp = uTurbulence * (0.05 + wForce * 0.95) * windMult;
-  float turbSpeed = uTurbSpeed * (0.8 + wSpd * 0.2);
-  float turb = (vnoise(posXZ / max(0.2, uTurbAmp * 6.0) + uTime * turbSpeed * 0.5) * 2.0 - 1.0) * turbAmp;
+    float meanAngle = 1.05 * tanh(rawMean / 1.05);
+    vec2 baseDir  = normalize(mix(staticBendDir, windDir, smoothstep(0.0, 0.45, max(actualBend, abs(finalGust)))) + windDir * 1e-4);
+    vec2 basePerp = vec2(-baseDir.y, baseDir.x);
+    vec2 swayDir  = normalize(baseDir + basePerp * clamp(turbRaw * uWindAdv1.z * 0.35, -0.35, 0.35));
+    vec2 perpDir  = vec2(-swayDir.y, swayDir.x);
+    float gustAmplify = 1.0 + 0.45 * smoothstep(0.18, 0.85, meanAngle);
 
-  float finalGust = 0.0;
-  if (uGustFreq > 0.005 && wSpd > 0.05) {
-    float gustWavelength = max(25.0, uGustSize);
-    float travelSpeed = (8.0 + wSpd * 1.5) * max(0.1, uGustSpeed);
-    float phase = (distAlong - uTime * travelSpeed) / gustWavelength;
-    float arcShift = (distOrtho * distOrtho * 0.001) * uGustArc;
+    float baseHm   = max(iA.z * uScene2.z, 4.0);
+    float sizeFreq = 1.0 / clamp(sqrt(baseHm / 14.0), 0.75, 1.85);
+    float freqVar  = (0.86 + 0.28 * rnd) * sizeFreq;
+    float phInd    = (rnd - 0.5) * 1.15;
+    float tAlong   = dot(posXZ, windDir);
+    float tCross   = dot(posXZ, perpDir);
+    float swayT    = uTime * (0.65 + 0.12 * min(wSpd, 22.0)) * freqVar;
+    float env      = 0.60 + 0.40 * sin(uTime * (0.24 + 0.20 * stormK) * freqVar + tAlong * 0.015 + phInd * 1.7);
 
-    vec2 gustUV = vec2(phase + arcShift, distOrtho / (gustWavelength * 1.5));
-    float noiseGust = vnoise(gustUV * 0.7);
-    float waveGust  = sin((phase + arcShift) * 6.28318 + vnoise(posXZ * 0.01) * 3.0) * 0.5 + 0.5;
-    float combinedGust = mix(noiseGust, waveGust, uGustArc);
+    float w1 = sin(tAlong * 0.042 + sin(tCross * 0.024) * 1.2 - swayT + phInd);
+    float w2 = sin(tAlong * 0.088 - swayT * 1.43 + phInd * 1.5);
+    float swayWave = (w1 * 0.74 + w2 * 0.26) * env;
 
-    float threshold = clamp(0.92 - uGustFreq * 0.55, 0.05, 0.88);
-    float softness  = max(0.04, uGustSmoothness * 0.35);
-    float gustPulse = smoothstep(threshold - softness, threshold + softness, combinedGust);
+    float pinDamp = 1.0 - 0.30 * smoothstep(0.45, 1.05, meanAngle);
+    float rawSwayAmp = uWindAdv1.y * wForce * windMult * biomeWindMod * gustAmplify * 0.14 * pinDamp;
+    float swayAmp = 0.42 * tanh(rawSwayAmp / 0.42);
+    float swayAdd = swayWave * swayAmp;
+    float crossBend = cos(tAlong * 0.048 - swayT * 0.87 + phInd * 1.3) * swayAmp * (0.45 + 0.25 * stormK);
 
-    float pauseNoise = vnoise(vec2(distAlong * 0.001 - uTime * 0.04, distOrtho * 0.001));
-    float gustPause  = mix(1.0, smoothstep(0.35, 0.70, pauseNoise), uWindChaos);
+    float gustLoad = max(smoothstep(0.18, 0.85, meanAngle), stormK * 0.75);
+    if (gustLoad > 0.002 && aPart > 0.5) {
+      float fSpd = (3.4 + 0.28 * min(wSpd, 22.0)) * sizeFreq;
+      float f1 = sin(uTime * fSpd * (0.85 + 0.30 * rnd) + rnd * 19.3 + tAlong * 0.10);
+      float f2 = sin(uTime * (fSpd * 1.63) * (0.85 + 0.30 * fract(rnd * 5.7)) + rnd * 27.1);
+      float fWave = f1 * 0.60 + f2 * 0.40;
+      float fAmp  = gustLoad * (0.045 + 0.055 * min(wSpd / 16.0, 1.5)) * min(uWindAdv1.y, 1.2);
+      swayAdd   += fWave * fAmp;
+      crossBend += f2 * gustLoad * (0.035 + 0.045 * stormK) * min(uWindAdv1.y, 1.2);
 
-    finalGust = gustPulse * uGustStrength * gustPause * (0.2 + wForce * 0.8) * windMult;
-  }
+      float radialW = clamp(length(lp.xz), 0.0, 1.0) * smoothstep(0.15, 0.75, hRel);
+      float cPh  = dot(lp, vec3(4.2, 3.1, 4.7)) + rnd * 25.0;
+      float cSpd = 6.5 + 0.45 * min(wSpd, 22.0);
+      float c1   = sin(uTime * cSpd + cPh);
+      float c2   = cos(uTime * (cSpd * 1.37) + cPh * 1.7);
+      float cAmp = gustLoad * (0.02 + 0.045 * stormK) * radialW;
+      pos.xz += (windDir * c1 + perpDir * c2) * (R * cAmp);
+      pos.y  += (c1 * 0.5 - c2 * 0.5) * (hm * cAmp * 0.40);
+    }
 
-  float actualBend = (uBend * 0.35 + wForce * 0.55) * windMult;
-  float totalAngle = clamp(actualBend + sway + finalGust + turb * (1.0 + finalGust * 0.5), -2.2, 2.2);
-
-  float alignWithWind = smoothstep(0.05, 0.65, (finalGust + wForce * 0.35));
-  vec2 finalDir = normalize(mix(staticBendDir, windDir, alignWithWind) + vec2(1e-5));
-
-  if (totalAngle < 0.0) {
-    totalAngle = -totalAngle;
-    finalDir = -finalDir;
+    float minNet = mix(-0.05, meanAngle * 0.35, smoothstep(0.03, 0.25, meanAngle));
+    float netAlong = max(meanAngle + swayAdd, minNet);
+    vec2 totalBendVec = swayDir * netAlong + perpDir * clamp(crossBend, -0.24, 0.24);
+    totalAngle = clamp(length(totalBendVec), 0.0, 1.15);
+    finalDir   = (totalAngle > 1e-4) ? (totalBendVec / totalAngle) : swayDir;
   }
 
   vec3 n0 = vec3(ca * aNrm.x - sa * aNrm.z, aNrm.y, sa * aNrm.x + ca * aNrm.z);
@@ -6719,7 +7349,8 @@ void main(){
   if (totalAngle > 1e-4) {
     vec2 windDirNorm = finalDir;
     float h = clamp(lp.y, 0.0, 1.0);
-    float alpha = totalAngle * pow(h, 1.8);
+    float bendExp = mix(1.75, 1.28, smoothstep(6.0, 20.0, wSpd));
+    float alpha = totalAngle * pow(h, bendExp);
     float aMid = alpha * 0.28717;
 
     float sWind = hm * h * (4.0 * sin(aMid) + sin(alpha)) * (1.0 / 6.0);
@@ -6733,7 +7364,7 @@ void main(){
     vec2 rOrtho     = pos.xz - windDirNorm * rParallel;
 
     pos.xz = windDirNorm * (sWind + rParallel * cos(alpha)) + rOrtho;
-    pos.y  = max(0.05, sY - rParallel * sin(alpha));
+    pos.y  = max(0.05 * hm * h, sY - rParallel * sin(alpha) * 0.72);
 
     float nParallel = dot(n0.xz, windDirNorm);
     vec2 nOrtho     = n0.xz - windDirNorm * nParallel;
@@ -6793,7 +7424,7 @@ void main(){
 }
 `;
 
- const FS_TREE = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + `
+ const makeTreeFS = (thin) => GLSL_HEAD + (thin ? '#define TREE_LEAF_DISCARD 1\n' : '') + GLSL_UBO + GLSL_COLOR_FOG + `
 uniform int uType;
 in vec3 vN; uniform int uIsConifer; in vec3 vWorld; in vec3 vCol; in float vPart; in float vLeaf; in float vShade; in float vY01; in float vCloud;
 out vec4 fragColor;
@@ -6805,16 +7436,14 @@ float hash31(vec3 p){
 }
 
 void main(){
-  // 1. Опадание листвы у лиственных деревьев
-  if (vPart > 0.5 && vPart < 1.5) {
-    if (vLeaf < 0.04) {
-      discard; // Листья полностью опали
-    } else if (vLeaf < 0.55) {
-      vec3 clumpP = floor(vWorld * 1.1);
-      float clump = hash31(clumpP);
-      if (clump > (vLeaf / 0.55)) discard;
-    }
+#ifdef TREE_LEAF_DISCARD
+  // 1. Прореживание кроны у листопадных деревьев в межсезонье
+  if (vPart > 0.5 && vPart < 1.5 && vLeaf < 0.55) {
+    vec3 clumpP = floor(vWorld * 1.1);
+    float clump = hash31(clumpP);
+    if (clump > (vLeaf / 0.55)) discard;
   }
+#endif
 
   // Расчёт таяния/нарастания снега в зависимости от температуры
   float isLateAutumnFS = smoothstep(0.25, 0.75, uSeason.y) * smoothstep(0.65, 0.35, uSeason.x);
@@ -6944,6 +7573,9 @@ void main(){
   fragColor = vec4(finishColor(col), 1.0);
 }
 `;
+
+const FS_TREE = makeTreeFS(false);
+const FS_TREE_THIN = makeTreeFS(true);
 
   const VS_WALL = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + `
 uniform sampler2D uHeight; uniform sampler2D uExtra; uniform sampler2D uClass; uniform vec4 uClsPar[40];
@@ -7196,7 +7828,7 @@ void main(){
   vec3 amb = mix(uGnd.rgb, uAmb.rgb, 0.5) * 1.2 + vec3(0.035);
 
   vec3 col = base * (sunC * ndl * 0.9 + amb);
-  col = fogMix(col, vWorld);
+  col = fogMixEx(col, vWorld, 0.0);
   fragColor = vec4(finishColor(col), 1.0);
 }`;
 
@@ -9313,7 +9945,7 @@ float nightFactor = uSunCol.w;
 // ===========================================================================
 // ШЕЙДЕРЫ ПРОЦЕДУРНОЙ ДИНАМИЧЕСКОЙ ТРАВЫ (GPU-Clipmap)
 // ===========================================================================
-const VS_GRASS = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN + `
+const VS_GRASS = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN + GLSL_WIND_LIB + `
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec2 aUV;
 
@@ -9576,109 +10208,132 @@ if (allowedSegments == 1 && segments > 1) {
   vec2 rotPos = vec2(aPos.x * cos(clumpRot) - aPos.z * sin(clumpRot), aPos.x * sin(clumpRot) + aPos.z * cos(clumpRot));
 
 
+  float vV = clamp(curUV.y, 0.0, 1.0);
   vec2 windOffset = vec2(0.0);
   float windActive = 1.0 - smoothstep(0.75, 0.82, lod);
   float wSpd = max(0.0, uWind.z);
   float uTime = uCam.w * uMode.z;
 
   if (windActive > 0.001 && wSpd > 0.01) {
-    float windMult = 1.0 / max(0.15, uTypeParams[pType].w);
+    float windMult  = 1.0 / max(0.15, uTypeParams[pType].w);
+    float stormRamp = pow(max(wSpd - 6.0, 0.0) / 10.0, 1.55);
+    float wForce    = clamp(wSpd / 10.0 + stormRamp * 1.45, 0.0, 4.5);
+    float stormK    = smoothstep(6.0, 18.0, wSpd);
+    float lodFade   = 1.0 - smoothstep(0.18, 0.48, lod);
+
+    float isValley = smoothstep(0.54, 0.78, ex.g);
+    float biomeWindMod = mix(1.0, 0.3, isValley);
+    float relElev = clamp(groundY / max(uPrecip.z * uScene.z, 1.0), 0.0, 1.0);
+    float isMountain = smoothstep(0.65, 0.90, max(relElev * smoothstep(60.0, 200.0, uPrecip.z), ex.b));
+    biomeWindMod = mix(biomeWindMod, 2.5, isMountain);
+
     float finalAngle = uWindAdvPad.x + (rnd - 0.5) * uWindAdvPad.y * 6.28318;
-    vec2 windDir = vec2(cos(uWindAdvPad.x), sin(uWindAdvPad.x));
-    vec2 orthoDir = vec2(-windDir.y, windDir.x);
     vec2 staticBendDir = vec2(cos(finalAngle), sin(finalAngle));
+    vec2 windDir = vec2(cos(uWindAdvPad.x), sin(uWindAdvPad.x));
 
-    float wNorm = wSpd / 8.0;
-    float wForce = pow(wNorm, 1.35);
+    vec2 turbScroll = windDir * (uTime * uWindAdv2.x * (0.45 + 0.25 * min(wForce, 2.0)));
+    float turb = (vnoise(wPosXZ / max(2.0, uWindAdv1.w * 7.5) - turbScroll) * 2.0 - 1.0)
+               * uWindAdv1.z * min(wForce, 2.2) * windMult * biomeWindMod;
+    float finalGust = evalWindGust(wPosXZ, windDir, wSpd, uTime, wForce, windMult, biomeWindMod);
 
-    float distAlong = dot(wPosXZ, windDir);
-    float distOrtho = dot(wPosXZ, orthoDir);
-    vec2 windSpace = vec2(distAlong, distOrtho);
+    float actualBend  = (uWindAdv1.x * 0.78) * min(wForce, 2.8) * windMult * biomeWindMod;
+    float heightBoost = (baseHeight > 1.5 ? 1.12 : 1.0);
+    float rawBend     = (actualBend + finalGust + turb * (1.0 + max(finalGust, 0.0) * 0.35)) * heightBoost * windActive;
+    float meanBend    = (rawBend >= 0.0 ? 1.0 : -1.0) * 1.26 * tanh(abs(rawBend) / 1.22);
 
-    float clumpPhase = vnoise(windSpace * 0.18) * 3.8 + rnd * 1.4;
-    float sway = (sin(distAlong * 0.045 - uTime * (1.1 + wSpd * 0.35) + clumpPhase) * 0.5 + 0.5)
-               * uWindAdv1.y * (0.05 + wForce * 0.95) * windMult;
+    float dirAlign = smoothstep(0.04, 0.48, max(abs(finalGust), actualBend * 0.85));
+    vec2 finalDir = normalize(mix(staticBendDir, windDir, dirAlign) + windDir * 1e-4);
+    vec2 perpDir  = vec2(-finalDir.y, finalDir.x);
 
-    float turbScale = max(0.2, uWindAdv1.w * 4.0);
-    vec2 turbUV = vec2(distAlong - uTime * (1.8 + wSpd * 0.55) * uWindAdv2.x, distOrtho) / turbScale;
-    float turbN = vnoise(turbUV) * 0.65 + vnoise(turbUV * 2.13 + vec2(4.7, 9.1)) * 0.35;
-    float turb = (turbN * 2.0 - 1.0) * uWindAdv1.z * (0.05 + wForce * 0.95) * windMult;
+    float wAlong  = dot(wPosXZ, windDir);
+    float wCross  = dot(wPosXZ, perpDir);
+    float phSoft  = (rnd - 0.5) * 0.42;
 
-    float finalGust = 0.0;
-    if (uWindAdv2.w > 0.005) {
-      float gustWL = max(20.0, uWindAdv2.z);
-      float travel = (8.0 + wSpd * 1.5) * max(0.1, uWindAdv3.z);
-      float phase = (distAlong - uTime * travel) / gustWL;
-      float macroGust = vnoise(vec2(phase, distOrtho / (gustWL * 1.3)) * 0.7);
+    float swaySpd = 1.15 + 2.35 * smoothstep(0.0, 16.0, wSpd);
+    float swayT   = uTime * swaySpd;
+    float env     = 0.65 + 0.35 * sin(wAlong * 0.032 - uTime * (0.55 + 0.65 * stormK) + phSoft);
 
-      vec2 microUV = vec2((distAlong - uTime * travel * 0.62) / 14.0, distOrtho / 7.5);
-      float microGust = vnoise(microUV + vec2(macroGust * 1.4, 2.7)) * 0.65
-                      + vnoise(microUV * 2.3 + vec2(5.1, 1.9)) * 0.35;
+    float w1 = sin(wAlong * 0.075 + sin(wCross * 0.042) * 1.15 - swayT + vV * 0.85 + phSoft);
+    float w2 = sin(wAlong * 0.145 - wCross * 0.055 - swayT * 1.48 + vV * 1.25 + phSoft * 1.3);
+    float swayWave = (w1 * 0.65 + w2 * 0.35) * env + 0.10;
 
-      float combinedGust = mix(macroGust, microGust, 0.48);
-      finalGust = smoothstep(0.32, 0.82, combinedGust) * uWindAdv2.y * (0.2 + wForce * 0.8) * windMult;
+    float swayScale = uWindAdv1.y * wForce * windMult * biomeWindMod * heightBoost * windActive;
+    float pinK      = smoothstep(0.55, 1.08, abs(meanBend));
+    float pinDamp   = 1.0 - 0.72 * pinK;
+    float swayEff   = 1.6 * tanh(swayScale / 1.6);
+    float swayAmp   = swayEff * (0.20 + 0.08 * min(swayEff, 1.2)) * pinDamp;
+    float sway      = swayWave * swayAmp;
+
+    float gustLoad = max(smoothstep(0.16, 0.75, abs(meanBend)) * smoothstep(0.5, 3.2, wSpd),
+                         stormK * 0.75 * smoothstep(2.0, 7.0, wSpd)) * lodFade;
+    float flutter   = 0.0;
+    float latWobble = 0.0;
+    if (gustLoad > 0.002) {
+      float rSpd = 4.0 + 4.8 * smoothstep(2.5, 18.0, wSpd);
+      float r1 = sin(wAlong * 0.24 - wCross * 0.09 - uTime * rSpd - vV * 1.15 + phSoft);
+      float r2 = sin(wAlong * 0.37 + wCross * 0.14 - uTime * (rSpd * 1.47) - vV * 1.55 + phSoft * 1.4);
+      float streakEnv = 0.50 + 0.50 * sin(wAlong * 0.085 + wCross * 0.055 - uTime * (1.4 + 1.2 * stormK) + phSoft * 0.5);
+
+      float bSign    = meanBend >= 0.0 ? 1.0 : -1.0;
+      float rWave    = r1 * 0.62 + r2 * 0.38;
+      float liftBias = -0.52 * bSign * pinK;
+
+      float baseTipAmp = (0.045 + 0.065 * smoothstep(3.0, 16.0, wSpd)) * (0.35 + 0.65 * vV);
+      float pinAmp     = pinK * (0.045 + 0.055 * smoothstep(5.0, 18.0, wSpd)) * (0.25 + 0.75 * vV);
+      flutter = (rWave * (baseTipAmp * (1.0 - 0.35 * pinK) + pinAmp) + liftBias * pinAmp) * gustLoad * streakEnv;
+
+      float latWave = sin(wAlong * 0.11 + wCross * 0.07 - uTime * (rSpd * 0.62) + phSoft);
+      latWobble = latWave * (0.05 + 0.04 * stormK) * (1.0 - 0.68 * pinK) * gustLoad * (0.35 + 0.65 * vV);
     }
 
-    float rawAngle = (uWindAdv1.x * 0.2 + wForce * 0.45) * windMult + sway + finalGust + turb;
-    float targetMax = 1.24;
-    float signA = sign(rawAngle);
-    float absA = abs(rawAngle);
-    float bendBase = absA;
-    if (bendBase > 0.95) {
-      float excess = bendBase - 0.95;
-      bendBase = 0.95 + (targetMax - 0.95) * (excess / (excess + 0.32));
-    }
-    bendBase = min(bendBase, targetMax) * signA;
+    float curveMask = vV * vV * (3.0 - 2.0 * vV);
+    float tipMask   = vV * vV;
+    float angle     = clamp(meanBend * curveMask + sway * curveMask + flutter * tipMask, -1.36, 1.36);
 
-    float stormFactor = smoothstep(0.35, 0.85, wNorm);
-    float pinFactor = smoothstep(0.90, 1.22, absA) * stormFactor;
+    float latSway   = cos(wAlong * 0.085 - swayT * 0.92 + phSoft) * swayAmp * 0.32 * (1.0 - 0.60 * pinK);
+    float crossAng  = clamp(latSway * curveMask + latWobble * tipMask, -0.45, 0.45);
 
-    float waveSpeed = 1.6 + wSpd * 0.55;
-    vec2 ruv1 = vec2(distAlong * 0.085 - uTime * waveSpeed * 0.32, distOrtho * 0.14);
-    vec2 ruv2 = vec2(distAlong * 0.19  - uTime * waveSpeed * 0.48, distOrtho * 0.27) + vec2(3.7, 8.2);
-    float nRip1 = vnoise(ruv1 + vec2(0.0, vnoise(ruv1 * 0.6) * 1.6));
-    float nRip2 = vnoise(ruv2);
-    float groundRipple = (nRip1 * 0.65 + nRip2 * 0.35) * 2.0 - 1.0;
-
-    float slitherWave = (vnoise(vec2(distAlong * 0.055 - uTime * waveSpeed * 0.22, distOrtho * 0.11 + 4.3)) * 2.0 - 1.0) * 0.30;
-
-    float groundAngleFlutter = groundRipple * (0.10 + 0.08 * wNorm) * pinFactor;
-    float totalAngle = clamp(bendBase + groundAngleFlutter, -1.42, 1.42) * windActive;
-
-    vec2 slitherVec = orthoDir * (slitherWave * pinFactor);
-    vec2 alignDir = mix(staticBendDir, windDir, smoothstep(0.05, 0.65, finalGust + wForce * 0.35));
-    vec2 finalDir = normalize(alignDir + slitherVec + vec2(1e-4));
-
-    float curveMask = pow(vertY, 1.6);
-    float bendAngle = totalAngle * curveMask;
-    float curH = vertY * baseHeight;
-
-    windOffset = finalDir * (sin(bendAngle) * curH);
-    vertY = (curH * cos(bendAngle)) / max(baseHeight, 0.01);
-
-    float pin = smoothstep(0.90, 1.22, abs(totalAngle)) * stormFactor;
-    if (pin > 0.001) {
-      vec2 ortho = vec2(-finalDir.y, finalDir.x);
-      float distAlongW = dot(wPosXZ, finalDir);
-      float distOrthoW = dot(wPosXZ, ortho);
-      float phaseMix = rnd * 6.28318 + rnd2 * 2.5 + distOrthoW * 0.37;
-      float stemWavePhase = uTime * (waveSpeed * (1.4 + 0.6 * rnd)) - curUV.y * 3.5 + distAlongW * 0.18 + phaseMix;
-      float whipWave = sin(stemWavePhase) * 0.65 + sin(stemWavePhase * 1.73 + distOrthoW * 0.51) * 0.35;
-      float lateralWhip = whipWave * (0.06 * pin * baseWidth * curveMask);
-      float verticalFlutter = abs(cos(stemWavePhase * 0.9)) * (0.03 * pin * curH * curveMask);
-
-      windOffset += ortho * lateralWhip;
-      vertY += verticalFlutter / max(baseHeight, 0.01);
-    }
+    float curY = vertY * baseHeight;
+    vec2 horizVec = finalDir * sin(angle) + perpDir * sin(crossAng);
+    float hLen = length(horizVec);
+    if (hLen > 0.96) horizVec *= 0.96 / hLen;
+    windOffset = horizVec * curY;
+    vertY = (curY * max(cos(angle), 0.22)) / max(baseHeight, 0.01);
   }
 
   vec3 worldPos = worldBase + vec3(rotPos.x * baseWidth + windOffset.x, vertY * baseHeight, rotPos.y * baseWidth + windOffset.y);
+  float shadeVal = (uMode.y > 0.5) ? texture(uShadow, uv).g : 1.0;
+  float cloudVal = cloudShadow(wPosXZ);
+  vec3 N = normalize(vec3(rotPos.x * 0.4, 0.85, rotPos.y * 0.4));
+  float night = uSunCol.w;
+  float termVis, alpenMask, alpenEdge;
+  vec3 alpenTint;
+  evalAlpenglow(worldPos.y, termVis, alpenMask, alpenTint, alpenEdge);
+  vec3 Lglide = (night < 0.5 && uLight.y < 0.10)
+    ? normalize(vec3(uLight.x, mix(uLight.y, 0.10, alpenMask), uLight.z))
+    : uLight.xyz;
+  float ndl = clamp(dot(N, Lglide) * 0.6 + 0.4, 0.0, 1.0);
+  float cloudDarkness = uCloudParams.z;
+  float sunIntensity = (uSkyTop.w < 0.02) ? uCloudExtra.y : mix(max(0.05, uCloudExtra.y), cloudDarkness, cloudVal);
+  vec3 spotWarmth = mix(vec3(1.0), vec3(1.22, 1.06, 0.82), clamp((uCloudExtra.y - 1.0) * 0.35, 0.0, 1.0));
+  vec3 sunC = uSunCol.rgb * spotWarmth * uLight.w * sunIntensity;
+  vec3 sunCActive = mix(sunC, alpenTint * max(length(sunC), 0.01) * 1.08, alpenEdge * 0.72);
+  float directVis = shadeVal * termVis;
+  float ambCloudFactor = (uSkyTop.w < 0.02) ? 1.0 : mix(1.0, max(0.04, cloudDarkness * 1.6), cloudVal * smoothstep(0.02, 0.25, uSkyTop.w));
+  vec3 ambient = (mix(uGnd.rgb, uAmb.rgb, N.y * 0.4 + 0.6) + vec3(0.6, 0.65, 1.0) * uWind.w * 0.7) * ambCloudFactor;
+  vec3 cg = cloudGrade(cloudVal);
+  vLight = (sunCActive * ndl * directVis + ambient) * cg * (1.0 - 0.25 * uAmb.w);
+  vAlpenAdd = vec3(0.0);
+  if (alpenMask > 0.01 && directVis > 0.02) {
+    vec3 V = normalize(uCam.xyz - worldPos);
+    vec3 H = normalize(V + Lglide);
+    float spec = pow(max(dot(N, H), 0.0), 14.0) * 0.45;
+    float trans = pow(max(dot(-V, Lglide), 0.0), 3.0) * 0.55;
+    vAlpenAdd = alpenTint * sunCActive * ((spec + trans) * alpenMask * directVis * (1.0 - cloudVal * 0.85)) * cg;
+  }
+
   vWorld = worldPos; vUV = curUV;
-  vN = normalize(vec3(rotPos.x * 0.4, 0.85, rotPos.y * 0.4));
   vColorBase = lin(colBase); vColorTip = lin(colTip);
-  vShade = (uMode.y > 0.5) ? texture(uShadow, uv).g : 1.0;
-  vCloud = cloudShadow(wPosXZ);
-  vClumpRnd = rnd;
 
   gl_Position = uVP * vec4(worldPos, 1.0);
 }
@@ -9701,18 +10356,14 @@ bool sphereVisible(vec3 c, float r){
 }
 `;
 
-const VS_GRASS_STATE = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN + GLSL_FRUSTUM + `
+const VS_GRASS_STATIC = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN + `
 uniform sampler2D uClass;
 uniform sampler2D uExtra;
-uniform sampler2D uShadow;
 
 uniform float uGrassGridDim;
 uniform float uGrassScale;
 uniform vec4  uGrassBounds;
 uniform vec4  uGrassOrigin;
-uniform ivec2 uGrassMeshInfo; // x: vertsPerPlane, y: maxPlanes
-uniform vec2  uGrassGrow;     // x: порог роста по плотности (0..1.25), y: проявление каскада (0..1)
-uniform vec4  uGrassFade;
 
 uniform vec2  uTypeScale[10];
 uniform vec3  uTypeColBase[10];
@@ -9721,7 +10372,7 @@ uniform float uTypeProb[10];
 uniform vec4  uTypeParams[10];
 uniform float uTypeColorVar[10];
 
-out vec4 oA; out vec4 oB; out vec4 oC; out vec4 oD; out vec4 oE;
+out vec4 oSA; out vec4 oSB; out vec4 oSC; out vec4 oSD;
 
 float evalMeadowMask(vec2 pos, float cluster, float patchSize, float seed) {
   if (cluster <= 0.01) return 1.0;
@@ -9745,9 +10396,8 @@ int bayer16(int x, int y) {
   return r;
 }
 
-
 void main(){
-  oA = vec4(0.0); oB = vec4(0.0); oC = vec4(0.0); oD = vec4(0.0); oE = vec4(0.0);
+  oSA = vec4(0.0); oSB = vec4(0.0); oSC = vec4(0.0); oSD = vec4(0.0);
   int id = int(aCell + 0.5);
   int dimX = int(uGrassBounds.x);
   int dimY = int(uGrassBounds.y);
@@ -9768,28 +10418,6 @@ void main(){
     (float(iz) + 0.5) * stepSize.y - uGrassBounds.w * 0.5
   ) + jitter;
 
-  // Для ближнего каскада (ширина меньше карты) мягко растворяем края квадрата, чтобы не было резкой границы
-float edgeGrow = 1.0;
-  if (uGrassFade.z > 0.0) {
-    vec2 relN = (wPosXZ - uGrassFade.xy) / uGrassFade.zw;
-    float edgeFade = 1.0 - smoothstep(0.54, 1.0, length(relN));
-    float edgeMargin = edgeFade - rnd;
-    if (edgeMargin <= 0.0) return;
-    edgeGrow = smoothstep(0.0, 0.36, edgeMargin);
-  }
-
-  float grow = edgeGrow;
-  if (uGrassGrow.x < 1.249) {
-    float rankNorm = (float(bayer16(ix & 15, iz & 15)) + 0.5) / 256.0;
-    float band = clamp(uGrassGrow.x * 0.55, 0.03, 0.25);
-    grow *= smoothstep(uGrassGrow.x, max(0.0, uGrassGrow.x - band), rankNorm);
-  }
-  if (uGrassGrow.y < 0.999) {
-    float delay = rnd2 * 0.45;
-    grow *= smoothstep(delay, delay + 0.55, uGrassGrow.y);
-  }
-  if (grow <= 0.005) return;
-
   float halfW = uScene.x * 0.5;
   float halfH = uScene.y * 0.5;
   if (abs(wPosXZ.x) >= halfW || abs(wPosXZ.y) >= halfH) return;
@@ -9809,7 +10437,6 @@ float edgeGrow = 1.0;
 
   float groundY = Hbil(uv);
 
-  // --- Отсечка травы на крутых скалах и высокогорных пиках ---
   float eAbsGrass = groundY / max(uScene.z, 1e-3) + uScene.w;
   vec2 hCell = uScene.xy / max(vec2(GRID() - ivec2(1)), vec2(1.0));
   vec2 hStep = hCell / uScene.xy;
@@ -9829,37 +10456,24 @@ float edgeGrow = 1.0;
   float grassKeep = alpineGrassFade * slopeGrassFade * peakGrassFade * bareClsFade;
   if (grassKeep <= 0.03 || rnd > grassKeep) return;
 
-  vec3 worldBase = vec3(wPosXZ.x, groundY, wPosXZ.y);
-
-  float distToCam = length(wPosXZ - uCam.xz);
-  // Масштабируем lod относительно текущей дистанции камеры (uCam.xyz) и охвата сцены
-  float span = max(uScene.x, uScene.y);
-  float lod = clamp((distToCam - span * 0.25) / (span * 1.25), 0.0, 1.0);
-
   bool isForest  = (cls >= 5 && cls <= 14);
   bool isField   = (cls >= 1 && cls <= 4) || cls == 18 || cls == 25;
   float sdf = (ex.r - 0.5) * 2.0;
   bool isWetland = (cls == 23 || cls == 24 || cls == 25 || cls == 28 || (sdf > -0.18 && sdf <= 0.02));
 
-  // ПРОРЕЖИВАНИЕ БОЛОТА:
   if (isWetland) {
     float swampClump = vnoise(wPosXZ * 0.05 + vec2(3.1, 7.7));
     float keepProb = mix(0.18, 0.38, smoothstep(0.35, 0.68, swampClump));
-    if (rnd > keepProb) return; // ранний выход (baseHeight останется 0)
+    if (rnd > keepProb) return;
   }
 
-float P[10];
+  float P[10];
   if (isWetland) {
-    P[0] = 0.0;
-    P[1] = 0.0;
+    P[0] = 0.0; P[1] = 0.0;
     P[2] = uTypeProb[2] > 0.001 ? uTypeProb[2] * evalMeadowMask(wPosXZ, uTypeParams[2].x, uTypeParams[2].y, 2.3) : 0.0;
-    P[3] = 0.0;
-    P[4] = 0.0;
-    P[5] = 0.0;
+    P[3] = 0.0; P[4] = 0.0; P[5] = 0.0;
     P[6] = uTypeProb[6] > 0.001 ? uTypeProb[6] * evalMeadowMask(wPosXZ, uTypeParams[6].x, uTypeParams[6].y, 6.7) : 0.0;
-    P[7] = 0.0;
-    P[8] = 0.0;
-    P[9] = 0.0;
+    P[7] = 0.0; P[8] = 0.0; P[9] = 0.0;
   } else {
     P[0] = uTypeProb[0] > 0.001 ? uTypeProb[0] * evalMeadowMask(wPosXZ, uTypeParams[0].x, uTypeParams[0].y, 0.1) : 0.0;
     P[1] = uTypeProb[1] > 0.001 ? uTypeProb[1] * evalMeadowMask(wPosXZ, uTypeParams[1].x, uTypeParams[1].y, 1.2) : 0.0;
@@ -9896,12 +10510,13 @@ float P[10];
   float hVar = 1.0 + (rnd2 - 0.5) * 1.8 * sizeVarK;
   float wVar = 1.0 + (rnd3 - 0.5) * 1.5 * sizeVarK;
 
+  float span = max(uScene.x, uScene.y);
   float sceneScale = clamp(sqrt(span / 1500.0), 0.75, 2.5);
   float zScale = clamp(sqrt(uScene.z), 1.0, 2.0);
 
   float gScale = max(0.0001, uGrassScale);
   float baseHeight = 4.0 * gScale * customScale.y * sceneScale * zScale * clamp(hVar, 0.25, 2.5);
-  float baseWidth  = 3.5 * gScale * customScale.x * sceneScale * (1.0 + lod * 0.35) * clamp(wVar, 0.3, 2.2);
+  float baseWidth  = 3.5 * gScale * customScale.x * sceneScale * clamp(wVar, 0.3, 2.2);
 
   if (isUrban || obstacleFactor > 0.02) {
     float shrinkFactor = isUrban ? 0.35 : mix(1.0, 0.30, obstacleFactor);
@@ -9913,13 +10528,6 @@ float P[10];
     baseHeight *= gStunt;
     baseWidth  *= mix(0.65, 1.0, gStunt);
   }
-  if (grow < 0.999) {
-    baseHeight *= grow;
-    baseWidth  *= pow(grow, 0.70);
-  }
-
-  float snow = uGnd.w;
-  if (snow > 0.05) baseHeight *= (1.0 - smoothstep(0.05, 1.0, snow) * 0.20);
 
   float cVar = uTypeColorVar[pType];
   float brightShift = 1.0 + (rnd2 - 0.5) * 0.85 * cVar;
@@ -9927,9 +10535,6 @@ float P[10];
   vec3 colBase = clamp(uTypeColBase[pType] * brightShift + vec3(warmShift, warmShift * 0.3, -warmShift * 0.5), 0.0, 1.0);
   vec3 colTip  = clamp(uTypeColTip[pType]  * brightShift + vec3(warmShift, warmShift * 0.3, -warmShift * 0.5), 0.0, 1.0);
 
-  // =========================================================================
-  // БОЛОТНАЯ РАСТИТЕЛЬНОСТЬ: ТОРФЯНО-БУРЫЙ НИЗ И БЕЖЕВЫЕ ВЕРХУШКИ
-  // =========================================================================
   if (isWetland) {
     vec3 bogBaseMud   = vec3(0.13, 0.09, 0.05);
     vec3 bogBaseMoss  = vec3(0.17, 0.22, 0.09);
@@ -9952,104 +10557,128 @@ float P[10];
     colTip = clamp(wetTip * (0.92 + 0.16 * rnd3), 0.0, 1.0);
   }
 
-  if (snow > 0.03) {
-    vec3 frostColor = lin(vec3(0.92, 0.95, 0.98));
-    colTip = mix(colTip, frostColor, smoothstep(0.03, 0.7, snow) * 0.85);
+  float rankNorm = (float(bayer16(ix & 15, iz & 15)) + 0.5) / 256.0;
+  oSA = vec4(wPosXZ.x, groundY, wPosXZ.y, rnd);
+  oSB = vec4(baseHeight, baseWidth, customParam.w, rankNorm);
+  oSC = vec4(lin(colBase), float(pType + atlasSlot * 16));
+  oSD = vec4(lin(colTip), rnd2);
+}
+`;
+
+const VS_GRASS_STATE = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN + GLSL_WIND_LIB + GLSL_FRUSTUM + `
+layout(location=0) in vec4 sA;
+layout(location=1) in vec4 sB;
+layout(location=2) in vec4 sC;
+layout(location=3) in vec4 sD;
+
+uniform sampler2D uExtra;
+uniform sampler2D uShadow;
+uniform vec2  uGrassGrow;
+uniform vec4  uGrassFade;
+
+out vec4 oA; out vec4 oB; out vec4 oC; out vec4 oD; out vec4 oE;
+
+void main(){
+  oA = vec4(0.0); oB = vec4(0.0); oC = vec4(0.0); oD = vec4(0.0); oE = vec4(0.0);
+  if (sB.x <= 0.0) return;
+
+  vec2 wPosXZ = sA.xz;
+  float groundY = sA.y;
+  float rnd   = sA.w;
+  float rnd2  = sD.w;
+
+  float edgeGrow = 1.0;
+  if (uGrassFade.z > 0.0) {
+    vec2 relN = (wPosXZ - uGrassFade.xy) / uGrassFade.zw;
+    float edgeFade = 1.0 - smoothstep(0.54, 1.0, length(relN));
+    float edgeMargin = edgeFade - rnd;
+    if (edgeMargin <= 0.0) return;
+    edgeGrow = smoothstep(0.0, 0.36, edgeMargin);
   }
 
-  vec2 forceVec = vec2(0.0);
+  float grow = edgeGrow;
+  if (uGrassGrow.x < 1.249) {
+    float band = clamp(uGrassGrow.x * 0.55, 0.03, 0.25);
+    grow *= smoothstep(uGrassGrow.x, max(0.0, uGrassGrow.x - band), sB.w);
+  }
+  if (uGrassGrow.y < 0.999) {
+    float delay = rnd2 * 0.45;
+    grow *= smoothstep(delay, delay + 0.55, uGrassGrow.y);
+  }
+  if (grow <= 0.005) return;
+
+  float distToCam = length(wPosXZ - uCam.xz);
+  float span = max(uScene.x, uScene.y);
+  float lod = clamp((distToCam - span * 0.25) / (span * 1.25), 0.0, 1.0);
+
+  float baseHeight = sB.x * grow;
+  float baseWidth  = sB.y * (1.0 + lod * 0.35) * pow(grow, 0.70);
+
+  float snow = uGnd.w;
+  if (snow > 0.05) baseHeight *= (1.0 - smoothstep(0.05, 1.0, snow) * 0.20);
+
+  float boundR = max(baseHeight, baseWidth) * 1.5;
+  if (!sphereVisible(sA.xyz + vec3(0.0, baseHeight * 0.5, 0.0), boundR)) return;
+
+  vec2 uv = vec2(wPosXZ.x / uScene.x + 0.5, wPosXZ.y / uScene.y + 0.5);
+  vec4 ex = texture(uExtra, uv);
+
+  float instAngle = 0.0;
+  float dirAngle  = 0.0;
+  float swayScale = 0.0;
+
   float windActive = 1.0 - smoothstep(0.68, 0.72, lod);
   float wSpd = max(0.0, uWind.z);
   float uTime = uCam.w * uMode.z;
 
   if (windActive > 0.001 && wSpd > 0.01) {
-    float windMult = 1.0 / max(0.15, customParam.w);
+    float windMult  = 1.0 / max(0.15, sB.z);
+    float stormRamp = pow(max(wSpd - 6.0, 0.0) / 10.0, 1.55);
+    float wForce    = clamp(wSpd / 10.0 + stormRamp * 1.45, 0.0, 4.5);
+
+    float isValley = smoothstep(0.54, 0.78, ex.g);
+    float biomeWindMod = mix(1.0, 0.3, isValley);
+    float relElev = clamp(groundY / max(uPrecip.z * uScene.z, 1.0), 0.0, 1.0);
+    float isMountain = smoothstep(0.65, 0.90, max(relElev * smoothstep(60.0, 200.0, uPrecip.z), ex.b));
+    biomeWindMod = mix(biomeWindMod, 1.65, isMountain);
+
     float finalAngle = uWindAdvPad.x + (rnd - 0.5) * uWindAdvPad.y * 6.28318;
-    vec2 windDir = vec2(cos(uWindAdvPad.x), sin(uWindAdvPad.x));
-    vec2 orthoDir = vec2(-windDir.y, windDir.x);
     vec2 staticBendDir = vec2(cos(finalAngle), sin(finalAngle));
+    vec2 windDir = vec2(cos(uWindAdvPad.x), sin(uWindAdvPad.x));
 
-    float wNorm = wSpd / 8.0;
-    float wForce = pow(wNorm, 1.35);
+    vec2 turbScroll = windDir * (uTime * uWindAdv2.x * (0.45 + 0.25 * min(wForce, 2.0)));
+    float turb = (vnoise(wPosXZ / max(2.0, uWindAdv1.w * 7.5) - turbScroll) * 2.0 - 1.0)
+               * uWindAdv1.z * min(wForce, 2.2) * windMult * biomeWindMod;
+    float finalGust = evalWindGust(wPosXZ, windDir, wSpd, uTime, wForce, windMult, biomeWindMod);
 
-    float distAlong = dot(wPosXZ, windDir);
-    float distOrtho = dot(wPosXZ, orthoDir);
-    vec2 windSpace = vec2(distAlong, distOrtho);
+    float actualBend = (uWindAdv1.x * 0.78) * min(wForce, 2.8) * windMult * biomeWindMod;
+    float heightBoost = (baseHeight > 1.5 ? 1.12 : 1.0);
 
-    // Плавная групповая фаза (пряди 4-7 м) + небольшая индивидуальность пучка
-    float clumpPhase = vnoise(windSpace * 0.18) * 3.8 + rnd * 1.4;
-    float sway = (sin(distAlong * 0.045 - uTime * (1.1 + wSpd * 0.35) + clumpPhase) * 0.5 + 0.5)
-               * uWindAdv1.y * (0.05 + wForce * 0.95) * windMult;
+    float rawBend = (actualBend + finalGust + turb * (1.0 + max(finalGust, 0.0) * 0.35)) * heightBoost * windActive;
+    instAngle = (rawBend >= 0.0 ? 1.0 : -1.0) * 1.26 * tanh(abs(rawBend) / 1.22);
+    swayScale = uWindAdv1.y * wForce * windMult * biomeWindMod * heightBoost * windActive;
 
-    // Турбулентность летит строго по ветру (2 октавы)
-    float turbScale = max(0.2, uWindAdv1.w * 4.0);
-    vec2 turbUV = vec2(distAlong - uTime * (1.8 + wSpd * 0.55) * uWindAdv2.x, distOrtho) / turbScale;
-    float turbN = vnoise(turbUV) * 0.65 + vnoise(turbUV * 2.13 + vec2(4.7, 9.1)) * 0.35;
-    float turb = (turbN * 2.0 - 1.0) * uWindAdv1.z * (0.05 + wForce * 0.95) * windMult;
-
-    // Макро-порывы + локальные струи (7-16 м), чтобы на малой площади перед камерой были живые волны
-    float finalGust = 0.0;
-    if (uWindAdv2.w > 0.005) {
-      float gustWL = max(20.0, uWindAdv2.z);
-      float travel = (8.0 + wSpd * 1.5) * max(0.1, uWindAdv3.z);
-      float phase = (distAlong - uTime * travel) / gustWL;
-      float macroGust = vnoise(vec2(phase, distOrtho / (gustWL * 1.3)) * 0.7);
-
-      vec2 microUV = vec2((distAlong - uTime * travel * 0.62) / 14.0, distOrtho / 7.5);
-      float microGust = vnoise(microUV + vec2(macroGust * 1.4, 2.7)) * 0.65
-                      + vnoise(microUV * 2.3 + vec2(5.1, 1.9)) * 0.35;
-
-      float combinedGust = mix(macroGust, microGust, 0.48);
-      float gustPulse = smoothstep(0.32, 0.82, combinedGust);
-      finalGust = gustPulse * uWindAdv2.y * (0.2 + wForce * 0.8) * windMult;
-    }
-
-    // Мягкий потолок до 1.24, чтобы при сильном ветре не застывала динамика порывов
-    float rawAngle = (uWindAdv1.x * 0.2 + wForce * 0.45) * windMult + sway + finalGust + turb;
-    float targetMax = 1.24;
-    float signA = sign(rawAngle);
-    float absA = abs(rawAngle);
-    float bendBase = absA;
-    if (bendBase > 0.95) {
-      float excess = bendBase - 0.95;
-      bendBase = 0.95 + (targetMax - 0.95) * (excess / (excess + 0.32));
-    }
-    bendBase = min(bendBase, targetMax) * signA;
-
-    // Непериодические 2D-струи по 2D-шуму вместо ровной 1D-синусоиды
-    float stormFactor = smoothstep(0.35, 0.85, wNorm);
-    float pinFactor = smoothstep(0.90, 1.22, absA) * stormFactor;
-
-    float waveSpeed = 1.6 + wSpd * 0.55;
-    vec2 ruv1 = vec2(distAlong * 0.085 - uTime * waveSpeed * 0.32, distOrtho * 0.14);
-    vec2 ruv2 = vec2(distAlong * 0.19  - uTime * waveSpeed * 0.48, distOrtho * 0.27) + vec2(3.7, 8.2);
-    float nRip1 = vnoise(ruv1 + vec2(0.0, vnoise(ruv1 * 0.6) * 1.6));
-    float nRip2 = vnoise(ruv2);
-    float groundRipple = (nRip1 * 0.65 + nRip2 * 0.35) * 2.0 - 1.0;
-
-    float slitherWave = (vnoise(vec2(distAlong * 0.055 - uTime * waveSpeed * 0.22, distOrtho * 0.11 + 4.3)) * 2.0 - 1.0) * 0.30;
-
-    float groundAngleFlutter = groundRipple * (0.10 + 0.08 * wNorm) * pinFactor;
-    float totalAngle = clamp(bendBase + groundAngleFlutter, -1.42, 1.42);
-
-    vec2 slitherVec = orthoDir * (slitherWave * pinFactor);
-    vec2 alignDir = mix(staticBendDir, windDir, smoothstep(0.05, 0.65, finalGust + wForce * 0.35));
-    vec2 finalDir = normalize(alignDir + slitherVec + vec2(1e-4));
-    forceVec = finalDir * (totalAngle * windActive);
+    float dirAlign = smoothstep(0.04, 0.48, max(abs(finalGust), actualBend * 0.85));
+    vec2 finalDir = normalize(mix(staticBendDir, windDir, dirAlign) + windDir * 1e-4);
+    dirAngle = atan(finalDir.y, finalDir.x);
   }
 
-  float boundR = max(baseHeight, baseWidth) * 1.5;
-  if (!sphereVisible(worldBase + vec3(0.0, baseHeight * 0.5, 0.0), boundR)) {
-    baseHeight = 0.0;
+  vec3 colTip = sD.rgb;
+  if (snow > 0.03) {
+    colTip = mix(colTip, lin(vec3(0.92, 0.95, 0.98)), smoothstep(0.03, 0.7, snow) * 0.85);
   }
+
+  int packedType = int(sC.w + 0.5);
+  int atlasSlot = packedType >> 4;
+  int pType = packedType & 15;
 
   float shade = (uMode.y > 0.5) ? texture(uShadow, uv).g : 1.0;
-  oA = vec4(worldBase, rnd);
-  oB = vec4(baseHeight, baseWidth, forceVec.x, forceVec.y);
-  oC = vec4(lod, shade, cloudShadow(wPosXZ), float(atlasSlot));
-  oD = vec4(lin(colBase), float(pType));
-  oE = vec4(lin(colTip), 0.0);
 
+  oA = sA;
+  oB = vec4(baseHeight, baseWidth, instAngle, dirAngle);
+  oC = vec4(lod, shade, cloudShadow(wPosXZ), float(atlasSlot));
+  oD = vec4(sC.rgb, float(pType));
+  oE = vec4(colTip, swayScale);
 }
 `;
 
@@ -10058,13 +10687,11 @@ uniform sampler2D uGrassAtlas;
 uniform float uA2C;
 
 in vec3 vWorld;
-in vec3 vN;
 in vec2 vUV;
 in vec3 vColorBase;
 in vec3 vColorTip;
-in float vShade;
-in float vCloud;
-in float vClumpRnd;
+in vec3 vLight;
+in vec3 vAlpenAdd;
 flat in int vPlantType;
 flat in int vAtlasSlot;
 
@@ -10079,69 +10706,24 @@ void main(){
   float v = clamp(vUV.y, 0.0, 1.0);
   vec3 col = mix(vColorBase, vColorTip, pow(v, 0.85));
 
-  // Окраска цветов и борщевика:
-  // t.b = маска цветков / шапок (окрашивается в vColorTip - цвет верха)
-  // t.r = шейдинг и стебли (окрашивается в vColorBase - цвет низа)
   if (vPlantType == 5) {
-    // Борщевик / Зонтичные: шапки-зонтики
     col = mix(vColorBase, vColorTip, t.b);
   } else if (vPlantType >= 7) {
-    // 3 вида цветов: лепестки окрашиваются в vColorTip, стебель - в vColorBase, серединка - золотистая
-    vec3 petalCol = vColorTip;
-    vec3 centerCol = mix(lin(vec3(0.98, 0.82, 0.12)), petalCol * 0.7, 0.25);
-    col = mix(vColorBase, petalCol, t.b);
+    vec3 centerCol = mix(lin(vec3(0.98, 0.82, 0.12)), vColorTip * 0.7, 0.25);
+    col = mix(vColorBase, vColorTip, t.b);
     col = mix(col, centerCol, t.g * 0.95);
   } else if (vPlantType == 6) {
-    // Камыш
     col = mix(col, vColorTip * 1.15, smoothstep(0.68, 0.95, v) * 0.45);
   }
 
   col *= t.r;
-  col *= (1.0 - 0.25 * uAmb.w);
-
- vec3 N = normalize(vN);
-  float night = uSunCol.w;
-
-  float termVis, alpenMask, alpenEdge;
-  vec3 alpenTint;
-  evalAlpenglow(vWorld.y, termVis, alpenMask, alpenTint, alpenEdge);
-
-  vec3 Lglide = (night < 0.5 && uLight.y < 0.10)
-    ? normalize(vec3(uLight.x, mix(uLight.y, 0.10, alpenMask), uLight.z))
-    : uLight.xyz;
-
-  float ndl = clamp(dot(N, Lglide) * 0.6 + 0.4, 0.0, 1.0);
-
-  // Идентичная рельефу и деревьям модель пробивающихся сквозь облака лучей:
-  float cloudDarkness = uCloudParams.z;
-  float sunIntensity = (uSkyTop.w < 0.02) ? uCloudExtra.y : mix(max(0.05, uCloudExtra.y), cloudDarkness, vCloud);
-  vec3 spotWarmth = mix(vec3(1.0), vec3(1.22, 1.06, 0.82), clamp((uCloudExtra.y - 1.0) * 0.35, 0.0, 1.0));
-  vec3 sunC = uSunCol.rgb * spotWarmth * uLight.w * sunIntensity;
-
-  vec3 sunCActive = mix(sunC, alpenTint * max(length(sunC), 0.01) * 1.08, alpenEdge * 0.72);
-  float directVis = vShade * termVis;
-
-  // Амбиентное освещение с затенением под проходящим облаком
-  float ambCloudFactor = (uSkyTop.w < 0.02) ? 1.0 : mix(1.0, max(0.04, cloudDarkness * 1.6), vCloud * smoothstep(0.02, 0.25, uSkyTop.w));
-  vec3 ambient = (mix(uGnd.rgb, uAmb.rgb, N.y * 0.4 + 0.6) + vec3(0.6, 0.65, 1.0) * uWind.w * 0.7) * ambCloudFactor;
-
-  col = col * (sunCActive * ndl * directVis + ambient);
-
-  // Красный просвет и скользящий блик на кончиках травы на возвышенностях
-  if (alpenMask > 0.01 && directVis > 0.02) {
-    vec3 V = normalize(uCam.xyz - vWorld);
-    vec3 H = normalize(V + Lglide);
-    float spec = pow(max(dot(N, H), 0.0), 14.0) * 0.45;
-    float trans = pow(max(dot(-V, Lglide), 0.0), 3.0) * 0.55;
-    float tipK = pow(v, 1.3);
-    col += alpenTint * sunCActive * ((spec + trans) * tipK * alpenMask * directVis * (1.0 - vCloud * 0.85));
-  }
-
-  col = col * cloudGrade(vCloud);
+  col = col * vLight + vAlpenAdd * pow(v, 1.3);
   col = fogMix(col, vWorld);
   fragColor = vec4(finishColor(col), a);
 }
 `;
+
+
 const VS_GRID3D = GLSL_HEAD + GLSL_UBO + GLSL_HEIGHT_BASE + `
 layout(location=0) in vec4 aSegA;   // x, y_m, z, mode (0=земля, 1=потолок, 2=уровень высоты м, 3=база hMin)
 layout(location=1) in vec4 aSegB;
@@ -10365,8 +10947,423 @@ float termVis, alpenMask, alpenEdge;
   col = fogMix(col, vWorld);
   fragColor = vec4(finishColor(col), 1.0);
 }`;
+const VS_ROCK = GLSL_HEAD + GLSL_UBO + GLSL_HEIGHT_BASE + GLSL_FRUSTUM + `
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+layout(location=2) in vec2 aAttr;   // y01, случайное грани
+layout(location=3) in vec4 iA;      // x, z, size, yaw
+layout(location=4) in vec4 iB;      // stretchY, seed, burial, align
+uniform float uRockMaxY;
+uniform float uRockEmbed;
 
+out vec3 vN; out vec3 vWorld; out float vY01; out float vVisY; out float vRnd; out vec2 vUV;
 
+void main(){
+  if (iB.z >= 0.95) { gl_Position = vec4(0., 0., 2., 1.); return; }
+  vec2 uv = vec2(iA.x / uScene.x + 0.5, iA.y / uScene.y + 0.5);
+  float snowOff = uSnowLayer.x * uSnowLayer.y;
+  float gy = Hbil(uv) + snowOff;
+
+  float size = iA.z * pow(max(uScene.z, 1.0), 0.45);
+  float sdA = hash21(vec2(iB.y * 91.7, 3.1)), sdB = hash21(vec2(iB.y * 17.3, 8.7));
+  vec3 sc = vec3(size * (0.8 + 0.5 * sdA), size * iB.x, size * (0.8 + 0.5 * sdB));
+
+  // Макро-нормаль по размеру камня, чтобы мелкие уступы не заваливали глыбу
+  float ex = max(1.5 / float(max(GRID().x, 2)), sc.x * 0.55 / uScene.x);
+  float ez = max(1.5 / float(max(GRID().y, 2)), sc.z * 0.55 / uScene.y);
+  float hl = Hbil(uv - vec2(ex, 0.)), hr = Hbil(uv + vec2(ex, 0.));
+  float hd = Hbil(uv - vec2(0., ez)), hu = Hbil(uv + vec2(0., ez));
+  vec3 gN = normalize(vec3((hl - hr) / (2. * ex * uScene.x), 1.0, (hd - hu) / (2. * ez * uScene.y)));
+
+  vec3 up = normalize(mix(vec3(0., 1., 0.), gN, iB.w));
+  vec3 r0 = vec3(cos(iA.w), 0.0, sin(iA.w));
+  vec3 right = r0 - up * dot(r0, up);
+  float rl = length(right);
+  right = rl > 1e-3 ? right / rl : vec3(1., 0., 0.);
+  vec3 fwd = cross(right, up);
+
+  // Проверяем 4 края основания: если под краем земля ниже — опускаем камень на maxGap
+  vec3 edgeR = right * (sc.x * 0.55);
+  vec3 edgeF = fwd   * (sc.z * 0.55);
+  float gap1 =  edgeR.y - (Hbil(uv + edgeR.xz / uScene.xy) + snowOff - gy);
+  float gap2 = -edgeR.y - (Hbil(uv - edgeR.xz / uScene.xy) + snowOff - gy);
+  float gap3 =  edgeF.y - (Hbil(uv + edgeF.xz / uScene.xy) + snowOff - gy);
+  float gap4 = -edgeF.y - (Hbil(uv - edgeF.xz / uScene.xy) + snowOff - gy);
+  float maxGap = max(0.0, max(max(gap1, gap2), max(gap3, gap4)));
+
+  float rockH = max(uRockMaxY * sc.y, 0.1);
+  float effSink = iB.z * rockH + maxGap;
+  if (effSink >= rockH * 0.92) { gl_Position = vec4(0., 0., 2., 1.); return; }
+
+  vec3 base = vec3(iA.x, gy - maxGap, iA.y) - up * (iB.z * rockH);
+  vec3 sR0 = right * sc.x;
+  vec3 sR1 = up    * sc.y;
+  vec3 sR2 = fwd   * sc.z;
+  float kStretch = 0.0;
+
+  if (uRockEmbed > 0.001) {
+    float ex2 = clamp(ex * 2.8, 2.5 / float(max(GRID().x, 2)), 0.12);
+    float ez2 = clamp(ez * 2.8, 2.5 / float(max(GRID().y, 2)), 0.12);
+    float hl2 = Hbil(uv - vec2(ex2, 0.)), hr2 = Hbil(uv + vec2(ex2, 0.));
+    float hd2 = Hbil(uv - vec2(0., ez2)), hu2 = Hbil(uv + vec2(0., ez2));
+    vec2 gUpNear = vec2((hr - hl) / (2. * ex * uScene.x), (hu - hd) / (2. * ez * uScene.y));
+    vec2 gUpWide = vec2((hr2 - hl2) / (2. * ex2 * uScene.x), (hu2 - hd2) / (2. * ez2 * uScene.y));
+    vec2 upVec = gUpNear * 0.65 + gUpWide * 0.35;
+    float upLen = length(upVec);
+    if (upLen > 0.02) {
+      vec2 inDir = upVec / upLen;
+      float embedAmt = uRockEmbed * smoothstep(0.03, 0.45, upLen);
+      kStretch = 0.65 * embedAmt;
+      float projR = length(vec2(dot(sR0.xz, inDir), dot(sR2.xz, inDir)));
+      base.xz += inDir * (embedAmt * projR);
+      sR0.xz  += inDir * (dot(sR0.xz, inDir) * kStretch);
+      sR1.xz  += inDir * (dot(sR1.xz, inDir) * kStretch);
+      sR2.xz  += inDir * (dot(sR2.xz, inDir) * kStretch);
+    }
+  }
+
+  float rxExt = length(vec2(sR0.x, sR2.x));
+  float rzExt = length(vec2(sR0.z, sR2.z));
+  float maxYPad = uRockMaxY * 1.05;
+  float minX = base.x - rxExt + min(0.0, sR1.x) * maxYPad;
+  float maxX = base.x + rxExt + max(0.0, sR1.x) * maxYPad;
+  float minZ = base.z - rzExt + min(0.0, sR1.z) * maxYPad;
+  float maxZ = base.z + rzExt + max(0.0, sR1.z) * maxYPad;
+  float halfW = uScene.x * 0.5;
+  float halfH = uScene.y * 0.5;
+
+  vec3 center = base + up * (rockH * 0.5);
+  float radius = max(max(sc.x, sc.z) * (1.0 + kStretch), rockH * 0.5) * 1.15;
+  float dist = length(center - uCam.xyz);
+  if (minX < -halfW || maxX > halfW || minZ < -halfH || maxZ > halfH ||
+      radius / max(dist, 1.0) < 0.0009 || !sphereVisible(center, radius)) {
+    gl_Position = vec4(0., 0., 2., 1.); return;
+  }
+
+  vWorld = base + sR0 * aPos.x + sR1 * aPos.y + sR2 * aPos.z;
+  vN = normalize(cross(sR1, sR2) * aNrm.x + cross(sR2, sR0) * aNrm.y + cross(sR0, sR1) * aNrm.z);
+  vY01 = aAttr.x;
+  vVisY = clamp((vWorld.y - gy) / max(rockH - effSink, 0.1), 0.0, 1.0);
+  vRnd = fract(aAttr.y * 0.7 + iB.y);
+  vUV = clamp(vWorld.xz / uScene.xy + 0.5, 0.0, 1.0);
+  gl_Position = uVP * vec4(vWorld, 1.0);
+}`;
+
+const VS_ROCK_STATE = GLSL_HEAD + GLSL_UBO + GLSL_HEIGHT_BASE + GLSL_FRUSTUM + `
+layout(location=3) in vec4 iA;      // x, z, size, yaw
+layout(location=4) in vec4 iB;      // stretchY, seed, burial, align
+uniform float uRockMaxY;
+uniform float uRockEmbed;
+out vec4 oR0; out vec4 oR1; out vec4 oR2; out vec4 oR3;
+
+void main(){
+
+  if (iB.z >= 0.95) {
+    oR0 = vec4(0.); oR1 = vec4(0.); oR2 = vec4(0.); oR3 = vec4(0., 0., 1., -1.);
+    return;
+  }
+  vec2 uv = vec2(iA.x / uScene.x + 0.5, iA.y / uScene.y + 0.5);
+  float snowOff = uSnowLayer.x * uSnowLayer.y;
+  float gy = Hbil(uv) + snowOff;
+
+  float size = iA.z * pow(max(uScene.z, 1.0), 0.45);
+  float sdA = hash21(vec2(iB.y * 91.7, 3.1)), sdB = hash21(vec2(iB.y * 17.3, 8.7));
+  vec3 sc = vec3(size * (0.8 + 0.5 * sdA), size * iB.x, size * (0.8 + 0.5 * sdB));
+
+  // Сглаженная нормаль по пятну камня, а не по одному пикселю сетки
+  float ex = max(1.5 / float(max(GRID().x, 2)), sc.x * 0.55 / uScene.x);
+  float ez = max(1.5 / float(max(GRID().y, 2)), sc.z * 0.55 / uScene.y);
+  float hl = Hbil(uv - vec2(ex, 0.)), hr = Hbil(uv + vec2(ex, 0.));
+  float hd = Hbil(uv - vec2(0., ez)), hu = Hbil(uv + vec2(0., ez));
+  vec3 gN = normalize(vec3((hl - hr) / (2. * ex * uScene.x), 1.0, (hd - hu) / (2. * ez * uScene.y)));
+
+  vec3 up = normalize(mix(vec3(0., 1., 0.), gN, iB.w));
+  vec3 r0 = vec3(cos(iA.w), 0.0, sin(iA.w));
+  vec3 right = r0 - up * dot(r0, up);
+  float rl = length(right);
+  right = rl > 1e-3 ? right / rl : vec3(1., 0., 0.);
+  vec3 fwd = cross(right, up);
+
+  // Посадка всей подошвы: проверяем 4 края основания, чтобы ни один не висел над обрывом
+  vec3 edgeR = right * (sc.x * 0.55);
+  vec3 edgeF = fwd   * (sc.z * 0.55);
+  float gap1 = edgeR.y - (Hbil(uv + edgeR.xz / uScene.xy) + snowOff - gy);
+  float gap2 = -edgeR.y - (Hbil(uv - edgeR.xz / uScene.xy) + snowOff - gy);
+  float gap3 = edgeF.y - (Hbil(uv + edgeF.xz / uScene.xy) + snowOff - gy);
+  float gap4 = -edgeF.y - (Hbil(uv - edgeF.xz / uScene.xy) + snowOff - gy);
+  float maxGap = max(0.0, max(max(gap1, gap2), max(gap3, gap4)));
+
+  float rockH = max(uRockMaxY * sc.y, 0.1);
+  float effSink = iB.z * rockH + maxGap;
+  if (effSink >= rockH * 0.92) {
+    oR0 = vec4(0.); oR1 = vec4(0.); oR2 = vec4(0.); oR3 = vec4(0., 0., 1., -1.);
+    return;
+  }
+
+  vec3 base = vec3(iA.x, gy - maxGap, iA.y) - up * (iB.z * rockH);
+  vec3 sR0 = right * sc.x;
+  vec3 sR1 = up    * sc.y;
+  vec3 sR2 = fwd   * sc.z;
+  float kStretch = 0.0;
+
+  if (uRockEmbed > 0.001) {
+    float ex2 = clamp(ex * 2.8, 2.5 / float(max(GRID().x, 2)), 0.12);
+    float ez2 = clamp(ez * 2.8, 2.5 / float(max(GRID().y, 2)), 0.12);
+    float hl2 = Hbil(uv - vec2(ex2, 0.)), hr2 = Hbil(uv + vec2(ex2, 0.));
+    float hd2 = Hbil(uv - vec2(0., ez2)), hu2 = Hbil(uv + vec2(0., ez2));
+    vec2 gUpNear = vec2((hr - hl) / (2. * ex * uScene.x), (hu - hd) / (2. * ez * uScene.y));
+    vec2 gUpWide = vec2((hr2 - hl2) / (2. * ex2 * uScene.x), (hu2 - hd2) / (2. * ez2 * uScene.y));
+    vec2 upVec = gUpNear * 0.65 + gUpWide * 0.35;
+    float upLen = length(upVec);
+    if (upLen > 0.02) {
+      vec2 inDir = upVec / upLen;
+      float embedAmt = uRockEmbed * smoothstep(0.03, 0.45, upLen);
+      kStretch = 0.65 * embedAmt;
+      float projR = length(vec2(dot(sR0.xz, inDir), dot(sR2.xz, inDir)));
+      base.xz += inDir * (embedAmt * projR);
+      sR0.xz  += inDir * (dot(sR0.xz, inDir) * kStretch);
+      sR1.xz  += inDir * (dot(sR1.xz, inDir) * kStretch);
+      sR2.xz  += inDir * (dot(sR2.xz, inDir) * kStretch);
+    }
+  }
+
+  float rxExt = length(vec2(sR0.x, sR2.x));
+  float rzExt = length(vec2(sR0.z, sR2.z));
+  float maxYPad = uRockMaxY * 1.05;
+  float minX = base.x - rxExt + min(0.0, sR1.x) * maxYPad;
+  float maxX = base.x + rxExt + max(0.0, sR1.x) * maxYPad;
+  float minZ = base.z - rzExt + min(0.0, sR1.z) * maxYPad;
+  float maxZ = base.z + rzExt + max(0.0, sR1.z) * maxYPad;
+  float halfW = uScene.x * 0.5;
+  float halfH = uScene.y * 0.5;
+  bool inBounds = (minX >= -halfW && maxX <= halfW && minZ >= -halfH && maxZ <= halfH);
+
+  vec3 center = base + up * (rockH * 0.5);
+  float radius = max(max(sc.x, sc.z) * (1.0 + kStretch), rockH * 0.5) * 1.15;
+  float dist = length(center - uCam.xyz);
+  bool vis = inBounds && (radius / max(dist, 1.0) >= 0.0009) && sphereVisible(center, radius);
+
+  oR0 = vec4(sR0, base.x);
+  oR1 = vec4(sR1, base.y);
+  oR2 = vec4(sR2, base.z);
+  oR3 = vec4(gy, iB.y, max(rockH - effSink, 0.1), vis ? 1.0 : -1.0);
+}`;
+
+const VS_ROCK2 = GLSL_HEAD + GLSL_UBO + `
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+layout(location=2) in vec2 aAttr;   // y01, случайное грани
+layout(location=3) in vec4 sR0;     // right*sc.x, base.x
+layout(location=4) in vec4 sR1;     // up*sc.y,    base.y
+layout(location=5) in vec4 sR2;     // fwd*sc.z,   base.z
+layout(location=6) in vec4 sR3;     // gy, seed, visDenom, vis
+
+out vec3 vN; out vec3 vWorld; out float vY01; out float vVisY; out float vRnd; out vec2 vUV;
+
+void main(){
+  if (sR3.w < 0.0) { gl_Position = vec4(0., 0., 2., 1.); return; }
+  vec3 base = vec3(sR0.w, sR1.w, sR2.w);
+  vWorld = base + sR0.xyz * aPos.x + sR1.xyz * aPos.y + sR2.xyz * aPos.z;
+  vN = normalize(
+    cross(sR1.xyz, sR2.xyz) * aNrm.x +
+    cross(sR2.xyz, sR0.xyz) * aNrm.y +
+    cross(sR0.xyz, sR1.xyz) * aNrm.z
+  );
+  vY01 = aAttr.x;
+  vVisY = clamp((vWorld.y - sR3.x) / max(sR3.z, 0.1), 0.0, 1.0);
+  vRnd = fract(aAttr.y * 0.7 + sR3.y);
+  vUV = clamp(vWorld.xz / uScene.xy + 0.5, 0.0, 1.0);
+  gl_Position = uVP * vec4(vWorld, 1.0);
+}`;
+
+const FS_ROCK = GLSL_HEAD + GLSL_UBO + GLSL_COLOR_FOG + GLSL_NOISE_TERRAIN + GLSL_STRATA + `
+uniform sampler2D uShadow;
+uniform sampler2D uCanopy;
+uniform vec3 uRkColTop;
+uniform vec3 uRkColBot;
+uniform vec3 uRkColGrad;
+uniform vec3 uRkColMoss;
+uniform vec4 uRkLook1; // x: gradMode (0=local,1=world,2=strata), y: gradStr, z: baseDarken, w: mossAmt
+uniform vec4 uRkLook2; // x: strataStr, y: grainStr, z: facetContrast, w: snowCap
+uniform vec4 uRkLook3; // x: wetShine, y: hMinM, z: reliefM, w: crackStr
+uniform vec4 uRkLook4; // x: texScale, y: strataScale, z: mossScale, w: grainScale
+
+in vec3 vN; in vec3 vWorld; in float vY01; in float vVisY; in float vRnd; in vec2 vUV;
+out vec4 fragColor;
+
+// Быстрый трипланарный непериодический шум (пропускает плоскости с малым весом)
+float triV(vec3 p, vec3 w){
+  float s = 0.0;
+  if (w.x > 0.01) s += vnoise(p.zy) * w.x;
+  if (w.y > 0.01) s += vnoise(p.xz) * w.y;
+  if (w.z > 0.01) s += vnoise(p.xy) * w.z;
+  return s;
+}
+
+// Зернистость породы (2 октавы без тайлинга)
+float rockGrainVal(vec3 p, vec3 w, float freq){
+  float n1 = triV(p * freq + vec3(2.3, 5.1, 1.7), w);
+  float n2 = triV(p * (freq * 3.1) + vec3(9.7, 3.3, 8.1), w);
+  return n1 * 0.65 + n2 * 0.35;
+}
+
+// Изолинии ветвящихся трещин с доменным искривлением
+float rockCrackVal(vec3 p, vec3 w, float freq){
+  vec3 pf = p * freq;
+  float warp = triV(pf * 0.65 + vec3(4.1, 2.3, 7.7), w) - 0.5;
+  float d1 = abs(triV(pf + vec3(warp * 0.65), w) - 0.5) * 2.0;
+  float d2 = abs(triV(pf * 2.15 + vec3(11.3, 5.7, 2.9 + warp * 0.45), w) - 0.5) * 2.0;
+  float c1 = 1.0 - smoothstep(0.015, 0.13, d1);
+  float c2 = (1.0 - smoothstep(0.012, 0.095, d2)) * 0.6;
+  return clamp(max(c1, c2), 0.0, 1.0);
+}
+
+void main(){
+  vec3 N = normalize(vN);
+  vec3 w = pow(abs(N), vec3(4.0)); w /= max(w.x + w.y + w.z, 1e-4);
+  float eAbs = vWorld.y / max(uScene.z, 1e-3) + uScene.w;
+
+  float texSc    = max(uRkLook4.x, 0.05);
+  float strataSc = max(uRkLook4.y, 0.05) * texSc;
+  float mossSc   = max(uRkLook4.z, 0.05) * texSc;
+  float grainSc  = max(uRkLook4.w, 0.05) * texSc;
+
+  float camDist = length(vWorld - uCam.xyz);
+  float detFade = 1.0 - smoothstep(80.0 * grainSc, 420.0 * grainSc, camDist);
+
+  // Плавное крупное искривление слоёв (без тайловой сетки)
+  float warp = triV(vWorld * (0.008 / strataSc) + vec3(1.7, 3.1, 6.4), w) - 0.5;
+
+  // 1. Базовая порода + контраст сколов граней
+  float facetT = mix(0.5, clamp(vRnd, 0.0, 1.0), uRkLook2.z);
+  vec3 alb = mix(uRkColBot, uRkColTop, clamp(0.15 + 0.75 * facetT, 0.0, 1.0));
+
+  // 2. Окраска по высоте (локальная / абсолютная / слои)
+  float gMode = uRkLook1.x;
+  float gradT = (gMode < 0.5)
+    ? clamp(vY01, 0.0, 1.0)
+    : ((gMode < 1.5)
+        ? clamp((eAbs - uRkLook3.y) / max(uRkLook3.z, 10.0), 0.0, 1.0)
+        : clamp(0.5 + 0.5 * sin((eAbs / strataSc) * 0.42 + warp * 5.0), 0.0, 1.0));
+  alb = mix(alb, uRkColGrad, gradT * uRkLook1.y);
+
+  // 3. Геологическая слоистость
+  alb = mix(alb, strataTint(eAbs / strataSc, warp), uRkLook2.x * 0.75);
+
+  // 4. Зерно и трещины в мировых координатах (масштабируются ползунками)
+  float gStr = uRkLook2.y;
+  float cStr = uRkLook3.w;
+  float gFreq = 0.35 / grainSc;
+  float cFreq = 0.22 / grainSc;
+
+  float grain = 0.5;
+  float cracks = 0.0;
+  if ((gStr > 0.01 || cStr > 0.01) && detFade > 0.01) {
+    if (gStr > 0.01) {
+      grain = rockGrainVal(vWorld, w, gFreq);
+      alb *= 1.0 + gStr * detFade * (grain - 0.5) * 0.55;
+    }
+    if (cStr > 0.01) {
+      cracks = rockCrackVal(vWorld, w, cFreq) * detFade;
+      alb *= 1.0 - clamp(cracks * cStr * 0.65, 0.0, 0.85);
+    }
+    // Рельефный бамп трещин и зерна по касательной плоскости (без артефактов на рёбрах)
+    vec3 upRef = abs(N.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 T = normalize(cross(upRef, N));
+    vec3 B = cross(N, T);
+    float eps = clamp(0.18 * grainSc, 0.06, 1.2);
+    float h0 = (grain - 0.5) * gStr * 0.35 - cracks * cStr * 0.85;
+    float hT = ((gStr > 0.01 ? rockGrainVal(vWorld + T * eps, w, gFreq) - 0.5 : 0.0) * gStr * 0.35)
+             - ((cStr > 0.01 ? rockCrackVal(vWorld + T * eps, w, cFreq) : 0.0) * cStr * 0.85);
+    float hB = ((gStr > 0.01 ? rockGrainVal(vWorld + B * eps, w, gFreq) - 0.5 : 0.0) * gStr * 0.35)
+             - ((cStr > 0.01 ? rockCrackVal(vWorld + B * eps, w, cFreq) : 0.0) * cStr * 0.85);
+    N = normalize(N + T * ((h0 - hT) * 1.4 * detFade) + B * ((h0 - hB) * 1.4 * detFade));
+  }
+
+  // 5. Рваный естественный мох: многомасштабные островки + языки по полкам и трещинам
+  float mossAmt = uRkLook1.w;
+  if (mossAmt > 0.01) {
+    float mF = 0.25 / mossSc;
+    float mMacro   = triV(vWorld * mF + vec3(3.1, 1.7, 5.4), w);
+    float mTendril = triV(vWorld * (mF * 3.4) + vec3(7.3, 2.9, 1.1), w);
+    float mTuft    = triV(vWorld * (mF * 11.0), w);
+
+    // Мох избегает отвесных отрицательных карнизов и предпочитает верхние полки/стык с землёй
+    float slopeHold = smoothstep(-0.22, 0.35, N.y);
+    float ledgeSpot = smoothstep(0.32, 0.85, N.y) * smoothstep(0.56, 0.82, mMacro) * 0.55;
+    float baseReach = 1.0 - smoothstep(0.02, 0.52, vVisY - (mMacro - 0.32) * 0.48 - (mTendril - 0.5) * 0.26);
+    float crackCreep = cracks * 0.25;
+
+    float rawPatch = mMacro * 0.60 + mTendril * 0.30 + mTuft * 0.10 + crackCreep;
+    float thresh = mix(0.76, 0.28, clamp(mossAmt, 0.0, 1.0));
+    float ragged = smoothstep(thresh - 0.09, thresh + 0.09, rawPatch);
+
+    float mossMask = clamp(max(baseReach, ledgeSpot) * ragged * slopeHold * smoothstep(0.0, 0.18, mossAmt), 0.0, 0.94);
+    vec3 mossCol = uRkColMoss * (0.68 + 0.55 * mTuft) * mix(vec3(0.85, 0.9, 0.8), vec3(1.15, 1.12, 0.85), mTuft);
+    alb = mix(alb, mossCol, mossMask);
+    N = normalize(N + vec3(mTuft - 0.5, 0.2, mTendril - 0.5) * (0.28 * mossMask));
+  }
+
+  float baseAO = mix(1.0 - uRkLook1.z * 0.75, 1.0, smoothstep(0.0, 0.45, vVisY));
+
+  // 6. Снег на верхних гранях и влажное потемнение
+  float lateAut = smoothstep(0.25, 0.75, uSeason.y) * smoothstep(0.65, 0.35, uSeason.x);
+  float sn = smoothstep(0.42, 0.85, N.y) * smoothstep(0.05, 0.55, uGnd.w * (1.0 - lateAut)) * uRkLook2.w;
+  sn = clamp(sn, 0.0, 1.0);
+  alb = mix(alb, lin(vec3(0.95, 0.97, 1.0)), sn * 0.92);
+  alb *= 1.0 - uAmb.w * (0.12 + 0.22 * uRkLook3.x) * (1.0 - sn);
+
+  // 7. Освещение и тени с учётом высоты камня над землёй (без проекции приземных пятен на верхушки)
+  float night = uSunCol.w;
+  float wxNightDark = mix(1.0, uNightTune2.x, night * smoothstep(0.2, 0.8, uSkyTop.w));
+  float moonSoft = clamp(uNightTune1.y, 0.01, 1.0);
+  float cs = cloudShadow(vWorld.xz);
+  float cloudDarkness = uCloudParams.z;
+  float sunInt = (uSkyTop.w < 0.02) ? uCloudExtra.y : mix(max(0.05, uCloudExtra.y), cloudDarkness, cs);
+  vec3 sunC = uSunCol.rgb * uLight.w * sunInt;
+
+  float termVis, alpenMask, alpenEdge; vec3 alpenTint;
+  evalAlpenglow(vWorld.y, termVis, alpenMask, alpenTint, alpenEdge);
+  vec3 sunActive = mix(sunC, alpenTint * max(length(sunC), 0.01) * 1.05, alpenEdge * 0.72) * termVis;
+  vec3 Lg = (night < 0.5 && uLight.y < 0.10) ? normalize(vec3(uLight.x, mix(uLight.y, 0.10, alpenMask), uLight.z)) : uLight.xyz;
+
+  float ndl = mix(max(dot(N, Lg), 0.0), clamp((dot(N, uLight.xyz) + moonSoft) / (1.0 + moonSoft), 0.0, 1.0), night);
+
+  float sh = 1.0;
+  if (uMode.y > 0.5) {
+    vec2 shPair = texture(uShadow, vUV).rg;
+    float shTerr = shPair.r;
+    float shCan  = shPair.g;
+
+    float groundY = Hbil(vUV);
+    float hAbove = max(0.0, vWorld.y - groundY);
+    if (hAbove > 0.5 && Lg.y > 0.04) {
+      float slide = min(hAbove / Lg.y, max(uScene.x, uScene.y) * 0.35);
+      vec2 fwdUV = (vWorld.xz + Lg.xz * slide) / uScene.xy + 0.5;
+      if (fwdUV.x >= 0.0 && fwdUV.x <= 1.0 && fwdUV.y >= 0.0 && fwdUV.y <= 1.0) {
+        if (Hbil(fwdUV) >= groundY - 2.0) {
+          shTerr = max(shTerr, texture(uShadow, fwdUV).r);
+        }
+      }
+    }
+    float localCanH = max(texture(uCanopy, vUV).r * 63.75 * uScene2.z, 14.0 * uScene2.z);
+    float aboveCanopy = smoothstep(localCanH * 0.45, localCanH * 1.15, hAbove);
+    sh = mix(shCan, shTerr, aboveCanopy);
+  }
+
+  float ambCloud = (uSkyTop.w < 0.02) ? 1.0 : mix(1.0, max(0.04, cloudDarkness * 1.6), cs * smoothstep(0.02, 0.25, uSkyTop.w));
+  float ao = baseAO * mix(0.65, 1.0, smoothstep(0.0, 0.35, vY01));
+  vec3 amb = mix(uGnd.rgb, uAmb.rgb, N.y * 0.5 + 0.5) * ambCloud * wxNightDark * ao;
+
+  vec3 col = alb * (sunActive * ndl * sh * wxNightDark + amb) * cloudGrade(cs);
+  if (night < 0.5 && sh > 0.05 && ndl > 0.01 && uAmb.w * uRkLook3.x > 0.02) {
+    vec3 V = normalize(uCam.xyz - vWorld);
+    vec3 H = normalize(V + Lg);
+    col += sunActive * (pow(max(dot(N, H), 0.0), 42.0) * uAmb.w * uRkLook3.x * 0.45 * sh * (1.0 - sn));
+  }
+  col = fogMix(col, vWorld);
+  fragColor = vec4(finishColor(col), 1.0);
+}`;
   // ===========================================================================
   // 11b. УСКОРЕННЫЙ ПУТЬ: состояние деревьев/травы считается ОДИН раз на экземпляр
   //      (transform feedback), а не в каждой вершине. Плюс отсечение по пирамиде видимости.
@@ -10376,9 +11373,9 @@ float termVis, alpenMask, alpenEdge;
 void main(){ o = vec4(0.0); }`;
 
   // Состояние дерева: oS = (смещение ветром, поперечная составляющая, тень, тень облака), oV = видимость
-  const VS_TREE_STATE = GLSL_HEAD + GLSL_UBO + GLSL_NOISE_TERRAIN + GLSL_FRUSTUM + `
+  const VS_TREE_STATE = GLSL_HEAD + GLSL_UBO + GLSL_NOISE_TERRAIN + GLSL_WIND_LIB + GLSL_FRUSTUM + `
 layout(location=3) in vec4 iA; layout(location=4) in vec4 iB;
-uniform int uType; uniform int uIsConifer; uniform float uTreeW; uniform sampler2D uShadow;
+uniform int uType; uniform int uIsConifer; uniform float uTreeW; uniform sampler2D uShadow; uniform sampler2D uExtra;
 uniform vec4 uTreeParamsConifer;
 uniform vec4 uTreeParamsDeciduous;
 out vec4 oS; out float oV;
@@ -10413,87 +11410,48 @@ void main(){
   float uTime = uCam.w * uMode.z;
 
   vec2 posXZ = iA.xy;
-  float stiffness = max(0.2, tParams.z) * (isConifer ? 1.45 : 1.05);
+  float stiffness = max(0.25, tParams.z) * (isConifer ? 0.92 : 0.72);
   float windMult = 1.0 / stiffness;
 
-  float uBendAngle      = uWindAdvPad.x;
-  float uBendChaos      = uWindAdvPad.y;
-  float uBend           = uWindAdv1.x;
-  float uSwayStrength   = uWindAdv1.y;
-  float uTurbulence     = uWindAdv1.z;
-  float uTurbAmp        = uWindAdv1.w;
+  vec4 ex = texture(uExtra, uv);
+  vec2 wBend = vec2(0.0);
 
-  float uTurbSpeed      = uWindAdv2.x;
-  float uGustStrength   = uWindAdv2.y;
-  float uGustSize       = uWindAdv2.z;
-  float uGustFreq       = uWindAdv2.w;
+  if (wSpd > 0.01) {
+    float stormRamp = pow(max(wSpd - 6.0, 0.0) / 10.0, 1.55);
+    float wForce = clamp(wSpd / 10.0 + stormRamp * 1.45, 0.0, 4.5);
 
-  float uGustSmoothness = uWindAdv3.x;
-  float uGustArc        = uWindAdv3.y;
-  float uGustSpeed      = uWindAdv3.z;
-  float uWindChaos      = uWindAdv3.w;
+    float isValley = smoothstep(0.54, 0.78, ex.g);
+    float biomeWindMod = mix(1.0, 0.35, isValley);
+    float relElev = clamp(gy / max(uPrecip.z * uScene.z, 1.0), 0.0, 1.0);
+    float isMountain = smoothstep(0.65, 0.90, max(relElev * smoothstep(60.0, 200.0, uPrecip.z), ex.b));
+    biomeWindMod = mix(biomeWindMod, 1.60, isMountain);
 
-  // 1. НАПРАВЛЕНИЕ: Индивидуальный статический наклон + вектор общего ветра
-  float finalAngle = uBendAngle + (rnd - 0.5) * uBendChaos * 6.28318;
-  vec2 staticBendDir = vec2(cos(finalAngle), sin(finalAngle));
-  vec2 windDir = vec2(cos(uBendAngle), sin(uBendAngle));
+    float chaosSpan = uWindAdvPad.y * 1.4 * mix(1.0, 0.35, smoothstep(0.4, 2.2, wForce));
+    float finalAngle = uWindAdvPad.x + (rnd - 0.5) * chaosSpan;
+    vec2 staticBendDir = vec2(cos(finalAngle), sin(finalAngle));
+    vec2 windDir = vec2(cos(uWindAdvPad.x), sin(uWindAdvPad.x));
 
-  // Аэродинамическая сила ветра: плавная зависимость от легкого ветерка до урагана
-  float wNorm = wSpd / 8.0;
-  float wForce = pow(wNorm, 1.35);
+    vec2 eddyDrift = windDir * (uTime * uWindAdv2.x * (0.25 + 0.15 * smoothstep(8.0, 20.0, wSpd)));
+    float turbMacro = vnoise(posXZ / max(18.0, uWindAdv1.w * 24.0) - eddyDrift);
+    float turbMed   = vnoise(posXZ / max(8.0,  uWindAdv1.w * 9.0)  - eddyDrift * 1.6 + vec2(4.7, 9.1));
+    float turbRaw   = (turbMacro * 0.72 + turbMed * 0.28) * 2.0 - 1.0;
+    float turb      = turbRaw * (uWindAdv1.z * 0.28) * min(wForce, 2.5) * windMult * biomeWindMod;
 
-  float distAlong = dot(posXZ, windDir);
-  vec2 orthoDir = vec2(-windDir.y, windDir.x);
-  float distOrtho = dot(posXZ, orthoDir);
+    float finalGust  = evalTreeGust(posXZ, windDir, wSpd, uTime, wForce, windMult, biomeWindMod);
+    float actualBend = (uWindAdv1.x * 0.72) * min(wForce, 2.8) * windMult * biomeWindMod;
 
-  // 2. SWAY: Волнообразное покачивание
-  float swaySpeed = 1.0 + wSpd * 0.35;
-  float swayAmp = uSwayStrength * (0.05 + wForce * 0.95) * windMult;
-  float sway = (sin(distAlong * 0.025 - uTime * swaySpeed + rnd * 6.28318) * 0.5 + 0.5) * swayAmp;
+    float rawMean = actualBend + finalGust + turb * 0.55;
+    float minMean = mix(0.0, actualBend * 0.45, smoothstep(0.03, 0.30, actualBend));
+    rawMean = max(rawMean, minMean);
 
-  // 3. TURBULENCE: Вихри и микро-шум
-  float turbAmp = uTurbulence * (0.05 + wForce * 0.95) * windMult;
-  float turbSpeed = uTurbSpeed * (0.8 + wSpd * 0.2);
-  float turb = (vnoise(posXZ / max(0.2, uTurbAmp * 6.0) + uTime * turbSpeed * 0.5) * 2.0 - 1.0) * turbAmp;
+    float totalAngle = 1.05 * tanh(rawMean / 1.05);
+    vec2 baseDir  = normalize(mix(staticBendDir, windDir, smoothstep(0.0, 0.45, max(actualBend, abs(finalGust)))) + windDir * 1e-4);
+    vec2 basePerp = vec2(-baseDir.y, baseDir.x);
+    vec2 finalDir = normalize(baseDir + basePerp * clamp(turbRaw * uWindAdv1.z * 0.35, -0.35, 0.35));
 
-  // 4. GUSTS: Бегущие волны порывов через весь масштаб ландшафта
-  float finalGust = 0.0;
-  if (uGustFreq > 0.005 && wSpd > 0.05) {
-    float gustWavelength = max(25.0, uGustSize);
-    float travelSpeed = (8.0 + wSpd * 1.5) * max(0.1, uGustSpeed);
-    float phase = (distAlong - uTime * travelSpeed) / gustWavelength;
-    float arcShift = (distOrtho * distOrtho * 0.001) * uGustArc;
-
-    vec2 gustUV = vec2(phase + arcShift, distOrtho / (gustWavelength * 1.5));
-    float noiseGust = vnoise(gustUV * 0.7);
-    float waveGust  = sin((phase + arcShift) * 6.28318 + vnoise(posXZ * 0.01) * 3.0) * 0.5 + 0.5;
-    float combinedGust = mix(noiseGust, waveGust, uGustArc);
-
-    float threshold = clamp(0.92 - uGustFreq * 0.55, 0.05, 0.88);
-    float softness  = max(0.04, uGustSmoothness * 0.35);
-    float gustPulse = smoothstep(threshold - softness, threshold + softness, combinedGust);
-
-    float pauseNoise = vnoise(vec2(distAlong * 0.001 - uTime * 0.04, distOrtho * 0.001));
-    float gustPause  = mix(1.0, smoothstep(0.35, 0.70, pauseNoise), uWindChaos);
-
-    finalGust = gustPulse * uGustStrength * gustPause * (0.2 + wForce * 0.8) * windMult;
+    wBend = finalDir * totalAngle;
   }
 
-  // 5. ИТОГОВЫЙ ИЗГИБ И ВЫРАВНИВАНИЕ
-   float actualBend = (uBend * 0.35 + wForce * 0.55) * windMult;
-  float totalAngle = clamp(actualBend + sway + finalGust + turb * (1.0 + finalGust * 0.5), -2.2, 2.2);
-
-  // При сильном порыве или шторме верхушки прижимаются строго по направлению ветра
-  float alignWithWind = smoothstep(0.05, 0.65, (finalGust + wForce * 0.35));
-  vec2 finalDir = normalize(mix(staticBendDir, windDir, alignWithWind) + vec2(1e-5));
-
-  if (totalAngle < 0.0) {
-    totalAngle = -totalAngle;
-    finalDir = -finalDir;
-  }
-
-  // Передаём вектор изгиба (направление * угол в радианах)
-  vec2 wBend = finalDir * totalAngle;
 
   float shade = (uMode.y > 0.5) ? texture(uShadow, uv).r : 1.0;
   oS = vec4(wBend.x, wBend.y, shade, cloudShadow(iA.xy));
@@ -10668,34 +11626,97 @@ void main(){
   vec3 n0 = vec3(ca * aNrm.x - sa * aNrm.z, aNrm.y, sa * aNrm.x + ca * aNrm.z);
 
   // Дуговой изгиб ветром ствола и кроны
+  // Дуговой изгиб ветром ствола и кроны
   vec2 wBend = iS.xy;
-  float totalAngle = length(wBend);
+  float meanAngle = length(wBend);
+  float wSpd = max(0.0, uWind.z);
+  float uTime = uCam.w * uMode.z;
+  float h = clamp(lp.y, 0.0, 1.0);
+
+  vec2 windDir = vec2(cos(uWindAdvPad.x), sin(uWindAdvPad.x));
+  float chaosSpan = uWindAdvPad.y * 1.4 * mix(1.0, 0.35, smoothstep(0.05, 0.40, meanAngle));
+  float rndAng = uWindAdvPad.x + (rnd - 0.5) * chaosSpan;
+  vec2 staticBendDir = vec2(cos(rndAng), sin(rndAng));
+  vec2 swayDir = (meanAngle > 1e-4) ? (wBend / meanAngle) : staticBendDir;
+  vec2 perpDir = vec2(-swayDir.y, swayDir.x);
+
+  float swayAdd = 0.0;
+  float crossBend = 0.0;
+
+  if (wSpd > 0.01 && (meanAngle > 1e-4 || uWindAdv1.y > 0.001)) {
+    float stiffness = max(0.25, tParams.z) * (isConifer ? 0.92 : 0.72);
+    float windMult  = 1.0 / stiffness;
+    float stormRamp = pow(max(wSpd - 6.0, 0.0) / 10.0, 1.55);
+    float wForce    = clamp(wSpd / 10.0 + stormRamp * 1.45, 0.0, 4.5);
+    float stormK    = smoothstep(8.0, 20.0, wSpd);
+    float gustAmplify = 1.0 + 0.45 * smoothstep(0.18, 0.85, meanAngle);
+
+    float baseHm   = max(iA.z * uScene2.z, 4.0);
+    float sizeFreq = 1.0 / clamp(sqrt(baseHm / 14.0), 0.75, 1.85);
+    float freqVar  = (0.86 + 0.28 * rnd) * sizeFreq;
+    float phInd    = (rnd - 0.5) * 1.15;
+    float tAlong   = dot(iA.xy, windDir);
+    float tCross   = dot(iA.xy, perpDir);
+    float swayT    = uTime * (0.65 + 0.12 * min(wSpd, 22.0)) * freqVar;
+    float env      = 0.60 + 0.40 * sin(uTime * (0.24 + 0.20 * stormK) * freqVar + tAlong * 0.015 + phInd * 1.7);
+
+    float w1 = sin(tAlong * 0.042 + sin(tCross * 0.024) * 1.2 - swayT + phInd);
+    float w2 = sin(tAlong * 0.088 - swayT * 1.43 + phInd * 1.5);
+    float swayWave = (w1 * 0.74 + w2 * 0.26) * env;
+
+    float pinDamp = 1.0 - 0.30 * smoothstep(0.45, 1.05, meanAngle);
+    float rawSwayAmp = uWindAdv1.y * wForce * windMult * gustAmplify * 0.14 * pinDamp;
+    float swayAmp = 0.42 * tanh(rawSwayAmp / 0.42);
+    swayAdd += swayWave * swayAmp;
+    crossBend += cos(tAlong * 0.048 - swayT * 0.87 + phInd * 1.3) * swayAmp * (0.45 + 0.25 * stormK);
+
+    // Трепетание кроны и ветвей под штормовыми порывами (единое на дерево, без разрыва треугольников)
+    float gustLoad = max(smoothstep(0.18, 0.85, meanAngle), stormK * 0.75);
+    if (gustLoad > 0.002 && aPart > 0.5) {
+      float fSpd = (3.4 + 0.28 * min(wSpd, 22.0)) * sizeFreq;
+      float f1 = sin(uTime * fSpd * (0.85 + 0.30 * rnd) + rnd * 19.3 + tAlong * 0.10);
+      float f2 = sin(uTime * (fSpd * 1.63) * (0.85 + 0.30 * fract(rnd * 5.7)) + rnd * 27.1);
+      float fWave = f1 * 0.60 + f2 * 0.40;
+      float fAmp  = gustLoad * (0.045 + 0.055 * min(wSpd / 16.0, 1.5)) * min(uWindAdv1.y, 1.2);
+      swayAdd   += fWave * fAmp;
+      crossBend += f2 * gustLoad * (0.035 + 0.045 * stormK) * min(uWindAdv1.y, 1.2);
+
+      // Живое вздрагивание и рябь листвы на концах ветвей
+      float radialW = clamp(length(lp.xz), 0.0, 1.0) * smoothstep(0.15, 0.75, h);
+      float cPh  = dot(lp, vec3(4.2, 3.1, 4.7)) + rnd * 25.0;
+      float cSpd = 6.5 + 0.45 * min(wSpd, 22.0);
+      float c1   = sin(uTime * cSpd + cPh);
+      float c2   = cos(uTime * (cSpd * 1.37) + cPh * 1.7);
+      float cAmp = gustLoad * (0.02 + 0.045 * stormK) * radialW;
+      pos.xz += (windDir * c1 + perpDir * c2) * (R * cAmp);
+      pos.y  += (c1 * 0.5 - c2 * 0.5) * (hm * cAmp * 0.40);
+    }
+  }
+
+  float minNet = mix(-0.05, meanAngle * 0.35, smoothstep(0.03, 0.25, meanAngle));
+  float netAlong = max(meanAngle + swayAdd, minNet);
+  vec2 totalBendVec = swayDir * netAlong + perpDir * clamp(crossBend, -0.24, 0.24);
+  float totalAngle = clamp(length(totalBendVec), 0.0, 1.15);
+  vec2 windDirNorm = (totalAngle > 1e-4) ? (totalBendVec / totalAngle) : swayDir;
 
   if (totalAngle > 1e-4) {
-    vec2 windDirNorm = wBend / totalAngle;
-    float h = clamp(lp.y, 0.0, 1.0);
-    // Локальный угол наклона ствола на высоте h
-    float alpha = totalAngle * pow(h, 1.8);
-    float aMid = alpha * 0.28717; // (0.5)^1.8
+    float bendExp = mix(1.75, 1.28, smoothstep(6.0, 20.0, wSpd));
+    float alpha = totalAngle * pow(h, bendExp);
+    float aMid = alpha * 0.28717;
 
-    // Координаты осевой линии ствола по дуге (метод Симпсона с сохранением длины)
     float sWind = hm * h * (4.0 * sin(aMid) + sin(alpha)) * (1.0 / 6.0);
     float sY    = hm * h * (1.0 + 4.0 * cos(aMid) + cos(alpha)) * (1.0 / 6.0);
 
-    // Дополнительное удлинение верхушек крон выше h=1.0
     float deltaH = max(0.0, lp.y - 1.0) * hm;
     sWind += deltaH * sin(alpha);
     sY    += deltaH * cos(alpha);
 
-    // Поворот локальной геометрии кроны/веток относительно согнутого ствола
     float rParallel = dot(pos.xz, windDirNorm);
     vec2 rOrtho     = pos.xz - windDirNorm * rParallel;
 
     pos.xz = windDirNorm * (sWind + rParallel * cos(alpha)) + rOrtho;
-    // Макушка наклоняется вниз, но не уходит под землю
-    pos.y  = max(0.05, sY - rParallel * sin(alpha));
+    pos.y  = max(0.05 * hm * h, sY - rParallel * sin(alpha) * 0.72);
 
-    // Поворот нормали кроны на угол наклона дуги
     float nParallel = dot(n0.xz, windDirNorm);
     vec2 nOrtho     = n0.xz - windDirNorm * nParallel;
     float rotN_Par  = nParallel * cos(alpha) + n0.y * sin(alpha);
@@ -10768,13 +11789,11 @@ layout(location=6) in vec4 iE;
 uniform ivec2 uGrassMeshInfo; // x: vertsPerPlane (сегменты * 6), y: maxPlanes (1..3)
 
 out vec3 vWorld;
-out vec3 vN;
 out vec2 vUV;
 out vec3 vColorBase;
 out vec3 vColorTip;
-out float vShade;
-out float vCloud;
-out float vClumpRnd;
+out vec3 vLight;
+out vec3 vAlpenAdd;
 flat out int vPlantType;
 flat out int vAtlasSlot;
 
@@ -10838,50 +11857,118 @@ void main(){
   }
 
   // Плавный изгиб по дуге ветра (вершина сегмента наклоняется, основание зафиксировано)
+
   vec2 windOffset = vec2(0.0);
-  if (iB.z != 0.0 || iB.w != 0.0) {
-    vec2 forceDir = iB.zw;
-    float totalAngle = length(forceDir);
-    vec2 dir = forceDir / max(totalAngle, 1e-4);
+  if (iB.z != 0.0 || iE.w != 0.0) {
+    float vV = clamp(curUV.y, 0.0, 1.0);
+    vec2 windDir  = vec2(cos(uWindAdvPad.x), sin(uWindAdvPad.x));
+    vec2 finalDir = vec2(cos(iB.w), sin(iB.w));
+    vec2 perpDir  = vec2(-finalDir.y, finalDir.x);
+    float wSpd    = max(0.0, uWind.z);
+    float stormK  = smoothstep(6.0, 18.0, wSpd);
+    float uTime   = uCam.w * uMode.z;
+    float lodFade = 1.0 - smoothstep(0.18, 0.48, iC.x);
 
-    float curveMask = pow(vertY, 1.6);
-    float bendAngle = totalAngle * curveMask;
-    float curH = vertY * baseHeight;
+    // Пространственно-когерентные координаты (без случайного рассинхрона соседних пучков)
+    float wAlong = dot(worldBase.xz, windDir);
+    float wCross = dot(worldBase.xz, perpDir);
+    float phSoft = (rnd - 0.5) * 0.42;
 
-    windOffset = dir * (sin(bendAngle) * curH);
-    vertY = (curH * cos(bendAngle)) / max(baseHeight, 0.01);
+    // Плавная скорость основной волны (без стробоскопа на высокой скорости ветра)
+    float swaySpd = 1.15 + 2.35 * smoothstep(0.0, 16.0, wSpd);
+    float swayT   = uTime * swaySpd;
+    float env     = 0.65 + 0.35 * sin(wAlong * 0.032 - uTime * (0.55 + 0.65 * stormK) + phSoft);
 
-    // Защита от оцепенения: извивание распластанных по земле стеблей
-    float wSpd = max(0.0, uWind.z);
-    float stormFactor = smoothstep(2.8, 6.8, wSpd);
-    float pin = smoothstep(0.90, 1.22, totalAngle) * stormFactor;
-    if (pin > 0.001) {
-      vec2 ortho = vec2(-dir.y, dir.x);
-      float uTimeG = uCam.w * uMode.z;
-      float waveSpeed = 1.2 + wSpd * 0.38;
-      float distAlongW = dot(worldBase.xz, dir);
-      float distOrthoW = dot(worldBase.xz, ortho);
-      float cellJit = fract(sin(dot(floor(worldBase.xz * 0.4), vec2(12.9898, 78.233))) * 43758.5453);
-      float phaseMix = rnd * 6.28318 + cellJit * 2.5 + distOrthoW * 0.37;
-      float stemWavePhase = uTimeG * (waveSpeed * (1.4 + 0.6 * rnd)) - curUV.y * 3.5 + distAlongW * 0.18 + phaseMix;
-      float whipWave = sin(stemWavePhase) * 0.65 + sin(stemWavePhase * 1.73 + distOrthoW * 0.51) * 0.35;
-      float lateralWhip = whipWave * (0.06 * pin * baseWidth * curveMask);
-      float verticalFlutter = abs(cos(stemWavePhase * 0.9)) * (0.03 * pin * curH * curveMask);
+    float w1 = sin(wAlong * 0.075 + sin(wCross * 0.042) * 1.15 - swayT + vV * 0.85 + phSoft);
+    float w2 = sin(wAlong * 0.145 - wCross * 0.055 - swayT * 1.48 + vV * 1.25 + phSoft * 1.3);
+    float swayWave = (w1 * 0.65 + w2 * 0.35) * env + 0.10;
 
-      windOffset += ortho * lateralWhip;
-      vertY += verticalFlutter / max(baseHeight, 0.01);
+    // Мера примятости к земле (0 = стоит прямо, 1 = прижата порывом)
+    float pinK = smoothstep(0.55, 1.08, abs(iB.z));
+
+    // В примятом состоянии сильно гасим глубокое качание и мягко ограничиваем размах
+    float pinDamp = 1.0 - 0.72 * pinK;
+    float swayEff = 1.6 * tanh(iE.w / 1.6);
+    float swayAmp = swayEff * (0.20 + 0.08 * min(swayEff, 1.2)) * pinDamp;
+    float sway    = swayWave * swayAmp;
+
+    // Бегущее трепетание кончиков прижатой травы
+    float gustLoad = max(smoothstep(0.16, 0.75, abs(iB.z)) * smoothstep(0.5, 3.2, wSpd),
+                         stormK * 0.75 * smoothstep(2.0, 7.0, wSpd)) * lodFade;
+    float flutter   = 0.0;
+    float latWobble = 0.0;
+    if (gustLoad > 0.002) {
+      // Насыщение частоты до ~1.4 Гц (основная) и ~2.1 Гц (гармоника)
+      float rSpd = 4.0 + 4.8 * smoothstep(2.5, 18.0, wSpd);
+
+      float r1 = sin(wAlong * 0.24 - wCross * 0.09 - uTime * rSpd - vV * 1.15 + phSoft);
+      float r2 = sin(wAlong * 0.37 + wCross * 0.14 - uTime * (rSpd * 1.47) - vV * 1.55 + phSoft * 1.4);
+
+      // Полосы порывов, чтобы рябь шла волнами по полю, а не дрожала вся сразу
+      float streakEnv = 0.50 + 0.50 * sin(wAlong * 0.085 + wCross * 0.055 - uTime * (1.4 + 1.2 * stormK) + phSoft * 0.5);
+
+      float bSign    = iB.z >= 0.0 ? 1.0 : -1.0;
+      float rWave    = r1 * 0.62 + r2 * 0.38;
+      float liftBias = -0.52 * bSign * pinK; // упругий отскок кончиков вверх от земли
+
+      float baseTipAmp = (0.045 + 0.065 * smoothstep(3.0, 16.0, wSpd)) * (0.35 + 0.65 * vV);
+      float pinAmp     = pinK * (0.045 + 0.055 * smoothstep(5.0, 18.0, wSpd)) * (0.25 + 0.75 * vV);
+      flutter = (rWave * (baseTipAmp * (1.0 - 0.35 * pinK) + pinAmp) + liftBias * pinAmp) * gustLoad * streakEnv;
+
+      // Поток прижимает и выравнивает траву — боковое рыскание в примятом состоянии подавляется
+      float latWave = sin(wAlong * 0.11 + wCross * 0.07 - uTime * (rSpd * 0.62) + phSoft);
+      latWobble = latWave * (0.05 + 0.04 * stormK) * (1.0 - 0.68 * pinK) * gustLoad * (0.35 + 0.65 * vV);
     }
+
+    float curveMask = vV * vV * (3.0 - 2.0 * vV);
+    float tipMask   = vV * vV;
+    float angle     = clamp(iB.z * curveMask + sway * curveMask + flutter * tipMask, -1.36, 1.36);
+
+    float latSway   = cos(wAlong * 0.085 - swayT * 0.92 + phSoft) * swayAmp * 0.32 * (1.0 - 0.60 * pinK);
+    float crossAng  = clamp(latSway * curveMask + latWobble * tipMask, -0.45, 0.45);
+
+    float curY = vertY * baseHeight;
+    vec2 horizVec = finalDir * sin(angle) + perpDir * sin(crossAng);
+    float hLen = length(horizVec);
+    if (hLen > 0.96) horizVec *= 0.96 / hLen;
+    windOffset = horizVec * curY;
+    vertY = (curY * max(cos(angle), 0.22)) / max(baseHeight, 0.01);
   }
 
   vec3 worldPos = worldBase + vec3(rotPos.x * baseWidth + windOffset.x, vertY * baseHeight, rotPos.y * baseWidth + windOffset.y);
+  vec3 N = normalize(vec3(rotPos.x * 0.4, 0.85, rotPos.y * 0.4));
+  float night = uSunCol.w;
+  float termVis, alpenMask, alpenEdge;
+  vec3 alpenTint;
+  evalAlpenglow(worldPos.y, termVis, alpenMask, alpenTint, alpenEdge);
+  vec3 Lglide = (night < 0.5 && uLight.y < 0.10)
+    ? normalize(vec3(uLight.x, mix(uLight.y, 0.10, alpenMask), uLight.z))
+    : uLight.xyz;
+  float ndl = clamp(dot(N, Lglide) * 0.6 + 0.4, 0.0, 1.0);
+  float cloudVal = iC.z;
+  float cloudDarkness = uCloudParams.z;
+  float sunIntensity = (uSkyTop.w < 0.02) ? uCloudExtra.y : mix(max(0.05, uCloudExtra.y), cloudDarkness, cloudVal);
+  vec3 spotWarmth = mix(vec3(1.0), vec3(1.22, 1.06, 0.82), clamp((uCloudExtra.y - 1.0) * 0.35, 0.0, 1.0));
+  vec3 sunC = uSunCol.rgb * spotWarmth * uLight.w * sunIntensity;
+  vec3 sunCActive = mix(sunC, alpenTint * max(length(sunC), 0.01) * 1.08, alpenEdge * 0.72);
+  float directVis = iC.y * termVis;
+  float ambCloudFactor = (uSkyTop.w < 0.02) ? 1.0 : mix(1.0, max(0.04, cloudDarkness * 1.6), cloudVal * smoothstep(0.02, 0.25, uSkyTop.w));
+  vec3 ambient = (mix(uGnd.rgb, uAmb.rgb, N.y * 0.4 + 0.6) + vec3(0.6, 0.65, 1.0) * uWind.w * 0.7) * ambCloudFactor;
+  vec3 cg = cloudGrade(cloudVal);
+  vLight = (sunCActive * ndl * directVis + ambient) * cg * (1.0 - 0.25 * uAmb.w);
+  vAlpenAdd = vec3(0.0);
+  if (alpenMask > 0.01 && directVis > 0.02) {
+    vec3 V = normalize(uCam.xyz - worldPos);
+    vec3 H = normalize(V + Lglide);
+    float spec = pow(max(dot(N, H), 0.0), 14.0) * 0.45;
+    float trans = pow(max(dot(-V, Lglide), 0.0), 3.0) * 0.55;
+    vAlpenAdd = alpenTint * sunCActive * ((spec + trans) * alpenMask * directVis * (1.0 - cloudVal * 0.85)) * cg;
+  }
+
   vWorld = worldPos;
   vUV = curUV;
-  vN = normalize(vec3(rotPos.x * 0.4, 0.85, rotPos.y * 0.4));
   vColorBase = iD.rgb;
   vColorTip = iE.rgb;
-  vShade = iC.y;
-  vCloud = iC.z;
-  vClumpRnd = rnd;
   vPlantType = pType;
   vAtlasSlot = atlasSlot;
   gl_Position = uVP * vec4(worldPos, 1.0);
@@ -11194,7 +12281,11 @@ void main(){
   // Растворение в атмосферном тумане и низинной дымке (включая uDawnMist)
   float fogOpt = distToCam * uSkyHor.w;
   if (uDawnMist.x > 0.001) {
-    float mistH = exp(-max(wp.y, 0.0) / max(uDawnMist.y, 1.0));
+    float topYL = max(uDawnMist.y, 1.0);
+    float uLeaf = max(wp.y, 0.0) / topYL;
+    float sharpL = clamp(uDawnMist.z, 0.0, 1.0);
+    float edgeWL = mix(0.85, 0.05, sharpL);
+    float mistH = mix(exp(-uLeaf), 1.0 - smoothstep(max(1.0 - edgeWL, 0.0), 1.0 + edgeWL * 0.5, uLeaf), smoothstep(0.0, 0.35, sharpL));
     float span = max(max(uScene.x, uScene.y), 100.0);
     fogOpt = max(fogOpt, (distToCam / (span * 0.65)) * (1.25 + 2.40 * uDawnMist.x) * mistH * clamp(uDawnMist.x, 0.0, 1.35));
   }
@@ -11860,9 +12951,9 @@ void main(){
         };
         for (let r = 0; r < rings; r++) for (let s = 0; s < seg; s++) {
           const a = V(r, s), b = V(r, s + 1), c = V(r + 1, s), d = V(r + 1, s + 1);
-          if (r === 0) tri(a, c, d, 1, flat);
-          else if (r === rings - 1) tri(a, c, b, 1, flat);
-          else { tri(a, c, b, 1, flat); tri(b, c, d, 1, flat); }
+          if (r === 0) tri(a, d, c, 1, flat);
+          else if (r === rings - 1) tri(a, b, c, 1, flat);
+          else { tri(a, b, c, 1, flat); tri(b, d, c, 1, flat); }
         }
       }
 
@@ -11918,12 +13009,12 @@ void main(){
 
         if (rc === 1) {
           const apex = xf([0, H, 0], [0, 1, 0]); apex.g = isRad ? 0.0 : 1.0;
-          for (let i = 0; i < tSeg; i++) tri(apex, sk[i], sk[(i + 1) % tSeg], 1, !!f.flat);
+          for (let i = 0; i < tSeg; i++) tri(apex, sk[(i + 1) % tSeg], sk[i], 1, !!f.flat);
         } else {
           for (let r = 0; r < rc; r++) for (let s = 0; s < tSeg; s++) {
             const a = G(r, s), b = G(r, s + 1), c = G(r + 1, s), d = G(r + 1, s + 1);
-            if (r === 0) tri(a, c, d, 1, !!f.flat);
-            else { tri(a, c, b, 1, !!f.flat); tri(b, c, d, 1, !!f.flat); }
+            if (r === 0) tri(a, d, c, 1, !!f.flat);
+            else { tri(a, b, c, 1, !!f.flat); tri(b, d, c, 1, !!f.flat); }
           }
         }
 
@@ -11939,7 +13030,7 @@ void main(){
           }));
 
           for (let s = 0; s < tSeg; s++) {
-            tri(botCenter, bsk[(s + 1) % tSeg], bsk[s], 1, !!f.flat);
+            tri(botCenter, bsk[s], bsk[(s + 1) % tSeg], 1, !!f.flat);
           }
         }
       }
@@ -12046,12 +13137,20 @@ void main(){
           res.g = isRad ? clamp(r / maxR, 0, 1) : (j / (m - 1));
           return res;
         };
+        const revY = P[m - 1][1] < P[0][1];
         for (let j = 0; j < m - 1; j++) for (let s = 0; s < seg; s++) {
           const a = Vx(j, s), b = Vx(j, s + 1), c = Vx(j + 1, s), d = Vx(j + 1, s + 1);
-          tri(a, b, c, 1, !!f.flat); tri(b, d, c, 1, !!f.flat);
+          if (revY) { tri(a, b, c, 1, !!f.flat); tri(b, d, c, 1, !!f.flat); }
+          else      { tri(a, c, b, 1, !!f.flat); tri(b, c, d, 1, !!f.flat); }
         }
-        if (lod < 2 && f.capBottom !== false && P[0][0] > 0.001) { const c = xf([0, P[0][1], 0], [0, -1, 0]); c.g = 0; for (let s = 0; s < seg; s++) tri(c, Vx(0, s + 1), Vx(0, s), 1, !!f.flat); }
-        if (f.capTop !== false && P[m - 1][0] > 0.001) { const c = xf([0, P[m - 1][1], 0], [0, 1, 0]); c.g = 1; for (let s = 0; s < seg; s++) tri(c, Vx(m - 1, s), Vx(m - 1, s + 1), 1, !!f.flat); }
+        if (lod < 2 && f.capBottom !== false && P[0][0] > 0.001) {
+          const c = xf([0, P[0][1], 0], [0, revY ? 1 : -1, 0]); c.g = 0;
+          for (let s = 0; s < seg; s++) tri(c, Vx(0, revY ? s + 1 : s), Vx(0, revY ? s : s + 1), 1, !!f.flat);
+        }
+        if (f.capTop !== false && P[m - 1][0] > 0.001) {
+          const c = xf([0, P[m - 1][1], 0], [0, revY ? -1 : 1, 0]); c.g = 1;
+          for (let s = 0; s < seg; s++) tri(c, Vx(m - 1, revY ? s : s + 1), Vx(m - 1, revY ? s + 1 : s), 1, !!f.flat);
+        }
       }
 
       const EMIT = { blob: emitBlob, tier: emitTier, cluster: emitCluster, fronds: emitFronds, lathe: emitLathe };
@@ -12530,6 +13629,502 @@ function buildGrid3dData(S) {
   }
 
   return new Float32Array(pos);
+
+}
+
+// ===========================================================================
+// СКАЛЫ, ЧАСТЬ 3: процедурные граненые блоки + расстановка
+// ===========================================================================
+const ROCK_NV = 6, ROCK_LODS = 3;
+const _rockMaxY = new Float32Array(ROCK_NV).fill(1.0);
+const ROCK_SHAPES = [  // sx, sy, sz, срезов, глубина среза
+  [1.00, 0.85, 1.00, 7, 0.60],  // 0 валун
+  [1.55, 0.55, 1.05, 6, 0.64],  // 1 плита
+  [0.80, 1.45, 0.80, 8, 0.62],  // 2 шпиль
+  [1.20, 0.75, 1.20, 9, 0.58],  // 3 глыба
+  [1.00, 1.00, 1.00, 6, 0.66],  // 4 булыжник
+  [1.90, 0.50, 0.95, 5, 0.66]   // 5 длинный уступ
+];
+const ROCK_CLIFF_V = [1, 3, 5], ROCK_OUT_V = [0, 2, 3, 4], ROCK_SCREE_V = [0, 4, 3];
+
+const _rh = (a, b) => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s); };
+const _sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const _cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+
+function makeIcosphere(sub) {
+  const t = (1 + Math.sqrt(5)) / 2;
+  const v = [[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(normv);
+  let f = [[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],
+           [3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  for (let s = 0; s < sub; s++) {
+    const cache = new Map(), nf = [];
+    const mid = (a, b) => {
+      const key = a < b ? a + '_' + b : b + '_' + a;
+      if (cache.has(key)) return cache.get(key);
+      v.push(normv([(v[a][0] + v[b][0]) / 2, (v[a][1] + v[b][1]) / 2, (v[a][2] + v[b][2]) / 2]));
+      cache.set(key, v.length - 1); return v.length - 1;
+    };
+    for (const [a, b, c] of f) {
+      const ab = mid(a, b), bc = mid(b, c), ca = mid(c, a);
+      nf.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]);
+    }
+    f = nf;
+  }
+  return { v, f };
+}
+
+// Граненый камень: икосфера → шум радиуса → срез случайными плоскостями → плоские нормали
+function makeRockMesh(variant, sub, geomCfg) {
+  const gm = geomCfg || ROCK_DEF.geom;
+  const style = gm.shapeStyle || 'mixed';
+  let [sx, sy, sz, cuts, dMin] = ROCK_SHAPES[variant % ROCK_SHAPES.length];
+
+  if (style === 'angular') { cuts = Math.round(cuts * 1.25); dMin -= 0.06; }
+  else if (style === 'slabs') { sy *= 0.52; sx *= 1.35; }
+  else if (style === 'spires') { sy *= 1.65; sx *= 0.72; sz *= 0.72; }
+  else if (style === 'boulders') { cuts = Math.max(4, Math.round(cuts * 0.65)); dMin += 0.12; }
+  else if (style === 'columns') { sy *= 1.45; sx *= 0.85; sz *= 0.85; }
+
+  const cutMul = gm.facets != null ? gm.facets : 1.0;
+  cuts = clamp(Math.round(cuts * cutMul), 3, 16);
+  const baseCutD = clamp((gm.cutDepth != null ? gm.cutDepth : 0.62) + (dMin - 0.60), 0.36, 0.88);
+  const jag = gm.jaggedness != null ? gm.jaggedness : 0.22;
+  const flatTop = gm.flatTop != null ? gm.flatTop : 0.5;
+  const stY = gm.stretchY != null ? gm.stretchY : 1.0;
+  const stXZ = gm.stretchXZ != null ? gm.stretchXZ : 1.0;
+
+  const rnd = mulberry32(0x9E3779B1 ^ (variant * 7919 + 13));
+  const { v, f } = makeIcosphere(sub);
+  const planes = [];
+
+  if (style === 'columns') {
+    const sides = 5 + (variant % 3);
+    const rot0 = rnd() * 6.2832;
+    for (let i = 0; i < sides; i++) {
+      const a = rot0 + (i / sides) * 6.2832 + (rnd() - 0.5) * 0.25;
+      planes.push({ n: normv([Math.cos(a), (rnd() - 0.5) * 0.18, Math.sin(a)]), d: baseCutD });
+    }
+  } else {
+    for (let i = 0; i < cuts; i++) {
+      const ny = (rnd() * 2 - 1) * 0.65;
+      // Ослабляем подрез снизу, чтобы камень не сужался в узкий шип
+      const undercutPad = ny < -0.12 ? (-ny - 0.12) * 0.38 : 0;
+      planes.push({
+        n: normv([rnd() * 2 - 1, ny, rnd() * 2 - 1]),
+        d: baseCutD + rnd() * 0.22 + undercutPad
+      });
+    }
+  }
+  const topD = lerp(0.95, baseCutD - 0.04, flatTop);
+  planes.push({ n: [0, 1, 0], d: topD });
+  // Плоская широкая опорная подошва
+  const botD = clamp(baseCutD * 0.78, 0.26, 0.55);
+  planes.push({ n: [0, -1, 0], d: botD });
+  planes.push({ n: normv([rnd() - 0.5, 0.35, rnd() - 0.5]), d: baseCutD + 0.08 });
+
+  const xzModA = stXZ, xzModB = 1.0 / Math.sqrt(Math.max(stXZ, 0.25));
+  const pts = v.map((p, i) => {
+    const k = 1 + jag * (_rh(i, variant) - 0.5);
+    let q = [p[0] * k, p[1] * k, p[2] * k];
+    for (const pl of planes) {
+      const d = q[0] * pl.n[0] + q[1] * pl.n[1] + q[2] * pl.n[2];
+      if (d > pl.d) { const e = d - pl.d; q = [q[0] - pl.n[0] * e, q[1] - pl.n[1] * e, q[2] - pl.n[2] * e]; }
+    }
+    return [q[0] * sx * xzModA, q[1] * sy * stY, q[2] * sz * xzModB];
+  });
+  let minY = 1e9, mr = 1e-3, maxY = 0;
+  pts.forEach(p => { minY = Math.min(minY, p[1]); mr = Math.max(mr, Math.hypot(p[0], p[2])); });
+  let cx = 0, cy = 0, cz = 0;
+  pts.forEach(p => {
+    p[0] /= mr; p[1] = (p[1] - minY) / mr; p[2] /= mr;
+    if (p[1] > maxY) maxY = p[1];
+    cx += p[0]; cy += p[1]; cz += p[2];
+  });
+  cx /= pts.length; cy /= pts.length; cz /= pts.length;
+  maxY = Math.max(maxY, 0.05);
+  if (sub === 2) _rockMaxY[variant % ROCK_NV] = maxY;
+
+  const out = []; let fi = 0;
+  for (const [a, b, c] of f) {
+    let A = pts[a], B = pts[b], C = pts[c];
+    let n = normv(_cross3(_sub3(B, A), _sub3(C, A)));
+    const cen = [(A[0] + B[0] + C[0]) / 3 - cx, (A[1] + B[1] + C[1]) / 3 - cy, (A[2] + B[2] + C[2]) / 3 - cz];
+    if (n[0] * cen[0] + n[1] * cen[1] + n[2] * cen[2] < 0) {
+      n = [-n[0], -n[1], -n[2]];
+      const tmp = B; B = C; C = tmp; // строгий CCW-обход наружу для CULL_FACE
+    }
+    const fr = _rh(fi++, variant + 5);
+    for (const P of [A, B, C]) out.push(P[0], P[1], P[2], n[0], n[1], n[2], P[1] / maxY, fr);
+  }
+  return { data: new Float32Array(out), count: out.length / 8, maxY };
+}
+
+function dilateMax2D(src, Nx, Ny, r) {
+  const tmp = new Float32Array(Nx * Ny);
+  const out = new Float32Array(Nx * Ny);
+  const q = new Int32Array(Math.max(Nx, Ny));
+  for (let j = 0; j < Ny; j++) {
+    const row = j * Nx;
+    let h = 0, t = 0;
+    for (let i = 0; i < Nx + r; i++) {
+      if (i < Nx) {
+        const v = src[row + i];
+        while (t > h && src[row + q[t - 1]] <= v) t--;
+        q[t++] = i;
+      }
+      const oi = i - r;
+      if (oi >= 0) {
+        if (q[h] < oi - r) h++;
+        tmp[row + oi] = src[row + q[h]];
+      }
+    }
+  }
+  for (let i = 0; i < Nx; i++) {
+    let h = 0, t = 0;
+    for (let j = 0; j < Ny + r; j++) {
+      if (j < Ny) {
+        const v = tmp[j * Nx + i];
+        while (t > h && tmp[q[t - 1] * Nx + i] <= v) t--;
+        q[t++] = j;
+      }
+      const oj = j - r;
+      if (oj >= 0) {
+        if (q[h] < oj - r) h++;
+        out[oj * Nx + i] = tmp[q[h] * Nx + i];
+      }
+    }
+  }
+  return out;
+}
+
+function getRockReliefEnv(S) {
+  if (S._rockEnv) return S._rockEnv;
+  const { Nx, Ny, W, H, height, area } = S;
+  const span = Math.max(W, H), cellM = area.cellM;
+  const rMax  = clamp(Math.round(clamp(span * 0.045, 55, 160) / cellM), 3, 24);
+  const rMean = clamp(Math.round(clamp(span * 0.065, 80, 220) / cellM), 4, 32);
+  const rawMax = dilateMax2D(height, Nx, Ny, rMax);
+  const envMax = boxBlurF(rawMax, Nx, Ny, Math.max(1, Math.round(rMax * 0.25)));
+  for (let i = 0; i < envMax.length; i++) {
+    if (envMax[i] < height[i]) envMax[i] = height[i];
+  }
+  const envMean = boxBlurF(height, Nx, Ny, rMean);
+  return (S._rockEnv = { envMax, envMean });
+}
+
+// Расстановка камней и скал с управлением зонами, кучностью, спутниками и анти-слипанием (уровень 1)
+function placeRocks(S, budget, rockCfg) {
+  const out = { arr: new Array(ROCK_NV).fill(null), cnt: new Int32Array(ROCK_NV), total: 0 };
+  const area = S.area;
+  const zoom = area && area.zoom != null ? area.zoom : 15;
+  if (!S.rockPeak || !budget || area.isMacro || zoom <= 12) return out;
+
+  const rc = rockCfg || ROCK_DEF;
+  const pl = rc.place || ROCK_DEF.place;
+  const gm = rc.geom || ROCK_DEF.geom;
+
+  const density = clamp(pl.density != null ? pl.density : 1.0, 0.05, 3.0);
+  const effBudget = Math.max(50, Math.round(budget * density));
+  const clumping = clamp(pl.clumping != null ? pl.clumping : 0.35, 0, 1);
+  const satChance = clamp(pl.satelliteChance != null ? pl.satelliteChance : 0.45, 0, 1);
+  const zoneMode = pl.zoneMode || 'all';
+  const shoreK = clamp(pl.shoreRocks != null ? pl.shoreRocks : 0.35, 0, 1);
+  const shoreWaterReach = clamp(pl.shoreWaterReach != null ? pl.shoreWaterReach : 0, 0, 150);
+  const shoreLandReach = clamp(pl.shoreLandReach != null ? pl.shoreLandReach : 28, 0, 150);
+  const shoreSizeRatio = clamp(pl.shoreSizeRatio != null ? pl.shoreSizeRatio : 1.0, 0.2, 5.0);
+  const shoreStretchY = clamp(pl.shoreStretchY != null ? pl.shoreStretchY : 1.0, 0.2, 4.0);
+  const minSlope = clamp(pl.minSlopeDeg != null ? pl.minSlopeDeg : 10, 0, 55);
+  const crestSuppress = clamp(pl.crestSuppress != null ? pl.crestSuppress : 0.0, 0, 1);
+  const skylineTrim = clamp(pl.skylineTrim != null ? pl.skylineTrim : 0.0, 0, 1);
+  const forestAvoid = clamp(pl.forestAvoid != null ? pl.forestAvoid : 0.6, 0, 1);
+  const sizeRatio = clamp(pl.sizeRatio != null ? pl.sizeRatio : 1.0, 0.3, 5.0);
+  const sizeContrast = clamp(pl.sizeContrast != null ? pl.sizeContrast : 0.45, 0, 1);
+  const avoidOverlap = clamp(pl.avoidOverlap != null ? pl.avoidOverlap : 0.65, 0, 1);
+
+  const burialBase = clamp(gm.burial != null ? gm.burial : 0.32, 0, 0.75);
+  const alignBase = clamp(gm.slopeAlign != null ? gm.slopeAlign : 0.60, 0, 1);
+  const variety = clamp(gm.variety != null ? gm.variety : 0.65, 0, 1);
+
+  const { Nx, Ny, W, H, cls, height, rockPeak } = S;
+  const cx = W / (Nx - 1), cz = H / (Ny - 1), cellM = area.cellM, span = Math.max(W, H);
+  const sceneK = clamp(Math.sqrt(span / 1200), 0.6, 3.2);
+  const rnd = mulberry32(hashStr(area.key) ^ 0x51ed270b);
+
+  const N = Nx * Ny, prob = new Float32Array(N), kind = new Uint8Array(N);
+  const crestMap = crestSuppress > 0.001 ? new Float32Array(N) : null;
+  const { envMax, envMean } = (crestMap || skylineTrim > 0.005) ? getRockReliefEnv(S) : { envMax: null, envMean: null };
+  const baseS = Math.max(2.6, cellM * 0.85) / Math.sqrt(Math.max(density, 0.2)), cellA = cx * cz;
+  let est = 0;
+
+  for (let j = 1; j < Ny - 1; j++) for (let i = 1; i < Nx - 1; i++) {
+    const k = j * Nx + i, c = cls[k];
+    const isWater = (c === CLS_WATER);
+    if (c === 35 || (S.roadMask && S.roadMask[k] > 30)) continue;
+    if (isWater && (shoreWaterReach <= 0 || shoreK <= 0.01 || (zoneMode !== 'all' && zoneMode !== 'shores'))) continue;
+
+    const dhx = (height[k + 1] - height[k - 1]) / (2 * cx), dhz = (height[k + Nx] - height[k - Nx]) / (2 * cz);
+    const ts = Math.hypot(dhx, dhz), slopeDeg = Math.atan(ts) / DEG, rp = rockPeak[k];
+
+    const cliff = isWater ? 0 : smooth(0.70, 1.45, ts);
+    const outc  = isWater ? 0 : smooth(0.36, 0.88, rp);
+    const scree = isWater ? 0 : smooth(0.14, 0.50, rp) * (1 - cliff) * smooth(0.18, 0.58, ts) * 0.55;
+
+    let shore = 0;
+    if (isWater) {
+      if (S.distWater && S.distWater[k] > 0 && shoreWaterReach > 0) {
+        const dWaterM = Math.max(0, (S.distWater[k] - 0.85) * cellM);
+        shore = smooth(shoreWaterReach, 0, dWaterM);
+      }
+    } else if (S.distLand && S.distLand[k] > 0 && shoreLandReach > 0) {
+      const dLandM = Math.max(0, (S.distLand[k] - 0.85) * cellM);
+      shore = smooth(shoreLandReach, 0, dLandM) * (1 - smooth(1.0, 1.7, ts));
+    }
+
+    const shoreEff = (zoneMode === 'shores') ? shore : shore * shoreK;
+    let p = 0, landP = 0;
+    if (isWater) {
+      p = shoreEff;
+    } else {
+      if (zoneMode === 'cliffs') p = cliff;
+      else if (zoneMode === 'peaks') p = outc;
+      else if (zoneMode === 'scree') p = scree * 1.4;
+      else if (zoneMode === 'shores') p = shoreEff;
+      else p = Math.max(cliff * 0.9, outc * 0.75, scree);
+
+      // Если разрешены пологие камни (minSlopeDeg < 8), добавляем фоновый шанс для валунов
+      if (minSlope < 8 && (zoneMode === 'all' || zoneMode === 'scree')) {
+        p = Math.max(p, ((8 - minSlope) / 8) * 0.25);
+      }
+      if (zoneMode !== 'shores') {
+        landP = p * smooth(minSlope - 4, minSlope + 4, slopeDeg);
+        p = Math.max(landP, shoreEff);
+      }
+    }
+    if (S.can[k] > 16) {
+      const fCov = smooth(16, 80, S.can[k]);
+      p *= lerp(1.0, 0.08, fCov * forestAvoid);
+    }
+    if (clumping > 0.01) {
+      const wx = (i / (Nx - 1) - 0.5) * W, wz = (j / (Ny - 1) - 0.5) * H;
+      const clN = vnoise(wx * 0.014 + 4.3, wz * 0.014 + 9.1) * 0.65 + vnoise(wx * 0.038 + 1.1, wz * 0.038 + 6.7) * 0.35;
+      p *= lerp(1.0, smooth(0.22 * clumping, 0.54 + 0.2 * clumping, clN) * 1.65, clumping);
+    }
+    if (crestMap) {
+      const concNorm = S.extra ? (S.extra[k * 4 + 1] / 255) : 0.5;
+      const crestConvex = smooth(0.54, 0.20, concNorm);
+      const relAboveMean = height[k] - envMean[k];
+      const peakPos = smooth(1.0, clamp(S.relief * 0.06, 8.0, 28.0), relAboveMean);
+      const crestGentle = 1.0 - smooth(24, 48, slopeDeg);
+      const nearTopEdge = smooth(25.0, 3.0, envMax[k] - height[k]);
+      const cf = clamp(
+        peakPos * (crestConvex * (0.45 + 0.55 * crestGentle) + Math.max(crestGentle, nearTopEdge) * smooth(0.25, 0.80, rp) * 0.55),
+        0, 1
+      );
+      crestMap[k] = cf;
+      p *= lerp(1.0, 0.0, clamp(cf * crestSuppress, 0, 1));
+    }
+
+    if (p < 0.02) continue;
+    prob[k] = clamp(p, 0, 1);
+    const isShoreCell = isWater || zoneMode === 'shores' || (shoreEff > 0.02 && shoreEff >= landP);
+    kind[k] = isShoreCell ? 3
+      : ((cliff >= outc && cliff >= scree) ? 0 : (outc >= scree ? 1 : 2));
+    est += prob[k] * cellA / (baseS * baseS);
+  }
+
+  const sp = baseS * Math.max(1, Math.sqrt(est / effBudget));
+  const occCells = avoidOverlap > 0.05 ? new Map() : null;
+  const occStep = Math.max(sp * 1.1, 4.0);
+  const buckets = Array.from({ length: ROCK_NV }, () => []);
+
+  const canPlaceAt = (px, pz, r) => {
+    if (!occCells) return true;
+    const gx = Math.floor(px / occStep), gz = Math.floor(pz / occStep);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      const list = occCells.get((gx + dx) + ',' + (gz + dz));
+      if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const o = list[i], minD = (r + o.r) * 0.58 * avoidOverlap;
+        if ((px - o.x) * (px - o.x) + (pz - o.z) * (pz - o.z) < minD * minD) return false;
+      }
+    }
+    return true;
+  };
+  const registerPlaced = (px, pz, r) => {
+    if (!occCells) return;
+    const key = Math.floor(px / occStep) + ',' + Math.floor(pz / occStep);
+    let list = occCells.get(key);
+    if (!list) occCells.set(key, (list = []));
+    list.push({ x: px, z: pz, r });
+  };
+
+  for (let y = sp / 2; y < H; y += sp) for (let x = sp / 2; x < W; x += sp) {
+    if (out.total >= effBudget * 1.35) break;
+    const jx = clamp(x + (rnd() - 0.5) * sp * 0.9, 0, W), jy = clamp(y + (rnd() - 0.5) * sp * 0.9, 0, H);
+    const ci = clamp(Math.round(jx / W * (Nx - 1)), 1, Nx - 2), cj = clamp(Math.round(jy / H * (Ny - 1)), 1, Ny - 2);
+    const k = cj * Nx + ci, p = prob[k];
+    if (p <= 0 || rnd() > p) continue;
+
+    const r1 = rnd(), r2 = rnd(), r3 = rnd(), kd = kind[k];
+    const szCurve = Math.pow(r2, 1.0 + sizeContrast * 2.2);
+    const szSpread = lerp(0.85, 0.35 + 2.3 * szCurve, Math.max(sizeContrast, 0.2));
+
+    let variant, size, yaw, stretch, burial, align;
+    if (kd === 0) {
+      const gx = (height[k + 1] - height[k - 1]) / (2 * cx), gz = (height[k + Nx] - height[k - Nx]) / (2 * cz);
+      variant = ROCK_CLIFF_V[(r1 * ROCK_CLIFF_V.length) | 0];
+      size = sp * 1.25 * szSpread * sizeRatio;
+      yaw = Math.atan2(gx, -gz) + (r3 - 0.5) * (0.2 + 0.6 * variety);
+      stretch = lerp(1.0, 0.7 + 0.8 * r3, variety);
+      burial = clamp(burialBase + (r2 - 0.5) * 0.14 * variety, 0, 0.8);
+      align = clamp(alignBase * 1.25, 0, 1);
+    } else if (kd === 1) {
+      variant = ROCK_OUT_V[(r1 * ROCK_OUT_V.length) | 0];
+      size = sp * 1.05 * szSpread * sizeRatio;
+      yaw = r3 * 6.2832;
+      stretch = lerp(1.0, 0.65 + 0.85 * r2, variety);
+      burial = clamp(burialBase + (r3 - 0.5) * 0.16 * variety, 0, 0.8);
+      align = alignBase * 0.85;
+    } else if (kd === 3) {
+      variant = ROCK_SCREE_V[(r1 * ROCK_SCREE_V.length) | 0];
+      size = sp * 0.72 * szSpread * sizeRatio * shoreSizeRatio;
+      yaw = r3 * 6.2832;
+      stretch = lerp(1.0, 0.55 + 0.75 * r1, variety) * shoreStretchY;
+      burial = clamp(burialBase + 0.06 + (r3 - 0.5) * 0.15 * variety, 0, 0.8);
+      align = alignBase * 0.6;
+    } else {
+      variant = ROCK_SCREE_V[(r1 * ROCK_SCREE_V.length) | 0];
+      size = sp * 0.72 * szSpread * sizeRatio;
+      yaw = r3 * 6.2832;
+      stretch = lerp(1.0, 0.55 + 0.75 * r1, variety);
+      burial = clamp(burialBase + 0.06 + (r3 - 0.5) * 0.15 * variety, 0, 0.8);
+      align = alignBase * 0.6;
+    }
+    const sup = crestMap ? clamp(crestMap[k] * crestSuppress, 0, 1) : 0;
+    if (sup > 0.01) {
+      if (sup > 0.25 && variant === 2) {
+        variant = (r1 < 0.5) ? 1 : 3;
+      }
+      size *= lerp(1.0, 0.28, sup);
+      stretch *= lerp(1.0, 0.40, sup);
+      burial = clamp(burial + sup * 0.35, 0, 0.82);
+    }
+    size = clamp(size, kd === 3 ? 0.25 : 1.0, kd === 3 ? 90 : 55);
+    // --- НАЧАЛО ВСТАВКИ: подгонка крупных камней под ширину гребня / перегиба ---
+    const rCheck = size * 0.55;
+    const h0 = height[k];
+    const sampH = (dxM, dzM) => {
+      const si = clamp(Math.round((jx + dxM) / W * (Nx - 1)), 0, Nx - 1);
+      const sj = clamp(Math.round((jy + dzM) / H * (Ny - 1)), 0, Ny - 1);
+      return height[sj * Nx + si];
+    };
+    const hL = sampH(-rCheck, 0), hR = sampH(rCheck, 0);
+    const hD = sampH(0, -rCheck), hU = sampH(0, rCheck);
+    const zE = Math.max(S.zEff || 1.0, 1.0);
+    const ridgeConv = (Math.max(0, h0 - 0.5 * (hL + hR)) + Math.max(0, h0 - 0.5 * (hD + hU))) * zE;
+    const slopeDrop = Math.max(0, h0 - Math.min(hL, hR, hD, hU)) * zE * (1 - align * 0.85);
+    const overhang = ridgeConv + slopeDrop;
+    const estRockH = size * Math.pow(zE, 0.45) * stretch * (_rockMaxY[variant] || 1.0);
+
+    if (overhang > estRockH * 0.45) {
+      const shrink = clamp((estRockH * 0.55) / Math.max(overhang, 0.1), 0.35, 1.0);
+      size *= shrink;
+      burial = clamp(burial + (overhang * shrink) / Math.max(estRockH * shrink, 0.5) * 0.4, 0, 0.72);
+    }
+    // --- КОНЕЦ ВСТАВКИ ---
+
+    if (skylineTrim > 0.005) {
+      const zPow = Math.pow(zE, 0.45);
+      let rockHWorld = (_rockMaxY[variant] || 1.0) * size * zPow * stretch;
+      let visHWorld = rockHWorld * (1.0 - burial);
+      const headroomWorld = Math.max(0.0, (envMax[k] - height[k]) * zE);
+      if (visHWorld > headroomWorld) {
+        const keepFrac = Math.pow(1.0 - skylineTrim, 1.8);
+        const targetVisH = headroomWorld + (visHWorld - headroomWorld) * keepFrac * (0.65 + 0.70 * r1);
+        if (targetVisH / Math.max(visHWorld, 0.01) < 0.70 && variant === 2) {
+          variant = (r1 < 0.5) ? 1 : 3; // заменяем острые шпили на плоские плиты/глыбы
+          rockHWorld = (_rockMaxY[variant] || 1.0) * size * zPow * stretch;
+          visHWorld = rockHWorld * (1.0 - burial);
+        }
+        const ratio = clamp(targetVisH / Math.max(visHWorld, 0.01), 0.04, 1.0);
+        // Сжимаем преимущественно высоту (stretch), чтобы камень прижимался как уступ
+        stretch *= Math.pow(ratio, 0.65);
+        size *= Math.pow(ratio, 0.35);
+        if (ratio < 0.45 && skylineTrim > 0.5) {
+          burial = clamp(burial + (0.45 - ratio) * 0.45, 0, 0.85);
+        }
+      }
+    }
+    const edgePad = size * 0.55;
+    if (jx < edgePad || jx > W - edgePad || jy < edgePad || jy > H - edgePad) continue;
+
+    const wx = jx - W / 2, wz = jy - H / 2;
+    if (!canPlaceAt(wx, wz, size)) continue;
+    registerPlaced(wx, wz, size);
+
+    if (cls[k] === CLS_WATER && S.distWater && shoreWaterReach > 0) {
+      const wFrac = clamp(Math.max(0, (S.distWater[k] - 0.85) * cellM) / shoreWaterReach, 0, 1);
+      burial = clamp(burial + 0.22 * wFrac, 0, 0.85);
+    }
+    if (burial >= 0.92) continue;
+    buckets[variant].push(wx, wz, size, yaw, stretch, rnd(), burial, align);
+    out.total++;
+
+    // Камни-спутники вокруг крупных глыб
+     if (satChance > 0.02 && sup < 0.65 && size > sp * 0.75 && rnd() < satChance * (1 - sup) && out.total < effBudget * 1.35) {
+      const nSat = 1 + Math.floor(rnd() * 2.9 * satChance);
+      for (let s = 0; s < nSat; s++) {
+        const ang = rnd() * 6.2832;
+        const dist = size * (0.58 + 0.55 * rnd());
+        const sx2 = jx + Math.cos(ang) * dist, sy2 = jy + Math.sin(ang) * dist;
+        const satSize = clamp(size * (0.20 + 0.30 * rnd()), kd === 3 ? 0.2 : 0.8, kd === 3 ? 25 : 18);
+        const satPad = satSize * 0.55;
+        if (sx2 < satPad || sx2 > W - satPad || sy2 < satPad || sy2 > H - satPad) continue;
+        const si = clamp(Math.round(sx2 / W * (Nx - 1)), 0, Nx - 1), sj = clamp(Math.round(sy2 / H * (Ny - 1)), 0, Ny - 1);
+        const sk = sj * Nx + si;
+        if (cls[sk] === 35 || (S.roadMask && S.roadMask[sk] > 30)) continue;
+        if (cls[sk] === CLS_WATER) {
+          if (shoreWaterReach <= 0 || shoreK <= 0.01 || (zoneMode !== 'all' && zoneMode !== 'shores') ||
+              !S.distWater || Math.max(0, (S.distWater[sk] - 0.85) * cellM) > shoreWaterReach) continue;
+        }
+
+        const satVar = ROCK_SCREE_V[(rnd() * ROCK_SCREE_V.length) | 0];
+        let satSz = satSize;
+        let satBurial = clamp(burialBase + 0.08, 0, 0.8);
+        let satStretch = lerp(0.8, 1.2, rnd()) * (kd === 3 ? shoreStretchY : 1.0);
+        const satSup = crestMap ? clamp(crestMap[sk] * crestSuppress, 0, 1) : 0;
+        if (satSup > 0.01) {
+          satSz *= lerp(1.0, 0.28, satSup);
+          satStretch *= lerp(1.0, 0.40, satSup);
+          satBurial = clamp(satBurial + satSup * 0.35, 0, 0.82);
+        }
+        if (skylineTrim > 0.005 && envMax) {
+          const satHWorld = (_rockMaxY[satVar] || 1.0) * satSz * Math.pow(zE, 0.45) * satStretch;
+          const satVisH = satHWorld * (1.0 - satBurial);
+          const satHeadroom = Math.max(0.0, (envMax[sk] - height[sk]) * zE);
+          if (satVisH > satHeadroom) {
+            const keepFrac = Math.pow(1.0 - skylineTrim, 1.8);
+            const targetVisH = satHeadroom + (satVisH - satHeadroom) * keepFrac * (0.65 + 0.70 * r1);
+            const ratio = clamp(targetVisH / Math.max(satVisH, 0.01), 0.04, 1.0);
+            satStretch *= Math.pow(ratio, 0.65);
+            satSz *= Math.pow(ratio, 0.35);
+            if (ratio < 0.45 && skylineTrim > 0.5) {
+              satBurial = clamp(satBurial + (0.45 - ratio) * 0.45, 0, 0.85);
+            }
+          }
+        }
+        if (satBurial >= 0.92) continue;
+        buckets[satVar].push(
+          sx2 - W / 2, sy2 - H / 2, satSz, rnd() * 6.2832,
+          satStretch, rnd(), satBurial, align * 0.8
+        );
+        out.total++;
+      }
+    }
+
+  }
+  for (let v = 0; v < ROCK_NV; v++) { out.cnt[v] = buckets[v].length / 8; out.arr[v] = new Float32Array(buckets[v]); }
+  return out;
 }
   function buildTreeMeshes() {
     const catalog = getActiveTreeCatalog();
@@ -12754,8 +14349,10 @@ function buildGrid3dData(S) {
     terrain: 'Ландшафт и вода',
     wall: 'Почвенный разрез',
     rain: 'Дождь',
+    rockState: 'Инстансинг скал',
     lightning: 'Молнии',
     snow: 'Снег',
+    grassStatic: 'Статика травы',
     building: '3D-здания',
     bridge: 'Мосты',
     creepingFog: 'Стелящиеся облака',
@@ -12765,7 +14362,8 @@ function buildGrid3dData(S) {
     tree: 'Деревья и кроны',
     grassState: 'Разметка травы',
     grass: 'Трава и цветы',
-    smoke: 'Дым и дымка'
+    smoke: 'Дым и дымка',
+    rock: 'Скалы',
   };
 
   let gBlkNear = null;
@@ -12867,6 +14465,11 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
       const lSkyRefl = gl.getUniformLocation(p, 'uSkyRefl');
       if (lSkyRefl) gl.uniform1i(lSkyRefl, 12);
 
+      const bindU = (n, u) => { const l = gl.getUniformLocation(p, n); if (l) gl.uniform1i(l, u); };
+      bindU('uReflTex', 10);
+      bindU('uBakeArr', 13);
+      bindU('uWaveTex', 14);
+
       return (progs[bd.name] = { p, loc: {} });
     };
 
@@ -12911,15 +14514,15 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
 
     R.perf = {
       cpuTotal: 0, cpuRebucket: 0, cpuCullSort: 0,
-      passShadow: 0, passTerrain: 0, passTrees: 0,
+      passShadow: 0, passTerrain: 0, passTrees: 0, passRocks: 0,
       passGrass: 0, passClouds: 0, passTransparent: 0,
       gpuSupported: !!tq, gpuReady: false,
-      gpuTotal: 0, gpuShadow: 0, gpuTerrain: 0, gpuTrees: 0,
+      gpuTotal: 0, gpuShadow: 0, gpuTerrain: 0, gpuTrees: 0, gpuRocks: 0,
       gpuGrass: 0, gpuSky: 0, gpuClouds: 0, gpuTransparent: 0,
       gpuUploadBytes: 0, uploadCount: 0,
       reset() {
         this.cpuTotal = this.cpuRebucket = this.cpuCullSort = 0;
-        this.passShadow = this.passTerrain = this.passTrees = 0;
+        this.passShadow = this.passTerrain = this.passTrees = this.passRocks = 0;
         this.passGrass = this.passClouds = this.passTransparent = 0;
         this.gpuUploadBytes = this.uploadCount = 0;
       },
@@ -13019,15 +14622,17 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
         const sShadow = ms.shadow || 0;
         const sTerrain = ms.terrain || 0;
         const sTrees = ms.trees || 0;
+        const sRocks = ms.rocks || 0;
         const sGrass = ms.grass || 0;
         const sSky = ms.sky || 0;
         const sClouds = ms.clouds || 0;
         const sTrans = (ms.leaf || 0) + (ms.precip || 0);
-        const sTotal = sShadow + sTerrain + sTrees + sGrass + sSky + sClouds + sTrans;
+        const sTotal = sShadow + sTerrain + sTrees + sRocks + sGrass + sSky + sClouds + sTrans;
 
         p.gpuShadow = mix(p.gpuShadow, sShadow);
         p.gpuTerrain = mix(p.gpuTerrain, sTerrain);
         p.gpuTrees = mix(p.gpuTrees, sTrees);
+        p.gpuRocks = mix(p.gpuRocks, sRocks);
         p.gpuGrass = mix(p.gpuGrass, sGrass);
         p.gpuSky = mix(p.gpuSky, sSky);
         p.gpuClouds = mix(p.gpuClouds, sClouds);
@@ -13054,7 +14659,7 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
 
     let grassVao = null, grassVbo = null, ubo = null, emptyVao = null, terrainVao = null, creepVao = null, creepVbo = null;
     let tfo = null, idxBuf = null, grassTex = null;
-    const tex = { h: null, hRefl: null, cls: null, can: null, ex: null, sh: null, base: null, flow: null };
+    const tex = { h: null, hRefl: null, refl: null, cls: null, can: null, ex: null, sh: null, base: null, flow: null };
     let shFbo = null, shW = 0, shH = 0;
     let skyReflFbo = null, skyReflTex = null, skyReflEnc = 0, skyReflW = 0, skyReflH = 0, skyReflSig = null;
 
@@ -13119,6 +14724,7 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
       return { vdata: new Float32Array(out), idx, count: n };
     };
 
+
     const meshes = new Array(NB);
     const treeVao = new Array(NB);
     const meshVbo = new Array(NB);
@@ -13126,6 +14732,76 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
     const meshIbo = new Array(NB);
     const stVbo = new Array(NB);
     const stateVao = new Array(NB);
+
+   const ROCK_NB = ROCK_NV * ROCK_LODS;
+    const rockMesh = new Array(ROCK_NB), rockVao = [], rockVbo = [], rockIbo = [], rockStVbo = [], rockStateVao = [];
+    const rkCnt = new Int32Array(ROCK_NB), rkArr = new Array(ROCK_NB).fill(null), rkCap = new Int32Array(ROCK_NB), rkSCap = new Int32Array(ROCK_NB);
+    let rkLodTmp = new Uint8Array(1024);
+    const ROCK_LOD_PX2 = [65 * 65, 16 * 16];
+    R.rockTotal = 0;
+
+    function initRockBuffers() {
+      const geomCfg = ST && ST.view && ST.view.rockCfg && ST.view.rockCfg.geom;
+      for (let v = 0; v < ROCK_NV; v++) for (let l = 0; l < ROCK_LODS; l++) {
+        const b = v * ROCK_LODS + l, m = makeRockMesh(v, 2 - l, geomCfg); // sub: 2 (LOD0), 1 (LOD1), 0 (LOD2)
+        rockMesh[b] = m;
+        const vao = gl.createVertexArray(), vb = gl.createBuffer(), ib = gl.createBuffer();
+        gl.bindVertexArray(vao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, m.data, gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+        gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12);
+        gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
+        gl.bindBuffer(gl.ARRAY_BUFFER, ib); gl.bufferData(gl.ARRAY_BUFFER, 32, gl.DYNAMIC_DRAW);
+
+        if (fast) {
+          const sb = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, sb); gl.bufferData(gl.ARRAY_BUFFER, 64, gl.DYNAMIC_COPY);
+          gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 64, 0);  gl.vertexAttribDivisor(3, 1);
+          gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 4, gl.FLOAT, false, 64, 16); gl.vertexAttribDivisor(4, 1);
+          gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 4, gl.FLOAT, false, 64, 32); gl.vertexAttribDivisor(5, 1);
+          gl.enableVertexAttribArray(6); gl.vertexAttribPointer(6, 4, gl.FLOAT, false, 64, 48); gl.vertexAttribDivisor(6, 1);
+          rockStVbo[b] = sb;
+
+          const sv = gl.createVertexArray();
+          gl.bindVertexArray(sv);
+          gl.bindBuffer(gl.ARRAY_BUFFER, ib);
+          gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 32, 0);
+          gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 4, gl.FLOAT, false, 32, 16);
+          rockStateVao[b] = sv;
+        } else {
+          gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 32, 0);  gl.vertexAttribDivisor(3, 1);
+          gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 4, gl.FLOAT, false, 32, 16); gl.vertexAttribDivisor(4, 1);
+        }
+        rockVao[b] = vao; rockVbo[b] = vb; rockIbo[b] = ib;
+      }
+      gl.bindVertexArray(null); gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    }
+
+    R.rebuildRockMeshes = (geomCfg) => {
+      for (let v = 0; v < ROCK_NV; v++) for (let l = 0; l < ROCK_LODS; l++) {
+        const b = v * ROCK_LODS + l, m = makeRockMesh(v, 2 - l, geomCfg);
+        rockMesh[b] = m;
+        gl.bindBuffer(gl.ARRAY_BUFFER, rockVbo[b]);
+        gl.bufferData(gl.ARRAY_BUFFER, m.data, gl.STATIC_DRAW);
+      }
+      if (R.rockSrc) R.rockSrc._maxH = null;
+      R.rkSig = null;
+      gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    };
+
+    R.uploadRocks = (P) => {
+      R.rockSrc = P;
+      R.rkSig = null;
+      R.rockTotal = P ? (P.total || 0) : 0;
+      if (!P || !P.total) rkCnt.fill(0);
+    };
+
+
+    R.updateCanopyTex = (S) => {
+      gl.bindTexture(gl.TEXTURE_2D, tex.can);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, S.Nx, S.Ny, gl.RED, gl.UNSIGNED_BYTE, S.can);
+    };
 
     const bcnt = new Int32Array(NB), bArr = new Array(NB).fill(null), bCap = new Int32Array(NB), sCap = new Int32Array(NB);
     let lodTmp = new Uint8Array(1024);
@@ -13220,9 +14896,22 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
         grassCascades = [];
         for (let c = 0; c < 2; c++) {
           const cap = (c === 0 ? 16384 : 8192) * 80;
+          const staticCap = (c === 0 ? 16384 : 8192) * 64;
+
           const vbo = gl.createBuffer();
           gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
           gl.bufferData(gl.ARRAY_BUFFER, cap, gl.DYNAMIC_COPY);
+
+          const staticVbo = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, staticVbo);
+          gl.bufferData(gl.ARRAY_BUFFER, staticCap, gl.DYNAMIC_COPY);
+
+          const staticVao = gl.createVertexArray();
+          gl.bindVertexArray(staticVao);
+          for (let k = 0; k < 4; k++) {
+            gl.enableVertexAttribArray(k);
+            gl.vertexAttribPointer(k, 4, gl.FLOAT, false, 64, k * 16);
+          }
 
           const vao = gl.createVertexArray();
           gl.bindVertexArray(vao);
@@ -13235,7 +14924,7 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
             gl.vertexAttribPointer(loc, sz, gl.FLOAT, false, 80, off);
             gl.vertexAttribDivisor(loc, 1);
           });
-          grassCascades.push({ vbo, vao, cap });
+          grassCascades.push({ vbo, vao, cap, staticVbo, staticVao, staticCap, staticSig: null, S: null });
         }
         gl.bindVertexArray(null);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
@@ -13247,6 +14936,8 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
         par.set([c.group, c.tree, c.sand ? 1 : 0, 0], c.id * 4);
       });
       par[2] = 0;
+      R._clsCol = col;
+      R._clsPar = par;
       for (const n of ['terrain', 'wall']) {
         gl.useProgram(progs[n].p);
         if (n === 'terrain') gl.uniform3fv(U(progs[n], 'uClsCol'), col);
@@ -13274,6 +14965,8 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
       const sr = (canHalf && mkSkyRefl(true)) || mkSkyRefl(false);
       if (sr) { skyReflTex = sr.t; skyReflFbo = sr.f; skyReflEnc = sr.enc; }
       skyReflSig = null;
+      initRockBuffers();
+      R.initWaveTex();
     }
 
     function buildTreeTypeBuffers(t) {
@@ -13363,6 +15056,280 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
       }
     }
 
+    const _f32 = new Float32Array(1), _u32 = new Uint32Array(_f32.buffer);
+    function f32ToF16(v) {
+      _f32[0] = v; const u = _u32[0];
+      const s = (u >>> 16) & 0x8000, e = ((u >>> 23) & 0xff) - 127 + 15; let m = u & 0x7fffff;
+      if (e <= 0) { if (e < -10) return s; m = (m | 0x800000) >> (1 - e); return s | ((m + 0x1000) >> 13); }
+      if (e >= 31) return s | 0x7c00;
+      return s | (e << 10) | ((m + 0x1000) >> 13);
+    }
+
+    function makeWaveTexData(N = 256) {
+      const P0 = 32;
+      const hash = (x, y, s) => {
+        let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 1442695041)) | 0;
+        h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967295;
+      };
+      const lat = (ix, iy, per, s) => hash(((ix % per) + per) % per, ((iy % per) + per) % per, s);
+      const vn = (x, y, per, s) => {
+        const ix = Math.floor(x), iy = Math.floor(y); let fx = x - ix, fy = y - iy;
+        fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+        const a = lat(ix, iy, per, s), b = lat(ix + 1, iy, per, s), c = lat(ix, iy + 1, per, s), d = lat(ix + 1, iy + 1, per, s);
+        return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+      };
+      const H = new Float32Array(N * N);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        let s = 0, a = 0.5;
+        for (let o = 0; o < 3; o++) { const per = P0 << o; s += a * vn(x / N * per, y / N * per, per, o + 1); a *= 0.5; }
+        H[y * N + x] = s;
+      }
+      const out = new Uint8Array(N * N * 4), k = N / (2 * P0);
+      const enc = g => Math.round((Math.max(-1, Math.min(1, g / 4)) * 0.5 + 0.5) * 255);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const xp = (x + 1) % N, xm = (x - 1 + N) % N, yp = (y + 1) % N, ym = (y - 1 + N) % N;
+        const i = (y * N + x) * 4;
+        out[i] = Math.round(Math.max(0, Math.min(1, H[y * N + x])) * 255);
+        out[i + 1] = enc((H[y * N + xp] - H[y * N + xm]) * k);
+        out[i + 2] = enc((H[yp * N + x] - H[ym * N + x]) * k);
+        out[i + 3] = 255;
+      }
+      return out;
+    }
+
+    R.initWaveTex = () => {
+      R.waveTex = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE14);
+      gl.bindTexture(gl.TEXTURE_2D, R.waveTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 256, 0, gl.RGBA, gl.UNSIGNED_BYTE, makeWaveTexData(256));
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.activeTexture(gl.TEXTURE7);
+    };
+
+    R.makeReflTex = (S) => {
+      const Nx = S.Nx, Ny = S.Ny;
+      const Lv = Math.max(1, Math.min(6, Math.floor(Math.log2(Math.max(Nx, Ny))) + 1));
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texStorage2D(gl.TEXTURE_2D, Lv, gl.RG16F, Nx, Ny);
+      let w = Nx, h = Ny, cur = new Float32Array(w * h * 2);
+      for (let i = 0; i < w * h; i++) { cur[2 * i] = S.height[i]; cur[2 * i + 1] = S.can ? S.can[i] / 255 : 0; }
+      for (let lv = 0; lv < Lv; lv++) {
+        const u16 = new Uint16Array(w * h * 2);
+        for (let i = 0; i < u16.length; i++) u16[i] = f32ToF16(cur[i]);
+        gl.texSubImage2D(gl.TEXTURE_2D, lv, 0, 0, w, h, gl.RG, gl.HALF_FLOAT, u16);
+        if (lv === Lv - 1) break;
+        const nw = Math.max(1, w >> 1), nh = Math.max(1, h >> 1), nx = new Float32Array(nw * nh * 2);
+        for (let y = 0; y < nh; y++) for (let x = 0; x < nw; x++) {
+          const x0 = Math.min(2 * x, w - 1), x1 = Math.min(2 * x + 1, w - 1), y0 = Math.min(2 * y, h - 1), y1 = Math.min(2 * y + 1, h - 1);
+          for (let c = 0; c < 2; c++)
+            nx[(y * nw + x) * 2 + c] = Math.max(cur[(y0 * w + x0) * 2 + c], cur[(y0 * w + x1) * 2 + c], cur[(y1 * w + x0) * 2 + c], cur[(y1 * w + x1) * 2 + c]);
+        }
+        cur = nx; w = nw; h = nh;
+      }
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      return t;
+    };
+
+    R.buildWaterIndex = (S) => {
+      if (R.waterIdxBuf) { gl.deleteBuffer(R.waterIdxBuf); R.waterIdxBuf = null; }
+      if (R.landIdxBuf)  { gl.deleteBuffer(R.landIdxBuf);  R.landIdxBuf = null; }
+      R.waterIdxCount = 0;
+      R.landIdxCount = 0;
+      if (!R.waterVao) R.waterVao = gl.createVertexArray();
+      if (!R.landVao)  R.landVao  = gl.createVertexArray();
+      if (S._hasWater === false) return;
+      const Nx = S.Nx, Ny = S.Ny, WCLS = (typeof CLS_WATER !== 'undefined') ? CLS_WATER : 34;
+      let fd = null;
+      try {
+        const cv = S.waterFlowCanvas;
+        if (cv && cv.width === Nx && cv.height === Ny) fd = cv.getContext('2d').getImageData(0, 0, Nx, Ny).data;
+      } catch (e) { fd = null; }
+      const E = S.extra, H = S.height;
+      const vw = new Uint8Array(Nx * Ny);
+      const dp = new Uint8Array(Nx * Ny);
+      const cellX2 = 2 * (S.W / Math.max(Nx - 1, 1)), cellZ2 = 2 * (S.H / Math.max(Ny - 1, 1));
+      for (let j = 0; j < Ny; j++) {
+        const jU = Math.max(0, j - 1), jD = Math.min(Ny - 1, j + 1);
+        for (let i = 0; i < Nx; i++) {
+          const k = j * Nx + i;
+          vw[k] = (S.cls[k] === WCLS || (E && E[k * 4] > 100) || (fd && fd[k * 4 + 3] > 6 && fd[k * 4 + 2] > 8)) ? 1 : 0;
+          if (S.cls[k] === WCLS && E && E[k * 4] >= 150) {
+            const iL = Math.max(0, i - 1), iR = Math.min(Nx - 1, i + 1);
+            const dhx = Math.abs(H[j * Nx + iR] - H[j * Nx + iL]) / cellX2;
+            const dhz = Math.abs(H[jD * Nx + i] - H[jU * Nx + i]) / cellZ2;
+            if (dhx < 0.004 && dhz < 0.004) dp[k] = 1;
+          }
+        }
+      }
+      const cx = Nx - 1, cy = Ny - 1, c0 = new Uint8Array(cx * cy), c1 = new Uint8Array(cx * cy);
+      for (let j = 0; j < cy; j++) for (let i = 0; i < cx; i++) {
+        const a = j * Nx + i;
+        c0[j * cx + i] = (vw[a] | vw[a + 1] | vw[a + Nx] | vw[a + Nx + 1]);
+      }
+      let cnt = 0, deepCnt = 0;
+      const deepCell = new Uint8Array(cx * cy);
+      for (let j = 0; j < cy; j++) for (let i = 0; i < cx; i++) {
+        let f = 0;
+        for (let dj = -1; dj <= 1 && !f; dj++) for (let di = -1; di <= 1; di++) {
+          const ii = i + di, jj = j + dj;
+          if (ii >= 0 && jj >= 0 && ii < cx && jj < cy && c0[jj * cx + ii]) { f = 1; break; }
+        }
+        c1[j * cx + i] = f; cnt += f;
+        const a = j * Nx + i;
+        if (f && (dp[a] & dp[a + 1] & dp[a + Nx] & dp[a + Nx + 1])) {
+          deepCell[j * cx + i] = 1; deepCnt++;
+        }
+      }
+      if (!cnt) return;
+      const idx = new Uint32Array(cnt * 6); let n = 0;
+      for (let j = 0; j < cy; j++) for (let i = 0; i < cx; i++) if (c1[j * cx + i]) {
+        const a = j * Nx + i, b = a + Nx, c = a + 1, d = b + 1;
+        idx[n++] = a; idx[n++] = b; idx[n++] = c; idx[n++] = c; idx[n++] = b; idx[n++] = d;
+      }
+      R.waterIdxBuf = gl.createBuffer();
+      gl.bindVertexArray(R.waterVao);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, R.waterIdxBuf);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+      gl.bindVertexArray(null);
+      R.waterIdxCount = idx.length;
+
+      if (deepCnt > 0) {
+        const landCnt = cx * cy - deepCnt;
+        const lIdx = new Uint32Array(landCnt * 6); let m = 0;
+        for (let j = 0; j < cy; j++) for (let i = 0; i < cx; i++) if (!deepCell[j * cx + i]) {
+          const a = j * Nx + i, b = a + Nx, c = a + 1, d = b + 1;
+          lIdx[m++] = a; lIdx[m++] = b; lIdx[m++] = c; lIdx[m++] = c; lIdx[m++] = b; lIdx[m++] = d;
+        }
+        R.landIdxBuf = gl.createBuffer();
+        gl.bindVertexArray(R.landVao);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, R.landIdxBuf);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, lIdx, gl.STATIC_DRAW);
+        gl.bindVertexArray(null);
+        R.landIdxCount = lIdx.length;
+      }
+    };
+
+    const targetBakeRes = () => {
+      const qk = ST && ST.view && ST.view.quality;
+      return (!isMobile() && (qk === 'high' || qk === 'high_real')) ? 2048 : 1024;
+    };
+    const NEAR_TEXEL_M = 1.5;
+    const bake = R.bake = {
+      arr: null, fbo: null, res: 0, S: null, sig: '', dirty: true, lastT: 0, lastNearT: 0,
+      nearValid: false, useNear: false, rect1: new Float32Array(4), zero: new Float32Array(4)
+    };
+
+    const initBake = (res) => {
+      res = res || targetBakeRes();
+      if (bake.arr && bake.res === res) return;
+      if (bake.arr) { gl.deleteTexture(bake.arr); bake.arr = null; }
+      if (!bake.fbo) bake.fbo = gl.createFramebuffer();
+      const lv = Math.floor(Math.log2(res)) + 1;
+      bake.res = res;
+      bake.dirty = true;
+      bake.arr = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE13);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, bake.arr);
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, lv, gl.RGBA8, res, res, 4);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      const an = gl.getExtension('EXT_texture_filter_anisotropic');
+      if (an) {
+        const maxAf = gl.getParameter(an.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 2;
+        gl.texParameterf(gl.TEXTURE_2D_ARRAY, an.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(2, maxAf));
+      }
+      gl.activeTexture(gl.TEXTURE7);
+    };
+
+    const LAZY_PROGS = {
+      terrainAlt:  () => [VS_TERRAIN, FS_TERRAIN_ALT],
+      terrainBake: () => [VS_TRI,     FS_TERRAIN_BAKE],
+      water:       () => [VS_TERRAIN, FS_WATER_FULL],
+      waterSimple: () => [VS_TERRAIN, FS_WATER_SIMPLE],
+      treeThin:    () => [fast ? VS_TREE2 : VS_TREE, FS_TREE_THIN]
+    };
+    const ensureProg = (name) => {
+      if (progs[name]) return progs[name];
+      const spec = LAZY_PROGS[name]; if (!spec) return null;
+      if (name === 'water' && !bake.arr) initBake(); // страховка для старта в режиме uMode.x=5 (спутник)
+      const pr = finish(build(name, ...spec()));
+      if (R._clsPar && name !== 'treeThin') {
+        gl.useProgram(pr.p);
+        gl.uniform4fv(U(pr, 'uClsPar'), R._clsPar);
+        gl.uniform3fv(U(pr, 'uClsCol'), R._clsCol);
+      }
+      return pr;
+    };
+
+    const bakeCascade = (prog, casc, rect, texelM) => {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, bake.fbo);
+      gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, bake.arr, 0, casc * 2);
+      gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, bake.arr, 0, casc * 2 + 1);
+      gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+      gl.viewport(0, 0, bake.res, bake.res);
+      gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.SCISSOR_TEST);
+      gl.useProgram(prog.p);
+      gl.uniform4f(U(prog, 'uBakeRect'), rect[0], rect[1], rect[2], rect[3]);
+      gl.uniform1f(U(prog, 'uBakeTexelM'), texelM);
+      gl.bindVertexArray(emptyVao);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.activeTexture(gl.TEXTURE13);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, bake.arr);
+      gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+      gl.activeTexture(gl.TEXTURE7);
+      R.drawCalls++;
+    };
+
+    R.invalidateBake = () => { bake.dirty = true; };
+
+    R.bakePass = (S, f, target) => {
+      if (f[84] > 0.5) return;
+      const prog = ensureProg('terrainBake'); if (!prog) return;
+      const wantRes = targetBakeRes();
+      if (!bake.arr || bake.res !== wantRes) initBake(wantRes);
+      const bRes = bake.res;
+      const q = (v, k) => Math.round(v * k);
+      const sig = [f[72], f[73], f[74], f[75]].map(v => q(v, 40)).join(',')
+        + '|' + q(f[110], 2)
+        + '|' + Math.round(f[304] / 10)
+        + '|' + [f[76], f[77], f[78], f[79]].map(Math.round).join(',')
+        + '|' + Math.round(Math.atan2(f[69], f[68]) / 0.2618);
+      const now = performance.now();
+      let needMacro = bake.dirty || bake.S !== S || sig !== bake.sig;
+      if (needMacro && bake.S === S && !bake.dirty && now - bake.lastT < 250) needMacro = false;
+      const W = S.W, H = S.H, big = Math.max(W, H);
+      if (needMacro) {
+        bakeCascade(prog, 0, [0, 0, 1, 1], big / bRes);
+        bake.S = S; bake.sig = sig; bake.dirty = false; bake.lastT = now; bake.nearValid = false;
+      }
+      const nearM = Math.min(bRes * NEAR_TEXEL_M, big);
+      const camDist = Math.hypot(f[32] - target[0], f[33] - target[1], f[34] - target[2]);
+      const useNear = big > nearM * 1.25 && camDist < nearM * 0.6;
+      if (useNear) {
+        const su = nearM / W, sv = nearM / H, cu = target[0] / W + 0.5, cv = target[2] / H + 0.5, r = bake.rect1;
+        const moved = !bake.nearValid || Math.abs(cu - (r[0] + r[2] * 0.5)) > r[2] * 0.18 || Math.abs(cv - (r[1] + r[3] * 0.5)) > r[3] * 0.18;
+        if (moved && (!bake.nearValid || now - bake.lastNearT > 400)) {
+          r[0] = Math.min(Math.max(cu - su * 0.5, 0), 1 - su);
+          r[1] = Math.min(Math.max(cv - sv * 0.5, 0), 1 - sv);
+          r[2] = su; r[3] = sv;
+          bakeCascade(prog, 1, r, nearM / bRes);
+          bake.nearValid = true; bake.lastNearT = now;
+        }
+      } else bake.nearValid = false;
+      bake.useNear = useNear && bake.nearValid;
+    };
+
     const mkTex = (w, h, ifmt, fmt, type, data, filt) => {
       const t = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, t);
@@ -13414,6 +15381,9 @@ function getNearGrassBlocks(dimX, dimY, wM, hM, ox, oz, S) {
       } catch (e) {
         tex.hRefl = tex.h; // fallback
       }
+      tex.refl = R.makeReflTex(S);
+      R.buildWaterIndex(S);
+      R.invalidateBake();
       tex.cls = mkTex(Nx, Ny, gl.R8, gl.RED, gl.UNSIGNED_BYTE, S.cls, gl.NEAREST);
       tex.can = mkTex(Nx, Ny, gl.R8, gl.RED, gl.UNSIGNED_BYTE, S.can, gl.LINEAR);
       tex.ex = mkTex(Nx, Ny, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, S.extra, gl.LINEAR);
@@ -13596,21 +15566,29 @@ R.uploadBridges = (brd) => {
     R.resize = (w, h) => { if (canvas.width !== w) canvas.width = w; if (canvas.height !== h) canvas.height = h; };
 
     const bindTex = () => {
-      [tex.h, tex.cls, tex.can, tex.ex, tex.sh, tex.base, tex.flow, grassTex].forEach((t, i) => { 
-        gl.activeTexture(gl.TEXTURE0 + i); 
-        gl.bindTexture(gl.TEXTURE_2D, t); 
+      [tex.h, tex.cls, tex.can, tex.ex, tex.sh, tex.base, tex.flow, grassTex].forEach((t, i) => {
+        gl.activeTexture(gl.TEXTURE0 + i);
+        gl.bindTexture(gl.TEXTURE_2D, t);
       });
       // Подключаем готовую бесшовную текстуру шума на слот 8
       if (R.smokeNoiseTex) {
         gl.activeTexture(gl.TEXTURE8);
         gl.bindTexture(gl.TEXTURE_2D, R.smokeNoiseTex);
       }
-
-
-
+      if (tex.refl) {
+        gl.activeTexture(gl.TEXTURE10);
+        gl.bindTexture(gl.TEXTURE_2D, tex.refl);
+      }
       gl.activeTexture(gl.TEXTURE11);
       gl.bindTexture(gl.TEXTURE_2D, tex.hRefl || tex.h);
-
+      if (bake.arr) {
+        gl.activeTexture(gl.TEXTURE13);
+        gl.bindTexture(gl.TEXTURE_2D_ARRAY, bake.arr);
+      }
+      if (R.waveTex) {
+        gl.activeTexture(gl.TEXTURE14);
+        gl.bindTexture(gl.TEXTURE_2D, R.waveTex);
+      }
       gl.activeTexture(gl.TEXTURE7);
     };
     const WALL_N = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0]];
@@ -13633,14 +15611,37 @@ R.uploadBridges = (brd) => {
       const B = 16, bx = Math.ceil(dimX / B), by = Math.ceil(dimY / B);
       const order = new Float32Array(dimX * dimY), start = new Int32Array(bx * by + 1);
       const tmp = [];
+      const Nx = S.Nx, Ny = S.Ny, Scls = S.cls, Sex = S.extra;
+      const hx = 0.45 * (S.W / dimX), hz = 0.45 * (S.H / dimY);
       let w = 0;
       for (let j = 0; j < by; j++) for (let i = 0; i < bx; i++) {
         start[j * bx + i] = w;
         const x0 = i * B, z0 = j * B;
         const x1 = Math.min(dimX, x0 + B), z1 = Math.min(dimY, z0 + B);
         tmp.length = 0;
-        for (let z = z0; z < z1; z++) for (let x = x0; x < x1; x++) {
-          tmp.push({ id: z * dimX + x, rank: bayer16(x - x0, z - z0) });
+        for (let z = z0; z < z1; z++) {
+          const wz = ((z + 0.5) / dimY - 0.5) * S.H;
+          const v0 = clamp((wz - hz) / S.H + 0.5, 0, 1), v1 = clamp((wz + hz) / S.H + 0.5, 0, 1);
+          const j0 = Math.max(0, Math.floor(v0 * (Ny - 1)) - 1), j1 = Math.min(Ny - 1, Math.ceil(v1 * (Ny - 1)) + 1);
+          const jc = Math.min(Ny - 1, Math.max(0, Math.round((wz / S.H + 0.5) * (Ny - 1))));
+          for (let x = x0; x < x1; x++) {
+            const wx = ((x + 0.5) / dimX - 0.5) * S.W;
+            const ic = Math.min(Nx - 1, Math.max(0, Math.round((wx / S.W + 0.5) * (Nx - 1))));
+            const kc = jc * Nx + ic, cc = Scls[kc];
+            let anyValid = (cc !== 34 && cc !== 35 && cc !== 32 && Sex[kc * 4 + 3] <= 180 && Sex[kc * 4 + 2] < 220);
+            if (!anyValid) {
+              const u0 = clamp((wx - hx) / S.W + 0.5, 0, 1), u1 = clamp((wx + hx) / S.W + 0.5, 0, 1);
+              const i0 = Math.max(0, Math.floor(u0 * (Nx - 1)) - 1), i1 = Math.min(Nx - 1, Math.ceil(u1 * (Nx - 1)) + 1);
+              for (let jj = j0; jj <= j1 && !anyValid; jj++) {
+                const row = jj * Nx;
+                for (let ii = i0; ii <= i1; ii++) {
+                  const k = row + ii, c = Scls[k];
+                  if (c !== 34 && c !== 35 && c !== 32 && Sex[k * 4 + 3] <= 180 && Sex[k * 4 + 2] < 220) { anyValid = true; break; }
+                }
+              }
+            }
+            if (anyValid) tmp.push({ id: z * dimX + x, rank: bayer16(x - x0, z - z0) });
+          }
         }
         tmp.sort((a, b) => a.rank - b.rank);
         for (let k = 0; k < tmp.length; k++) order[w++] = tmp[k].id;
@@ -13652,7 +15653,7 @@ R.uploadBridges = (brd) => {
       gBlk = {
         dimX, dimY, nb: bx * by, order, start, rs: CullUtil.makeRectSet(S, xe, ze),
         vis: new Uint8Array(bx * by), prev: new Uint8Array(bx * by), idBuf: new Float32Array(dimX * dimY),
-        n: 0, prevKeepStep: -1, dirty: true, idVbo: null, idVao: null, idCap: 0
+        n: 0, prevKeepStep: -1, dirty: true, ver: 0, idVbo: null, idVao: null, idCap: 0
       };
       return gBlk;
     }
@@ -13744,14 +15745,17 @@ R.uploadBridges = (brd) => {
         }
       } else {
         for (let bi = 0; bi < nb; bi++) {
-          if (!vis[bi]) continue;
           const s = start[bi], t = start[bi + 1];
-          const cnt = Math.max(1, Math.round((t - s) * effKeep));
+          if (!vis[bi] || t <= s) continue;
+          const jit = ((Math.imul(bi + 1, 2654435761) >>> 0) & 1023) / 1024;
+          const cnt = Math.min(t - s, Math.floor((t - s) * effKeep + jit));
+          if (cnt <= 0) continue;
           idBuf.set(order.subarray(s, s + cnt), w);
           w += cnt;
         }
       }
       gb.n = w;
+      gb.ver = (gb.ver || 0) + 1;
 
       if (!gb.idVbo) {
         gb.idVbo = gl.createBuffer();
@@ -13926,6 +15930,154 @@ R.uploadBridges = (brd) => {
       if (R.perf) R.perf.cpuRebucket = performance.now() - tRb; // <-- добавить
     }
 
+    function rebucketRocks(o) {
+      const tRk = performance.now();
+      const P = R.rockSrc, f = o.frame, S = R.scene;
+      if (!f || !S || !P || !P.cnt) return;
+
+      const cx = f[32], cy = f[33], cz = f[34], zE = f[78], hMin = f[79];
+      const zPow = Math.pow(Math.max(zE, 1.0), 0.45);
+      const k = o.ptK * (o.lodBias || 1) * zPow * 2.2;
+      const cullOn = o.cullTrees !== false;
+
+      const fx = f[3] + f[2], fy = f[7] + f[6], fz = f[11] + f[10], fl = Math.hypot(fx, fy, fz) || 1;
+      const dirX = fx / fl, dirY = fy / fl, dirZ = fz / fl;
+
+      const now = performance.now(), sg = R.rkSig;
+      const rkSame = !!(sg && sg.P === P);
+      if (!rkSame || !R._rkHash || R._rkHash.length !== ROCK_NB) {
+        R._rkHash = new Int32Array(ROCK_NB).fill(-1);
+        R._rkHashN = new Int32Array(ROCK_NB).fill(-1);
+      }
+      const bHash = R._rkHash, bHashN = R._rkHashN, hsR = [0, 0, 0];
+
+      if (sg && sg.P === P && sg.k === k && sg.zE === zE && sg.cull === cullOn && sg.rw === o.resW && sg.rh === o.resH) {
+        const lim = Math.max(f[76], f[77]) * 0.02;
+        const dx = cx - sg.x, dy = cy - sg.y, dz = cz - sg.z;
+        const moved = dx * dx + dy * dy + dz * dz >= lim * lim;
+        const turned = cullOn && (dirX * sg.dx + dirY * sg.dy + dirZ * sg.dz) < 0.9992;
+        if (!moved && !turned) return;
+        if (!o.recording) {
+          const wait = (R._rkLoad > 8000) ? 55 : 35;
+          if (now - (R._lastRkRebucketTime || 0) < wait) {
+            if (!o.looping) scheduleRebucket(wait);
+            return;
+          }
+        }
+      }
+      R._lastRkRebucketTime = now;
+      R.rkSig = { P, k, zE, cull: cullOn, rw: o.resW, rh: o.resH, x: cx, y: cy, z: cz, dx: dirX, dy: dirY, dz: dirZ };
+      rkCnt.fill(0);
+
+      let vis = null, rs = null, gx = 0, gy = 0;
+      if (cullOn) {
+        if (P._maxH == null) {
+          let mh = 1, mr = 1;
+          for (let v = 0; v < ROCK_NV; v++) {
+            const n = P.cnt[v] || 0, a = P.arr[v];
+            for (let i = 0, p = 0; i < n; i++, p += 8) {
+              const sz = a[p + 2], h = sz * a[p + 4] * (_rockMaxY[v] || 1.2);
+              if (h > mh) mh = h;
+              if (sz * 1.6 > mr) mr = sz * 1.6;
+            }
+          }
+          P._maxH = mh; P._maxR = mr;
+        }
+        rs = R._rockRS;
+        if (!rs || rs.S !== S) rs = R._rockRS = CullUtil.makeUniformRectSet(S, 32);
+        gx = rs.gx; gy = rs.gy;
+        vis = R._rockVis;
+        if (!vis || vis.length !== gx * gy) vis = R._rockVis = new Uint8Array(gx * gy);
+        CullUtil.computeRectVis(rs, f, {
+          guard: 1.3,
+          vegH: P._maxH * zPow * 1.1,
+          pad: P._maxR * zPow + 2,
+          occlude: o.cullOcclusion !== false && dirY > -0.55
+        }, vis);
+      }
+
+      const invW = gx / S.W, invH = gy / S.H, hw = S.W * 0.5, hh = S.H * 0.5;
+      const Nx = S.Nx, Ny = S.Ny, Harr = S.height;
+      const invNx = (Nx - 1) / S.W, invNy = (Ny - 1) / S.H;
+      const MIN_RK_PX2 = 2.25; // < 1.5 px отсекаем
+
+      for (let v = 0; v < ROCK_NV; v++) {
+        const n = P.cnt[v] || 0;
+        if (!n || !P.arr[v]) continue;
+        const a = P.arr[v];
+        const burLim = 0.95; 
+        if (rkLodTmp.length < n) rkLodTmp = new Uint8Array(Math.ceil(n * 1.25));
+        let c0 = 0, c1 = 0, c2 = 0;
+        for (let i = 0, p = 0; i < n; i++, p += 8) {
+          if (a[p + 6] >= burLim) { rkLodTmp[i] = 3; continue; }
+          const wx = a[p], wz = a[p + 1];
+          if (vis) {
+            let tx = ((wx + hw) * invW) | 0, ty = ((wz + hh) * invH) | 0;
+            if (tx < 0) tx = 0; else if (tx >= gx) tx = gx - 1;
+            if (ty < 0) ty = 0; else if (ty >= gy) ty = gy - 1;
+            if (!vis[ty * gx + tx]) { rkLodTmp[i] = 3; continue; }
+          }
+          let ci = ((wx + hw) * invNx) | 0, cj = ((wz + hh) * invNy) | 0;
+          if (ci < 0) ci = 0; else if (ci >= Nx) ci = Nx - 1;
+          if (cj < 0) cj = 0; else if (cj >= Ny) cj = Ny - 1;
+          const gyW = (Harr[cj * Nx + ci] - hMin) * zE;
+          const dx = wx - cx, dy = gyW - cy, dz = wz - cz;
+          const s = a[p + 2] * Math.max(1.0, a[p + 4]) * k;
+          const s2 = s * s, d2 = dx * dx + dy * dy + dz * dz + 1;
+          if (s2 < MIN_RK_PX2 * d2) { rkLodTmp[i] = 3; continue; }
+          let l;
+          if (s2 >= ROCK_LOD_PX2[0] * d2) { l = 0; c0++; }
+          else if (s2 >= ROCK_LOD_PX2[1] * d2) { l = 1; c1++; }
+          else { l = 2; c2++; }
+          rkLodTmp[i] = l;
+        }
+        const cc = [c0, c1, c2], D = [null, null, null], wp = [0, 0, 0];
+        hsR[0] = hsR[1] = hsR[2] = 0;
+        for (let l = 0; l < ROCK_LODS; l++) {
+          const b = v * ROCK_LODS + l;
+          rkCnt[b] = cc[l];
+          if (cc[l] && (!rkArr[b] || rkArr[b].length < cc[l] * 8)) {
+            rkArr[b] = new Float32Array(Math.ceil(cc[l] * 8 * 1.25) + 64);
+          }
+          D[l] = rkArr[b];
+        }
+        for (let i = 0, p = 0; i < n; i++, p += 8) {
+          const l = rkLodTmp[i];
+          if (l === 3) continue;
+          const d = D[l], w = wp[l];
+          hsR[l] = (Math.imul(hsR[l] ^ i, 16777619) + 0x9e3779b1) | 0;
+          d[w]     = a[p];     d[w + 1] = a[p + 1]; d[w + 2] = a[p + 2]; d[w + 3] = a[p + 3];
+          d[w + 4] = a[p + 4]; d[w + 5] = a[p + 5]; d[w + 6] = a[p + 6]; d[w + 7] = a[p + 7];
+          wp[l] = w + 8;
+        }
+        for (let l = 0; l < ROCK_LODS; l++) bHashN[v * ROCK_LODS + l] = hsR[l];
+      }
+      R._rkLoad = 0; for (let b = 0; b < ROCK_NB; b++) R._rkLoad += rkCnt[b];
+
+      for (let b = 0; b < ROCK_NB; b++) {
+        const n = rkCnt[b];
+        gl.bindBuffer(gl.ARRAY_BUFFER, rockIbo[b]);
+        if (n * 32 > rkCap[b]) {
+          rkCap[b] = Math.ceil(n * 32 * 1.25) + 2048;
+          gl.bufferData(gl.ARRAY_BUFFER, rkCap[b], gl.DYNAMIC_DRAW);
+          bHash[b] = -1;
+        }
+        const hv = bHashN[b] ^ (n * 2654435761 | 0);
+        if (n && rkArr[b] && hv !== bHash[b]) {
+          gl.bufferSubData(gl.ARRAY_BUFFER, 0, rkArr[b], 0, n * 8);
+          if (R.perf) R.perf.recordUpload(n * 32);
+        }
+        bHash[b] = hv;
+        if (fast && n * 64 > rkSCap[b]) {
+          rkSCap[b] = Math.ceil(n * 64 * 1.25) + 4096;
+          gl.bindBuffer(gl.ARRAY_BUFFER, rockStVbo[b]);
+          gl.bufferData(gl.ARRAY_BUFFER, rkSCap[b], gl.DYNAMIC_COPY);
+        }
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, null);
+      if (R.perf) R.perf.cpuRebucket += performance.now() - tRk;
+    }
+
     R.render = o => {
       if (R.lost || !R.scene || !tex.h) return;
       R.drawCalls = 0;
@@ -13999,6 +16151,7 @@ R.uploadBridges = (brd) => {
         gl.bindTexture(gl.TEXTURE_2D, skyReflTex);
         gl.activeTexture(gl.TEXTURE7);
       }
+      R.bakePass(S, o.frame, o.camTarget || [o.frame[32], 0, o.frame[34]]);
 
       // 2. Проход рельефа, воды, разреза почвы, зданий и мостов
       tPass = performance.now();
@@ -14012,20 +16165,51 @@ R.uploadBridges = (brd) => {
 
       const smokeTintsPool = R._smokeTintsPool || (R._smokeTintsPool = new Float32Array(12));
 
-      // Рельеф + Вода
-     gl.bindVertexArray(terrainVao);
-      gl.useProgram(progs.terrain.p);
-      gl.uniform1f(U(progs.terrain, 'uSkyReflEnc'), skyReflEnc);
+      // --- Рельеф (лёгкий) ---
       const reflStepsMap = { low: 6, mid: 10, high: 14 };
       const doReflect = o.waterReflections ? 1 : 0;
       const refSteps = reflStepsMap[o.waterReflectQuality] || 16;
-      gl.uniform1i(U(progs.terrain, 'uWaterReflect'), doReflect);
-      gl.uniform1i(U(progs.terrain, 'uReflectSteps'), refSteps);
-      gl.uniform1i(U(progs.terrain, 'uWaterFullDetail'), o.waterFullDetail ? 1 : 0);
+
+      const hasWaterNow = S._hasWater !== false && R.waterIdxCount > 0 && o.frame[131] > -0.5 && (o.frame[84] < 0.5 || (o.frame[84] > 4.5 && o.frame[84] < 5.5));
+      const altMode = o.frame[84] > 0.5;
+      const tp = altMode ? ensureProg('terrainAlt') : progs.terrain;
+      const rect1 = (!altMode && bake.useNear) ? bake.rect1 : bake.zero;
+      const useLandCut = hasWaterNow && R.landIdxCount > 0 && R.landIdxBuf;
+      const landCount = useLandCut ? R.landIdxCount : R.idxCount;
+      gl.enable(gl.CULL_FACE);
+      gl.cullFace(gl.BACK);
+      gl.bindVertexArray(useLandCut ? R.landVao : terrainVao);
+      gl.useProgram(tp.p);
+      gl.uniform1i(U(tp, 'uHasWater'), hasWaterNow ? 1 : 0);
+      if (!altMode) gl.uniform4fv(U(tp, 'uBakeRect1'), rect1);
       gl.depthMask(true);
-      gl.drawElements(gl.TRIANGLES, R.idxCount, gl.UNSIGNED_INT, 0);
+      gl.drawElements(gl.TRIANGLES, landCount, gl.UNSIGNED_INT, 0);
       R.drawCalls++;
-      R.triangles += R.idxCount / 3;
+      R.triangles += landCount / 3;
+
+      // --- Вода: отдельный проход только по клеткам у воды ---
+      if (hasWaterNow) {
+        const simple = o.frame[131] > 0.5;
+        const wp_ = ensureProg(simple ? 'waterSimple' : 'water');
+        gl.useProgram(wp_.p);
+        gl.bindVertexArray(R.waterVao);
+        gl.uniform1i(U(wp_, 'uHasWater'), 1);
+        if (!simple) {
+          gl.uniform4fv(U(wp_, 'uBakeRect1'), (bake.useNear && !altMode) ? bake.rect1 : bake.zero);
+          gl.uniform1f(U(wp_, 'uSkyReflEnc'), skyReflEnc);
+          gl.uniform1i(U(wp_, 'uWaterReflect'), doReflect);
+          gl.uniform1i(U(wp_, 'uReflectSteps'), refSteps);
+          gl.uniform1i(U(wp_, 'uWaterFullDetail'), o.waterFullDetail ? 1 : 0);
+        }
+        gl.enable(gl.BLEND);
+        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);
+        gl.depthMask(true);
+        gl.drawElements(gl.TRIANGLES, R.waterIdxCount, gl.UNSIGNED_INT, 0);
+        gl.disable(gl.BLEND);
+        R.drawCalls++;
+        R.triangles += R.waterIdxCount / 3;
+      }
+      gl.disable(gl.CULL_FACE);
 
       // Боковые грани разреза (почва)
       const w = progs.wall, so = R.soil;
@@ -14120,120 +16304,205 @@ R.uploadBridges = (brd) => {
           gl.disable(gl.RASTERIZER_DISCARD);
         }
 
-        const t = progs.tree;
-        gl.useProgram(t.p);
-        gl.uniform1f(U(t, 'uTreeW'), o.treeW || 1.0);
-        gl.uniform4f(U(t, 'uTreeParamsConifer'), tcH, tcW, tc.windResist, 0.0);
-        gl.uniform4f(U(t, 'uTreeParamsDeciduous'), tdH, tdW, td.windResist, 0.0);
-        gl.uniform4f(U(t, 'uTreeColorConifer'), tc.bright, tc.contrast, tc.sat, tc.warmth);
-        gl.uniform4f(U(t, 'uTreeColorDeciduous'), td.bright, td.contrast, td.sat, td.warmth);
-
         const activeCat = getActiveTreeCatalog();
         const curSeasonLeaf = o.frame ? o.frame[72] : 1.0;
         const curSeasonAut = o.frame ? o.frame[73] : 0.0;
         const curTemp = o.frame ? o.frame[110] : 15.0;
         const curSnowCover = o.frame ? o.frame[111] : 0.0;
+        const needThinPass = (curSeasonLeaf >= 0.04 && curSeasonLeaf < 0.65);
 
-        for (let ty = 0; ty < TOTAL_TYPES; ty++) {
-          const c0 = bcnt[ty * LODS];
-          const c1 = bcnt[ty * LODS + 1];
-          const c2 = bcnt[ty * LODS + 2];
-          if (!c0 && !c1 && !c2) continue;
+        const drawTreeGroup = (t, wantThin) => {
+          let progBound = false;
+          for (let ty = 0; ty < TOTAL_TYPES; ty++) {
+            const c0 = bcnt[ty * LODS];
+            const c1 = bcnt[ty * LODS + 1];
+            const c2 = bcnt[ty * LODS + 2];
+            if (!c0 && !c1 && !c2) continue;
 
-          const isConifer = (activeCat[ty] && activeCat[ty].eco && activeCat[ty].eco.kind === 'conifer') ? 1 : 0;
-          gl.uniform1i(U(t, 'uType'), ty);
-          gl.uniform1i(U(t, 'uIsConifer'), isConifer);
+            const rec = treeOverrides[ty] || activeCat[ty];
+            const eco = rec && rec.eco;
+            const isThinType = needThinPass && !!(eco && eco.deciduousWinter);
+            if (isThinType !== wantThin) continue;
 
-          const rec = treeOverrides[ty] || activeCat[ty];
-          const st = rec && rec.style;
-          const eco = rec && rec.eco;
-
-          if (st && st.leaf) {
-            gl.uniform1i(U(t, 'uHasStyle'), 1);
-            let leafCol1 = hex3(st.leaf);
-            let leafCol2 = hex3(st.leaf2 || st.leaf);
-
-            if (eco && eco.colorShift && eco.colorShift.enabled) {
-              const cs = eco.colorShift;
-              let targetHsl1 = null, targetHsl2 = null, shiftAmount = 0.0;
-              const warmth = curTemp;
-              const isAutumn = curSeasonAut > 0.05;
-
-              const activePreset = ST.season && ST.season !== 'auto' ? normSeasonId(ST.season) : null;
-              const useLate = (activePreset === 'late_autumn') || (!activePreset && curSeasonAut > 0.70);
-              const isWinter = (warmth <= -1.5 || curSnowCover > 0.30) && !useLate;
-
-              const pickHsl = (conf) => {
-                if (!conf) return;
-                targetHsl1 = { h: conf.h, s: conf.s, l: conf.l };
-                targetHsl2 = (conf.h2 != null) ? { h: conf.h2, s: conf.s2, l: conf.l2 } : targetHsl1;
-              };
-
-              if (isWinter && !eco.deciduousWinter && cs.winter) {
-                pickHsl(cs.winter);
-                shiftAmount = clamp(Math.max((1.5 - warmth) / 4.0, curSnowCover), 0.0, 1.0);
-              } else if (isAutumn && cs.autumn) {
-                if (useLate && cs.lateAutumn) {
-                  pickHsl(cs.lateAutumn);
-                  shiftAmount = smoothstep(0.50, 0.88, curSeasonAut);
-                } else {
-                  pickHsl(cs.autumn);
-                  shiftAmount = smoothstep(0.05, 0.85, curSeasonAut);
-                }
-              } else if (!isAutumn && curSeasonLeaf < 0.98) {
-                // Летом curSeasonLeaf == 1.0 -> summerFade == 0.0 (используются базовые st.leaf / st.leaf2)
-                const summerFade = 1.0 - smoothstep(0.78, 0.98, curSeasonLeaf);
-                const useEarly = (activePreset === 'early_spring') ||
-                  (!activePreset && (curSeasonLeaf < 0.50 || warmth < 10.0));
-
-                if (useEarly && cs.earlySpring) {
-                  pickHsl(cs.earlySpring);
-                  shiftAmount = Math.max(
-                    smoothstep(0.50, 0.25, curSeasonLeaf),
-                    clamp((10.0 - warmth) / 6.0, 0.0, 1.0)
-                  ) * summerFade;
-                } else if (cs.spring) {
-                  pickHsl(cs.spring);
-                  shiftAmount = Math.max(
-                    smoothstep(0.45, 0.72, curSeasonLeaf),
-                    clamp((warmth - 4.0) / 12.0, 0.0, 1.0)
-                  ) * summerFade;
-                }
-              }
-
-              if (targetHsl1 && shiftAmount > 0.005) {
-                const shiftedRgb1 = hslToRgb(targetHsl1.h, targetHsl1.s, targetHsl1.l);
-                const shiftedRgb2 = targetHsl2 ? hslToRgb(targetHsl2.h, targetHsl2.s, targetHsl2.l) : shiftedRgb1;
-                leafCol1 = mix3(leafCol1, shiftedRgb1, shiftAmount * 0.95);
-                leafCol2 = mix3(leafCol2, shiftedRgb2, shiftAmount * 0.85);
-              }
+            if (!progBound) {
+              gl.useProgram(t.p);
+              gl.uniform1f(U(t, 'uTreeW'), o.treeW || 1.0);
+              gl.uniform4f(U(t, 'uTreeParamsConifer'), tcH, tcW, tc.windResist, 0.0);
+              gl.uniform4f(U(t, 'uTreeParamsDeciduous'), tdH, tdW, td.windResist, 0.0);
+              gl.uniform4f(U(t, 'uTreeColorConifer'), tc.bright, tc.contrast, tc.sat, tc.warmth);
+              gl.uniform4f(U(t, 'uTreeColorDeciduous'), td.bright, td.contrast, td.sat, td.warmth);
+              progBound = true;
             }
 
-            gl.uniform3fv(U(t, 'uStyleLeaf1'), leafCol1);
-            gl.uniform3fv(U(t, 'uStyleLeaf2'), leafCol2);
-            gl.uniform3fv(U(t, 'uStyleWood1'), hex3(st.wood || '#4d3322'));
-            gl.uniform3fv(U(t, 'uStyleWood2'), hex3(st.wood2 || st.wood || '#2a1a10'));
-            gl.uniform3fv(U(t, 'uStyleBranch1'), hex3(st.branch || st.wood || '#5c3d28'));
-            gl.uniform3fv(U(t, 'uStyleBranch2'), hex3(st.branch2 || st.branch || '#7d5638'));
-          } else {
-            gl.uniform1i(U(t, 'uHasStyle'), 0);
-          }
+            const isConifer = (eco && eco.kind === 'conifer') ? 1 : 0;
+            gl.uniform1i(U(t, 'uType'), ty);
+            gl.uniform1i(U(t, 'uIsConifer'), isConifer);
 
-          for (let l = 0; l < LODS; l++) {
-            const b = ty * LODS + l;
-            const cnt = bcnt[b];
-            if (!cnt) continue;
-            gl.bindVertexArray(treeVao[b]);
-            gl.drawElementsInstanced(gl.TRIANGLES, meshes[b].count, gl.UNSIGNED_SHORT, 0, cnt);
-            R.drawCalls++;
-            R.triangles += (meshes[b].count / 3) * cnt;
+            const st = rec && rec.style;
+            if (st && st.leaf) {
+              gl.uniform1i(U(t, 'uHasStyle'), 1);
+              let leafCol1 = hex3(st.leaf);
+              let leafCol2 = hex3(st.leaf2 || st.leaf);
+
+              if (eco && eco.colorShift && eco.colorShift.enabled) {
+                const cs = eco.colorShift;
+                let targetHsl1 = null, targetHsl2 = null, shiftAmount = 0.0;
+                const warmth = curTemp;
+                const isAutumn = curSeasonAut > 0.05;
+
+                const activePreset = ST.season && ST.season !== 'auto' ? normSeasonId(ST.season) : null;
+                const useLate = (activePreset === 'late_autumn') || (!activePreset && curSeasonAut > 0.70);
+                const isWinter = (warmth <= -1.5 || curSnowCover > 0.30) && !useLate;
+
+                const pickHsl = (conf) => {
+                  if (!conf) return;
+                  targetHsl1 = { h: conf.h, s: conf.s, l: conf.l };
+                  targetHsl2 = (conf.h2 != null) ? { h: conf.h2, s: conf.s2, l: conf.l2 } : targetHsl1;
+                };
+
+                if (isWinter && !eco.deciduousWinter && cs.winter) {
+                  pickHsl(cs.winter);
+                  shiftAmount = clamp(Math.max((1.5 - warmth) / 4.0, curSnowCover), 0.0, 1.0);
+                } else if (isAutumn && cs.autumn) {
+                  if (useLate && cs.lateAutumn) {
+                    pickHsl(cs.lateAutumn);
+                    shiftAmount = smoothstep(0.50, 0.88, curSeasonAut);
+                  } else {
+                    pickHsl(cs.autumn);
+                    shiftAmount = smoothstep(0.05, 0.85, curSeasonAut);
+                  }
+                } else if (!isAutumn && curSeasonLeaf < 0.98) {
+                  const summerFade = 1.0 - smoothstep(0.78, 0.98, curSeasonLeaf);
+                  const useEarly = (activePreset === 'early_spring') ||
+                    (!activePreset && (curSeasonLeaf < 0.50 || warmth < 10.0));
+
+                  if (useEarly && cs.earlySpring) {
+                    pickHsl(cs.earlySpring);
+                    shiftAmount = Math.max(
+                      smoothstep(0.50, 0.25, curSeasonLeaf),
+                      clamp((10.0 - warmth) / 6.0, 0.0, 1.0)
+                    ) * summerFade;
+                  } else if (cs.spring) {
+                    pickHsl(cs.spring);
+                    shiftAmount = Math.max(
+                      smoothstep(0.45, 0.72, curSeasonLeaf),
+                      clamp((warmth - 4.0) / 12.0, 0.0, 1.0)
+                    ) * summerFade;
+                  }
+                }
+
+                if (targetHsl1 && shiftAmount > 0.005) {
+                  const shiftedRgb1 = hslToRgb(targetHsl1.h, targetHsl1.s, targetHsl1.l);
+                  const shiftedRgb2 = targetHsl2 ? hslToRgb(targetHsl2.h, targetHsl2.s, targetHsl2.l) : shiftedRgb1;
+                  leafCol1 = mix3(leafCol1, shiftedRgb1, shiftAmount * 0.95);
+                  leafCol2 = mix3(leafCol2, shiftedRgb2, shiftAmount * 0.85);
+                }
+              }
+
+              gl.uniform3fv(U(t, 'uStyleLeaf1'), leafCol1);
+              gl.uniform3fv(U(t, 'uStyleLeaf2'), leafCol2);
+              gl.uniform3fv(U(t, 'uStyleWood1'), hex3(st.wood || '#4d3322'));
+              gl.uniform3fv(U(t, 'uStyleWood2'), hex3(st.wood2 || st.wood || '#2a1a10'));
+              gl.uniform3fv(U(t, 'uStyleBranch1'), hex3(st.branch || st.wood || '#5c3d28'));
+              gl.uniform3fv(U(t, 'uStyleBranch2'), hex3(st.branch2 || st.branch || '#7d5638'));
+            } else {
+              gl.uniform1i(U(t, 'uHasStyle'), 0);
+            }
+
+            for (let l = 0; l < LODS; l++) {
+              const b = ty * LODS + l;
+              const cnt = bcnt[b];
+              if (!cnt) continue;
+              gl.bindVertexArray(treeVao[b]);
+              gl.drawElementsInstanced(gl.TRIANGLES, meshes[b].count, gl.UNSIGNED_SHORT, 0, cnt);
+              R.drawCalls++;
+              R.triangles += (meshes[b].count / 3) * cnt;
+            }
           }
+        };
+
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.BACK);
+        drawTreeGroup(progs.tree, false);
+        if (needThinPass) {
+          const thinProg = ensureProg('treeThin');
+          if (thinProg) drawTreeGroup(thinProg, true);
         }
+        gl.disable(gl.CULL_FACE);
         endGpuPass();
       } else {
         skipGpuPass('trees');
       }
       if (R.perf) R.perf.passTrees = performance.now() - tPass;
+
+
+
+      // Скалы (опаковые инстансы, до травы)
+      tPass = performance.now();
+      if (o.rocks !== false && R.rockTotal > 0 && progs.rock && curZoom > 12) {
+        beginGpuPass('rocks');
+        rebucketRocks(o);
+        const rkGeom = (o.rockCfg && o.rockCfg.geom) || ROCK_DEF.geom;
+        const rkEmbed = rkGeom.slopeEmbed != null ? rkGeom.slopeEmbed : 0.45;
+        if (fast && progs.rockState) {
+          const rs = progs.rockState;
+          gl.useProgram(rs.p);
+          gl.enable(gl.RASTERIZER_DISCARD);
+          gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tfo);
+          const locMaxY = U(rs, 'uRockMaxY');
+          const locEmbed = U(rs, 'uRockEmbed');
+          if (locEmbed) gl.uniform1f(locEmbed, rkEmbed);
+          for (let b = 0; b < ROCK_NB; b++) {
+            if (!rkCnt[b]) continue;
+            if (locMaxY) gl.uniform1f(locMaxY, _rockMaxY[(b / ROCK_LODS) | 0] || 1.0);
+            gl.bindVertexArray(rockStateVao[b]);
+            gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, rockStVbo[b]);
+            gl.beginTransformFeedback(gl.POINTS);
+            gl.drawArrays(gl.POINTS, 0, rkCnt[b]);
+            gl.endTransformFeedback();
+            R.drawCalls++;
+          }
+          gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
+          gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
+          gl.disable(gl.RASTERIZER_DISCARD);
+        }
+
+        const rp = progs.rock;
+        const rkLook = (o.rockCfg && o.rockCfg.look) || ROCK_DEF.look;
+        const gMode = rkLook.heightGradMode === 'world' ? 1 : (rkLook.heightGradMode === 'strata' ? 2 : 0);
+        gl.useProgram(rp.p);
+        gl.uniform3fv(U(rp, 'uRkColTop'), linHex3(rkLook.colTop || '#8a8885'));
+        gl.uniform3fv(U(rp, 'uRkColBot'), linHex3(rkLook.colBot || '#33353c'));
+        gl.uniform3fv(U(rp, 'uRkColGrad'), linHex3(rkLook.colHeightTint || '#a6835c'));
+        gl.uniform3fv(U(rp, 'uRkColMoss'), linHex3(rkLook.mossColor || '#3a4a24'));
+        gl.uniform4f(U(rp, 'uRkLook1'), gMode, rkLook.heightGradStr != null ? rkLook.heightGradStr : 0.45, rkLook.baseDarken != null ? rkLook.baseDarken : 0.55, rkLook.mossAmount != null ? rkLook.mossAmount : 0.45);
+        gl.uniform4f(U(rp, 'uRkLook2'), rkLook.strataStr != null ? rkLook.strataStr : 0.55, rkLook.grainStr != null ? rkLook.grainStr : 0.50, rkLook.facetContrast != null ? rkLook.facetContrast : 0.45, rkLook.snowCap != null ? rkLook.snowCap : 0.90);
+        gl.uniform4f(U(rp, 'uRkLook3'), rkLook.wetShine != null ? rkLook.wetShine : 0.35, S.hMin || 0, Math.max(S.relief || 100, 10), rkLook.crackStr != null ? rkLook.crackStr : 0.45);
+        gl.uniform4f(U(rp, 'uRkLook4'), rkLook.texScale != null ? rkLook.texScale : 1.0, rkLook.strataScale != null ? rkLook.strataScale : 1.0, rkLook.mossScale != null ? rkLook.mossScale : 1.0, rkLook.grainScale != null ? rkLook.grainScale : 1.0);
+
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.BACK);
+        const locMaxY = !fast ? U(rp, 'uRockMaxY') : null;
+        const locEmbed = !fast ? U(rp, 'uRockEmbed') : null;
+        if (locEmbed) gl.uniform1f(locEmbed, rkEmbed);
+        for (let b = 0; b < ROCK_NB; b++) {
+          if (!rkCnt[b]) continue;
+          if (locMaxY) gl.uniform1f(locMaxY, _rockMaxY[(b / ROCK_LODS) | 0] || 1.0);
+          gl.bindVertexArray(rockVao[b]);
+          gl.drawArraysInstanced(gl.TRIANGLES, 0, rockMesh[b].count, rkCnt[b]);
+          R.drawCalls++;
+          R.triangles += (rockMesh[b].count / 3) * rkCnt[b];
+        }
+        gl.disable(gl.CULL_FACE);
+        gl.bindVertexArray(null);
+        endGpuPass();
+      } else {
+        skipGpuPass('rocks');
+      }
+      if (R.perf) R.perf.passRocks = performance.now() - tPass;
+
+
+
 
       // 4. Проход травы
       tPass = performance.now();
@@ -14294,13 +16563,13 @@ R.uploadBridges = (brd) => {
           R.triangles += (R.grassVertCount / 3) * totalCount;
           gl.bindVertexArray(null);
         } else {
+          const gStat = progs.grassStatic;
           const gs = progs.grassState;
-          gl.useProgram(gs.p);
 
           const curGrassSig = (o.seasonId || 'summer') + '_' + ((o.grassTypes && o.grassTypes._rev) || 0);
           if (curGrassSig !== gSig) {
-            // === ВАШ СТАРЫЙ БЛОК БЕЗ ИЗМЕНЕНИЙ (uTypeScale, uTypeColBase, ...) ===
             gSig = curGrassSig;
+            gl.useProgram(gStat.p);
             const typeKeys = [
               'grass_a', 'grass_b', 'grass_c', 'fern', 'cereal',
               'umbel', 'reeds', 'flower_white', 'flower_red', 'flower_blue'
@@ -14336,15 +16605,15 @@ R.uploadBridges = (brd) => {
               uColorVar[idx] = cfg.colorVar != null ? cfg.colorVar : 0.25;
             });
 
-            gl.uniform2fv(U(gs, 'uTypeScale'), uScales);
-            gl.uniform3fv(U(gs, 'uTypeColBase'), uColB);
-            gl.uniform3fv(U(gs, 'uTypeColTip'), uColT);
-            gl.uniform1fv(U(gs, 'uTypeProb'), uProbs);
-            gl.uniform4fv(U(gs, 'uTypeParams'), uParams);
-            gl.uniform1fv(U(gs, 'uTypeColorVar'), uColorVar);
+            gl.uniform2fv(U(gStat, 'uTypeScale'), uScales);
+            gl.uniform3fv(U(gStat, 'uTypeColBase'), uColB);
+            gl.uniform3fv(U(gStat, 'uTypeColTip'), uColT);
+            gl.uniform1fv(U(gStat, 'uTypeProb'), uProbs);
+            gl.uniform4fv(U(gStat, 'uTypeParams'), uParams);
+            gl.uniform1fv(U(gStat, 'uTypeColorVar'), uColorVar);
           }
 
-          // Общая функция отрисовки одного каскада (глобального или ближнего)
+          const f = o.frame;
           const drawGrassPass = (cascadeIdx, gb, dimX, dimY, bounds, origin, keepFrac, noOcc, growExt, fade, fadeRect) => {
             const N = dimX * dimY;
             const nVis = updateGrassVisibility(gb, o, keepFrac, noOcc);
@@ -14357,23 +16626,53 @@ R.uploadBridges = (brd) => {
               gl.bufferData(gl.ARRAY_BUFFER, cas.cap, gl.DYNAMIC_COPY);
               gl.bindBuffer(gl.ARRAY_BUFFER, null);
             }
-
-            gl.useProgram(gs.p);
-            gl.uniform1f(U(gs, 'uGrassGridDim'), N);
-            gl.uniform1f(U(gs, 'uGrassScale'), o.grassScale != null ? o.grassScale : 1.0);
-            gl.uniform4fv(U(gs, 'uGrassBounds'), bounds);
-            gl.uniform4fv(U(gs, 'uGrassOrigin'), origin);
-            gl.uniform2f(U(gs, 'uGrassGrow'), growExt != null ? growExt : 1.25, fade != null ? fade : 1.0);
-            if (fadeRect) {
-              gl.uniform4f(U(gs, 'uGrassFade'), fadeRect[0], fadeRect[1], fadeRect[2], fadeRect[3]);
-            } else {
-              gl.uniform4f(U(gs, 'uGrassFade'), 0, 0, 0, 0);
+            if (N * 64 > cas.staticCap) {
+              cas.staticCap = N * 64;
+              gl.bindBuffer(gl.ARRAY_BUFFER, cas.staticVbo);
+              gl.bufferData(gl.ARRAY_BUFFER, cas.staticCap, gl.DYNAMIC_COPY);
+              gl.bindBuffer(gl.ARRAY_BUFFER, null);
+              cas.staticSig = null;
             }
+
+            const gScale = o.grassScale != null ? o.grassScale : 1.0;
+            const staticSig = [
+              gb.ver || 0,
+              bounds[0], bounds[1], bounds[2].toFixed(2), bounds[3].toFixed(2),
+              origin[0].toFixed(2), origin[1].toFixed(2), origin[2], origin[3],
+              gScale.toFixed(4), curGrassSig,
+              Math.round(f[72] * 100), Math.round(f[73] * 100),
+              Math.round(f[78] * 20), Math.round(f[79]),
+              Math.round(f[110] * 2),
+              Math.round(f[304] * 0.1), Math.round(f[305] * 0.1)
+            ].join('|') + '|' + (cas.S === S ? 1 : 0);
 
             gl.enable(gl.RASTERIZER_DISCARD);
             gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tfo);
+
+            if (cas.staticSig !== staticSig) {
+              gl.useProgram(gStat.p);
+              gl.uniform1f(U(gStat, 'uGrassGridDim'), N);
+              gl.uniform1f(U(gStat, 'uGrassScale'), gScale);
+              gl.uniform4fv(U(gStat, 'uGrassBounds'), bounds);
+              gl.uniform4fv(U(gStat, 'uGrassOrigin'), origin);
+              gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, cas.staticVbo);
+              gl.bindVertexArray(gb.idVao);
+              gl.beginTransformFeedback(gl.POINTS);
+              gl.drawArrays(gl.POINTS, 0, nVis);
+              gl.endTransformFeedback();
+              gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
+              cas.staticSig = staticSig;
+              cas.S = S;
+              R.drawCalls++;
+            }
+
+            gl.useProgram(gs.p);
+            gl.uniform2f(U(gs, 'uGrassGrow'), growExt != null ? growExt : 1.25, fade != null ? fade : 1.0);
+            if (fadeRect) gl.uniform4f(U(gs, 'uGrassFade'), fadeRect[0], fadeRect[1], fadeRect[2], fadeRect[3]);
+            else gl.uniform4f(U(gs, 'uGrassFade'), 0, 0, 0, 0);
+
             gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, cas.vbo);
-            gl.bindVertexArray(gb.idVao);
+            gl.bindVertexArray(cas.staticVao);
             gl.beginTransformFeedback(gl.POINTS);
             gl.drawArrays(gl.POINTS, 0, nVis);
             gl.endTransformFeedback();
@@ -14391,18 +16690,15 @@ R.uploadBridges = (brd) => {
             gl.bindVertexArray(null);
           };
 
-          // Проход 1: Глобальный слой (по всему срезу)
           const gx = o.grassBounds[0] | 0, gy = o.grassBounds[1] | 0;
           const gbGlobal = getGrassBlocks(gx, gy, S);
           drawGrassPass(0, gbGlobal, gx, gy, o.grassBounds, [0, 0, 0, 0], o.grassKeepFrac, false, o.grassGrowExt, 1.0, null);
 
-          // Проход 2: Ближний плотный каскад
           if (o.nearGrass) {
             const ng = o.nearGrass;
             const gbNear = getNearGrassBlocks(ng.dimX, ng.dimY, ng.wM, ng.hM, ng.ox, ng.oz, S);
             drawGrassPass(1, gbNear, ng.dimX, ng.dimY, ng.bounds, ng.origin, ng.keepFrac, true, ng.growExt, ng.fade, ng.fadeRect);
           }
-
         }
 
         if (R.msaa) gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE);
@@ -14846,10 +17142,15 @@ R.uploadBridges = (brd) => {
         if (R.grid3dVao) gl.deleteVertexArray(R.grid3dVao);
         if (R.grid3dVbo) gl.deleteBuffer(R.grid3dVbo);
 
-        [ubo, idxBuf, creepVbo, ...meshVbo, ...instVbo, ...stVbo, ...meshIbo, ...grassCascades.map(c => c.vbo), gBlk && gBlk.idVbo, gBlkNear && gBlkNear.idVbo]
+        [ubo, idxBuf, creepVbo, R.waterIdxBuf, R.landIdxBuf, ...meshVbo, ...instVbo, ...stVbo, ...meshIbo, ...rockVbo, ...rockIbo, ...rockStVbo, ...grassCascades.map(c => c.vbo), ...grassCascades.map(c => c.staticVbo), gBlk && gBlk.idVbo, gBlkNear && gBlkNear.idVbo]
           .forEach(b => b && gl.deleteBuffer(b));
-        [emptyVao, terrainVao, creepVao, grassVao, ...grassCascades.map(c => c.vao), gBlk && gBlk.idVao, gBlkNear && gBlkNear.idVao, ...treeVao, ...stateVao, R.brdVao, R.bldVao]
+        [emptyVao, terrainVao, R.waterVao, R.landVao, creepVao, grassVao, ...grassCascades.map(c => c.vao), ...grassCascades.map(c => c.staticVao), gBlk && gBlk.idVao, gBlkNear && gBlkNear.idVao, ...treeVao, ...stateVao, ...rockVao, ...rockStateVao, R.brdVao, R.bldVao]
           .forEach(v => v && gl.deleteVertexArray(v));
+        R.waterIdxBuf = null; R.waterVao = null; R.waterIdxCount = 0;
+        R.landIdxBuf = null; R.landVao = null; R.landIdxCount = 0;
+        if (R.waveTex) { gl.deleteTexture(R.waveTex); R.waveTex = null; }
+        if (bake.arr) { gl.deleteTexture(bake.arr); bake.arr = null; }
+        if (bake.fbo) { gl.deleteFramebuffer(bake.fbo); bake.fbo = null; }
         gBlk = null; gBlkNear = null;
         if (R.brdVboPos) gl.deleteBuffer(R.brdVboPos);
         if (R.brdVboNrm) gl.deleteBuffer(R.brdVboNrm);
@@ -14899,8 +17200,11 @@ R.uploadBridges = (brd) => {
       fastB = [
         sh.build('treeState', VS_TREE_STATE, FS_NULL, ['oS', 'oV']),
         sh.build('tree', VS_TREE2, FS_TREE),
+        sh.build('grassStatic', VS_GRASS_STATIC, FS_NULL, ['oSA', 'oSB', 'oSC', 'oSD']),
         sh.build('grassState', VS_GRASS_STATE, FS_NULL, ['oA', 'oB', 'oC', 'oD', 'oE']),
-        sh.build('grass', VS_GRASS2, FS_GRASS)
+        sh.build('grass', VS_GRASS2, FS_GRASS),
+        sh.build('rockState', VS_ROCK_STATE, FS_NULL, ['oR0', 'oR1', 'oR2', 'oR3']),
+        sh.build('rock', VS_ROCK2, FS_ROCK)
       ];
     } catch (e) { sh.setFast(false); }
 
@@ -14914,13 +17218,15 @@ R.uploadBridges = (brd) => {
       } catch (e) {
         sh.setFast(false);
         console.warn('[Slice3D] Ускоренный путь TransformFeedback недоступен, fallback:', e);
-        ['treeState', 'tree', 'grassState', 'grass'].forEach(sh.delProg);
+        ['treeState', 'tree', 'grassStatic', 'grassState', 'grass', 'rockState', 'rock'].forEach(sh.delProg);
         sh.finish(sh.build('tree', VS_TREE, FS_TREE));
         sh.finish(sh.build('grass', VS_GRASS, FS_GRASS));
+        sh.finish(sh.build('rock', VS_ROCK, FS_ROCK));
       }
     } else {
       sh.finish(sh.build('tree', VS_TREE, FS_TREE));
       sh.finish(sh.build('grass', VS_GRASS, FS_GRASS));
+      sh.finish(sh.build('rock', VS_ROCK, FS_ROCK));
     }
 
     sh.initBaseGLObjects();
@@ -14955,8 +17261,11 @@ R.uploadBridges = (brd) => {
         specs.push(
           { name: 'treeState', vs: VS_TREE_STATE, fs: FS_NULL, tf: ['oS', 'oV'], group: 'fast' },
           { name: 'tree', vs: VS_TREE2, fs: FS_TREE, tf: null, group: 'fast' },
+          { name: 'grassStatic', vs: VS_GRASS_STATIC, fs: FS_NULL, tf: ['oSA', 'oSB', 'oSC', 'oSD'], group: 'fast' },
           { name: 'grassState', vs: VS_GRASS_STATE, fs: FS_NULL, tf: ['oA', 'oB', 'oC', 'oD', 'oE'], group: 'fast' },
-          { name: 'grass', vs: VS_GRASS2, fs: FS_GRASS, tf: null, group: 'fast' }
+          { name: 'grass', vs: VS_GRASS2, fs: FS_GRASS, tf: null, group: 'fast' },
+          { name: 'rockState', vs: VS_ROCK_STATE, fs: FS_NULL, tf: ['oR0', 'oR1', 'oR2', 'oR3'], group: 'fast' },
+          { name: 'rock', vs: VS_ROCK2, fs: FS_ROCK, tf: null, group: 'fast' }
         );
       } catch (e) { fastSpecsOk = false; sh.setFast(false); }
 
@@ -15034,18 +17343,24 @@ R.uploadBridges = (brd) => {
         } catch (e) {
           sh.setFast(false);
           console.warn('[Slice3D] Ускоренный путь TransformFeedback недоступен, fallback:', e);
-          ['treeState', 'tree', 'grassState', 'grass'].forEach(sh.delProg);
+          ['treeState', 'tree', 'grassStatic', 'grassState', 'grass', 'rockState', 'rock'].forEach(sh.delProg);
           sh.finish(sh.build('tree', VS_TREE, FS_TREE));
           await nextFrameTick();
           checkAbort();
           sh.finish(sh.build('grass', VS_GRASS, FS_GRASS));
+          await nextFrameTick();
+          checkAbort();
+          sh.finish(sh.build('rock', VS_ROCK, FS_ROCK));
         }
       } else {
-        ['treeState', 'tree', 'grassState', 'grass'].forEach(sh.delProg);
+        ['treeState', 'tree', 'grassStatic', 'grassState', 'grass', 'rockState', 'rock'].forEach(sh.delProg);
         sh.finish(sh.build('tree', VS_TREE, FS_TREE));
         await nextFrameTick();
         checkAbort();
         sh.finish(sh.build('grass', VS_GRASS, FS_GRASS));
+        await nextFrameTick();
+        checkAbort();
+        sh.finish(sh.build('rock', VS_ROCK, FS_ROCK));
       }
 
       checkAbort();
@@ -15118,11 +17433,146 @@ R.uploadBridges = (brd) => {
   // ===========================================================================
   // 14. НАСТРОЙКИ И ПРЕСЕТЫ
   // ===========================================================================
-  const DEF = {
+
+  const ROCK_LOOK_BASE = {
+    colTop: '#d9c8b4',
+    colBot: '#f3c19b',
+    colHeightTint: '#cfdde8',
+    heightGradMode: 'local',
+    heightGradStr: 1,
+    baseDarken: 0.7,
+    texScale: 1.95,
+    mossAmount: 0.55,
+    mossScale: 4,
+    mossColor: '#3a4a24',
+    strataStr: 0.85,
+    strataScale: 0.2,
+    grainStr: 0,
+    crackStr: 0.4,
+    grainScale: 0.85,
+    facetContrast: 0,
+    snowCap: 1.5,
+    wetShine: 0.45
+  };
+
+  const ROCK_LOOK_REAL = {
+    colTop: '#d9c8b4',
+    colBot: '#f3c19b',
+    colHeightTint: '#cfdde8',
+    heightGradMode: 'local',
+    heightGradStr: 1,
+    baseDarken: 0.55,
+    texScale: 2.8,
+    mossAmount: 1,
+    mossScale: 4,
+    mossColor: '#3a4a24',
+    strataStr: 1,
+    strataScale: 0.2,
+    grainStr: 0,
+    crackStr: 0.4,
+    grainScale: 0.85,
+    facetContrast: 0,
+    snowCap: 1.5,
+    wetShine: 0.45
+  };
+
+  const ROCK_PRESETS = {
+    low: {
+      rocks: true,
+      rockRelief: true,
+      rockCfg: {
+        place: {
+          density: 1.1, clumping: 0.6, satelliteChance: 0.4, zoneMode: 'all',
+          shoreRocks: 1, minSlopeDeg: 35, crestSuppress: 0.4, skylineTrim: 0, forestAvoid: 0.7,
+          sizeRatio: 1.5, sizeContrast: 0, avoidOverlap: 0.5
+        },
+        geom: {
+          shapeStyle: 'mixed', jaggedness: 0.6, facets: 1.8, cutDepth: 0.82,
+          flatTop: 1, stretchY: 1.85, stretchXZ: 0.85, burial: 0.75,
+          slopeAlign: 1, slopeEmbed: 0.25, variety: 0
+        },
+        look: Object.assign({}, ROCK_LOOK_BASE)
+      }
+    },
+    mid: {
+      rocks: true,
+      rockRelief: true,
+      rockCfg: {
+        place: {
+          density: 1.65, clumping: 0.2, satelliteChance: 0.45, zoneMode: 'all',
+          shoreRocks: 0.3, minSlopeDeg: 25, crestSuppress: 1, skylineTrim: 0, forestAvoid: 0.5,
+          sizeRatio: 4.7, sizeContrast: 0.7, avoidOverlap: 0.35
+        },
+        geom: {
+          shapeStyle: 'mixed', jaggedness: 0, facets: 0.9, cutDepth: 0.82,
+          flatTop: 1, stretchY: 1.55, stretchXZ: 1.15, burial: 0,
+          slopeAlign: 0, slopeEmbed: 1.25, variety: 0.8
+        },
+        look: Object.assign({}, ROCK_LOOK_BASE)
+      }
+    },
+    mid_real: {
+      rocks: true,
+      rockRelief: true,
+      rockCfg: {
+        place: {
+          density: 1.05, clumping: 0.9, satelliteChance: 0.8, zoneMode: 'all',
+          shoreRocks: 0.3, minSlopeDeg: 23, crestSuppress: 0.45, skylineTrim: 0, forestAvoid: 0.1,
+          sizeRatio: 1.4, sizeContrast: 0.4, avoidOverlap: 0.7
+        },
+        geom: {
+          shapeStyle: 'mixed', jaggedness: 0.6, facets: 1, cutDepth: 0.76,
+          flatTop: 1, stretchY: 0.85, stretchXZ: 0.75, burial: 0.4,
+          slopeAlign: 1, slopeEmbed: 0.6, variety: 1
+        },
+        look: Object.assign({}, ROCK_LOOK_REAL)
+      }
+    },
+    high: {
+      rocks: true,
+      rockRelief: true,
+      rockCfg: {
+        place: {
+          density: 2.5, clumping: 0.9, satelliteChance: 0.8, zoneMode: 'all',
+          shoreRocks: 0.3, minSlopeDeg: 25, crestSuppress: 1, skylineTrim: 0, forestAvoid: 0.5,
+          sizeRatio: 2.9, sizeContrast: 0.85, avoidOverlap: 0.35
+        },
+        geom: {
+          shapeStyle: 'mixed', jaggedness: 0, facets: 0.9, cutDepth: 0.82,
+          flatTop: 1, stretchY: 1.25, stretchXZ: 1.05, burial: 0,
+          slopeAlign: 0, slopeEmbed: 0.75, variety: 1
+        },
+        look: Object.assign({}, ROCK_LOOK_BASE)
+      }
+    },
+    high_real: {
+      rocks: true,
+      rockRelief: true,
+      rockCfg: {
+        place: {
+          density: 1.6, clumping: 0.9, satelliteChance: 1, zoneMode: 'all',
+          shoreRocks: 0.3, minSlopeDeg: 20, crestSuppress: 0.65, skylineTrim: 0, forestAvoid: 0,
+          sizeRatio: 1.45, sizeContrast: 0.4, avoidOverlap: 0.7
+        },
+        geom: {
+          shapeStyle: 'mixed', jaggedness: 0.6, facets: 1.8, cutDepth: 0.82,
+          flatTop: 0.65, stretchY: 1.8, stretchXZ: 0.7, burial: 0,
+          slopeAlign: 0, slopeEmbed: 1.2, variety: 0
+        },
+        look: Object.assign({}, ROCK_LOOK_REAL)
+      }
+    }
+  };
+
+  const ROCK_DEF = JSON.parse(JSON.stringify(ROCK_PRESETS.mid.rockCfg));
+const DEF = {
     time: { mode: 'manual', hour: 7.84, date: '', speed: 1.3, az: 242, alt: 33 },
     weather: '2',
     season: 'summer',
     view: {
+      rocks: true,
+      rockRelief: true,
+      rockCfg: JSON.parse(JSON.stringify(ROCK_DEF)),
       smoothTransition: false,
       manualClimate: false,
       manualTemp: 20,
@@ -15153,21 +17603,21 @@ R.uploadBridges = (brd) => {
       wind: 12.2,
       windGust: 4.4,
       windAdv: {
-        autoDir: true,
-        bend: 0.45,
-        bendAngle: 0.9948376736367679,
-        bendChaos: 0.25,
-        swayStrength: 0.3,
-        turbulence: 0.42,
-        turbAmp: 0.6,
-        turbSpeed: 0.8,
-        gustStrength: 2.6,
-        gustSize: 120,
-        gustFreq: 0.53,
-        gustSmoothness: 0.7,
-        gustArc: 0.004,
+        autoDir: false,
+        bend: 0,
+        bendAngle: 4.60766922526503,
+        bendChaos: 0,
+        swayStrength: 0.4,
+        turbulence: 0.26,
+        turbAmp: 1.8,
+        turbSpeed: 2.6,
+        gustStrength: 4.4,
+        gustSize: 300,
+        gustFreq: 0.12,
+        gustSmoothness: 0.76,
+        gustArc: 0.2,
         gustSpeed: 5,
-        windChaos: 0.5
+        windChaos: 0.85
       },
       roads: true,
       roadFlatten: true,
@@ -15193,6 +17643,8 @@ R.uploadBridges = (brd) => {
       fogDensity: 0.5,
       groundMistAuto: false,
       groundMist: 0,
+      groundMistHeight: 1.0,
+      groundMistSharp: 0.0,
       creepingFog: true,
       creepingFogCount: 23,
       creepingFogSize: 370,
@@ -15213,7 +17665,7 @@ R.uploadBridges = (brd) => {
         scale: 1,
         scaleH: 1,
         scaleW: 1,
-        windResist: 2.1,
+        windResist: 0.4,
         bright: 0,
         contrast: 1,
         sat: 1,
@@ -15257,7 +17709,7 @@ R.uploadBridges = (brd) => {
           patchSize: 248,
           sizeVar: 0.5,
           colorVar: 1,
-          windResist: 2.3,
+          windResist: 1.2,
           seasons: {
             summer: { colBase: '#233d10', colTip: '#436322', h: 6.5, w: 8.8, disabled: false, patchSize: 248 },
             autumn: { colBase: '#8e4b25', colTip: '#554035', h: 5, w: 15, disabled: false, prob: 42 },
@@ -15277,7 +17729,7 @@ R.uploadBridges = (brd) => {
           patchSize: 248,
           sizeVar: 0.5,
           colorVar: 0.55,
-          windResist: 2.5,
+          windResist: 1.5,
           seasons: {
             summer: { colBase: '#266318', colTip: '#679e24', h: 9.9, w: 7, disabled: false, patchSize: 248 },
             autumn: { colBase: '#974a20', colTip: '#b49d1d', h: 15, w: 5.2, disabled: false },
@@ -15297,7 +17749,7 @@ R.uploadBridges = (brd) => {
           patchSize: 153,
           sizeVar: 0.4,
           colorVar: 0.5,
-          windResist: 2.5,
+          windResist: 1.5,
           seasons: {
             summer: { colBase: '#7a5710', colTip: '#bfdd3c', h: 6.8, w: 7.4, disabled: false, patchSize: 248 },
             autumn: { colBase: '#281f0b', colTip: '#827973', h: 5, w: 15, disabled: false },
@@ -15317,7 +17769,7 @@ R.uploadBridges = (brd) => {
           patchSize: 118,
           sizeVar: 0.4,
           colorVar: 0.15,
-          windResist: 2.2,
+          windResist: 1.2,
           seasons: {
             autumn: { colBase: '#0d2808', colTip: '#369e1f', h: 5.9, w: 15.5, disabled: true },
             spring: { colBase: '#0d2808', colTip: '#369e1f', h: 10.4, w: 10.4, disabled: false, prob: 69, patchSize: 8, cluster: 1 },
@@ -15377,7 +17829,7 @@ R.uploadBridges = (brd) => {
           patchSize: 173,
           sizeVar: 1,
           colorVar: 1,
-          windResist: 3.5,
+          windResist: 1.5,
           seasons: {
             summer: { colBase: '#263318', colTip: '#b2a695', h: 9, w: 5.2, disabled: false, prob: 19 },
             autumn: { colBase: '#263318', colTip: '#4c4039', h: 8.3, w: 18.1, disabled: false, cluster: 1, prob: 7, patchSize: 113 },
@@ -15492,12 +17944,12 @@ R.uploadBridges = (brd) => {
 
   // Оптимизированные пресеты качества (High полностью сохраняет эталонный оригинальный визуал)
   const QUALITY = {
-    ultralow:  { grid: 448, dpr: 1.0,  shadow: 1.00, shadowSteps: 16, trees: 0,      rain: 1200,  leaves: 0,    lodBias: 0.40, smoke: 0 },
-    low:       { grid: 448, dpr: 1.0,  shadow: 1.00, shadowSteps: 20, trees: 20000,  rain: 2500,  leaves: 0,    lodBias: 0.55, smoke: 12 },
-    mid:       { grid: 448, dpr: 1.35, shadow: 1.00, shadowSteps: 32, trees: 60000,  rain: 5000,  leaves: 2800, lodBias: 0.80, smoke: 24 },
-    mid_real:  { grid: 448, dpr: 1.35, shadow: 1.00, shadowSteps: 32, trees: 60000,  rain: 5000,  leaves: 2800, lodBias: 0.80, smoke: 24 },
-    high:      { grid: 448, dpr: 2.0,  shadow: 1.00, shadowSteps: 32, trees: 140000, rain: 10000, leaves: 5000, lodBias: 1.00, smoke: 34 },
-    high_real: { grid: 448, dpr: 2.0,  shadow: 1.00, shadowSteps: 32, trees: 140000, rain: 10000, leaves: 5000, lodBias: 1.00, smoke: 34 }
+    ultralow:  { grid: 448, dpr: 1.0,  shadow: 1.00, shadowSteps: 16, trees: 0,      rocks: 0,     rain: 1200,  leaves: 0,    lodBias: 0.40, smoke: 0 },
+    low:       { grid: 448, dpr: 1.0,  shadow: 1.00, shadowSteps: 20, trees: 20000,  rocks: 1500,  rain: 2500,  leaves: 0,    lodBias: 0.55, smoke: 12 },
+    mid:       { grid: 448, dpr: 1.35, shadow: 1.00, shadowSteps: 32, trees: 60000,  rocks: 6000,  rain: 5000,  leaves: 2800, lodBias: 0.80, smoke: 24 },
+    mid_real:  { grid: 448, dpr: 1.35, shadow: 1.00, shadowSteps: 32, trees: 60000,  rocks: 6000,  rain: 5000,  leaves: 2800, lodBias: 0.80, smoke: 24 },
+    high:      { grid: 448, dpr: 2.0,  shadow: 1.00, shadowSteps: 32, trees: 140000, rocks: 14000, rain: 10000, leaves: 5000, lodBias: 1.00, smoke: 34 },
+    high_real: { grid: 448, dpr: 2.0,  shadow: 1.00, shadowSteps: 32, trees: 140000, rocks: 20000, rain: 10000, leaves: 5000, lodBias: 1.00, smoke: 34 }
   };
 
   const ONBOARD_KEY = LSK + 'onboarded';
@@ -15510,6 +17962,15 @@ R.uploadBridges = (brd) => {
     V.smokeMist = V.smokeMist || JSON.parse(JSON.stringify(DEF.view.smokeMist));
     V.smokeMist.city = V.smokeMist.city || { visible: true, size: 1, opacity: 1, count: 8, color: '#c3d5f9', sat: 2.5 };
 
+    // Применяем настройки камней под выбранный пресет качества
+    if (qKey === 'ultralow') {
+      V.rocks = false;
+      V.rockRelief = false;
+    } else if (ROCK_PRESETS[qKey]) {
+      V.rocks = ROCK_PRESETS[qKey].rocks;
+      V.rockRelief = ROCK_PRESETS[qKey].rockRelief;
+      V.rockCfg = JSON.parse(JSON.stringify(ROCK_PRESETS[qKey].rockCfg));
+    }
     // Общая база для всех актуальных пресетов
     Object.assign(V, {
       zAuto: false,
@@ -15535,7 +17996,7 @@ R.uploadBridges = (brd) => {
         grass: false, grassScale: 0.353, grassDensity: 0.8, grassPlanes: 1, grassSegments: 1
       });
       V.smokeMist.city.size = 1;
-      Object.assign(V.treeConifer,   { scale: 1.0, scaleH: 1.0, scaleW: 1.0, windResist: 2.1, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
+      Object.assign(V.treeConifer,   { scale: 1.0, scaleH: 1.0, scaleW: 1.0, windResist: 0.4, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
       Object.assign(V.treeDeciduous, { scale: 1.0, scaleH: 1.0, scaleW: 1.0, windResist: 2.4, bright: -0.04, contrast: 1, sat: 1, warmth: 0 });
     } else if (qKey === 'low') {
       Object.assign(V, {
@@ -15547,7 +18008,7 @@ R.uploadBridges = (brd) => {
         grass: true, grassScale: 0.353, grassDensity: 0.8, grassPlanes: 1, grassSegments: 1
       });
       V.smokeMist.city.size = 1;
-      Object.assign(V.treeConifer,   { scale: 3.95, scaleH: 2.2, scaleW: 1.3, windResist: 2.1, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
+      Object.assign(V.treeConifer,   { scale: 3.95, scaleH: 2.2, scaleW: 1.3, windResist: 0.4, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
       Object.assign(V.treeDeciduous, { scale: 3.95, scaleH: 1.4, scaleW: 1.3, windResist: 2.4, bright: -0.04, contrast: 1, sat: 1, warmth: 0 });
     } else if (qKey === 'mid') {
       Object.assign(V, {
@@ -15559,7 +18020,7 @@ R.uploadBridges = (brd) => {
         grass: true, grassScale: 0.316, grassDensity: 1.1, grassPlanes: 1, grassSegments: 1
       });
       V.smokeMist.city.size = 1;
-      Object.assign(V.treeConifer,   { scale: 3.3, scaleH: 2.2, scaleW: 1.3, windResist: 2.1, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
+      Object.assign(V.treeConifer,   { scale: 3.3, scaleH: 2.2, scaleW: 1.3, windResist: 0.4, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
       Object.assign(V.treeDeciduous, { scale: 3.4, scaleH: 1.4, scaleW: 1.3, windResist: 2.4, bright: -0.04, contrast: 1, sat: 1, warmth: 0 });
     } else if (qKey === 'mid_real') {
       Object.assign(V, {
@@ -15571,7 +18032,7 @@ R.uploadBridges = (brd) => {
         grass: true, grassScale: 0.203, grassDensity: 5.1, grassPlanes: 1, grassSegments: 1
       });
       V.smokeMist.city.size = 0.7;
-      Object.assign(V.treeConifer,   { scale: 1, scaleH: 1.5, scaleW: 1.1, windResist: 2.1, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
+      Object.assign(V.treeConifer,   { scale: 1, scaleH: 1.5, scaleW: 1.1, windResist: 0.4, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
       Object.assign(V.treeDeciduous, { scale: 1, scaleH: 1,   scaleW: 1,   windResist: 2.4, bright: -0.04, contrast: 1, sat: 1, warmth: 0 });
     } else if (qKey === 'high') {
       Object.assign(V, {
@@ -15583,7 +18044,7 @@ R.uploadBridges = (brd) => {
         grass: true, grassScale: 0.208, grassDensity: 13.9, grassPlanes: 2, grassSegments: 2
       });
       V.smokeMist.city.size = 0.5;
-      Object.assign(V.treeConifer,   { scale: 2.6,  scaleH: 1.2, scaleW: 0.5, windResist: 2.1, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
+      Object.assign(V.treeConifer,   { scale: 2.6,  scaleH: 1.2, scaleW: 0.5, windResist: 0.4, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
       Object.assign(V.treeDeciduous, { scale: 2.15, scaleH: 0.9, scaleW: 0.8, windResist: 2.4, bright: -0.04, contrast: 1, sat: 1, warmth: 0 });
     } else if (qKey === 'high_real') {
       Object.assign(V, {
@@ -15595,11 +18056,10 @@ R.uploadBridges = (brd) => {
         grass: true, grassScale: 0.208, grassDensity: 29.6, grassPlanes: 2, grassSegments: 3
       });
       V.smokeMist.city.size = 0.5;
-      Object.assign(V.treeConifer,   { scale: 1.2,  scaleH: 0.9, scaleW: 0.5, windResist: 2.1, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
+      Object.assign(V.treeConifer,   { scale: 1.2,  scaleH: 0.9, scaleW: 0.5, windResist: 0.4, bright: 0.1,   contrast: 1, sat: 1, warmth: 0 });
       Object.assign(V.treeDeciduous, { scale: 0.75, scaleH: 0.9, scaleW: 0.4, windResist: 2.4, bright: -0.04, contrast: 1, sat: 1, warmth: 0 });
     }
   }
-
   // ===========================================================================
   // 15. ЭКЗЕМПЛЯР ОКНА
   // ===========================================================================
@@ -16635,10 +19095,12 @@ R.uploadBridges = (brd) => {
 
       // Записываем uDawnMist независимо от наличия WM.nightDev:
       const fogMul = clamp(ST.view.fogDensity != null ? ST.view.fogDensity : 1.0, 0.0, 2.0);
-      const mistTopY = Math.max(S.relief * z * 0.35, Math.max(S.W, S.H) * 0.045, 28.0);
+      const mistH = clamp(ST.view.groundMistHeight != null ? ST.view.groundMistHeight : 1.0, 0.05, 3.0);
+      const mistSharp = clamp(ST.view.groundMistSharp != null ? ST.view.groundMistSharp : 0.0, 0.0, 1.0);
+      const mistTopY = Math.max(S.relief * z * 0.35, Math.max(S.W, S.H) * 0.045, 28.0) * mistH;
       f[300] = sim.groundMist || 0;
       f[301] = mistTopY;
-      f[302] = sim.dawnBlue || 0;
+      f[302] = mistSharp;
       f[303] = sim.mistWarmHor || 0;
       const absLatA = Math.abs((area && area.latC) || 45);
       const baseTreeline = S && S.treelineM != null ? S.treelineM : clamp(4300 - absLatA * 52, 450, 4000);
@@ -16695,6 +19157,11 @@ R.uploadBridges = (brd) => {
       const sId = seasonId || (S && S.curSeasonId) || getCurrentSeasonId(ST, season, sim);
       return Math.round(qual().trees * effectiveTreeDensity(sId) * zm.treeDensity * (mobile ? 0.75 : 1)); 
     }
+    const rockBudget = () => {
+      if (ST.view.rocks === false) return 0;
+      const d = (ST.view.rockCfg && ST.view.rockCfg.place && ST.view.rockCfg.place.density) || 1.0;
+      return Math.round((qual().rocks || 0) * d * (mobile ? 0.7 : 1));
+    };
     function isWinterNow() {
       const opMode = getOperationMode(ST);
       if (opMode === 'manual') return (ST.view.manualSnow > 0.4 || (ST.view.manualTemp != null && ST.view.manualTemp <= 0));
@@ -16737,6 +19204,10 @@ R.uploadBridges = (brd) => {
       const density = effectiveTreeDensity(S.curSeasonId) * zm.treeDensity;
       T = ST.view.trees ? placeTrees(S, treeBudget(S.curSeasonId), ST.view.treeHeightMode, density) : null;
       R.uploadTrees(T);
+
+      S._baseCan = new Uint8Array(S.can);
+      const rk = ST.view.rocks !== false ? placeRocks(S, rockBudget(), ST.view.rockCfg) : { arr: [], cnt: [], total: 0 };
+      R.uploadRocks(rk);
 
       const hasVectors = (hub.sources.vectors && hub.sources.vectors.state === 'ok' && hub.sources.vectors.data);
       const bldFeats = (hasVectors && hub.sources.vectors.data.buildingFeatures) 
@@ -17065,8 +19536,8 @@ function grassCamProbe() {
         const nDim = mobile ? 192 : 320;
         const globalStep = Math.sqrt((S.W / dimX) * (S.H / dimY));
         // Дискретный минимальный шаг (октавы), чтобы сетка не «плыла» при движении камеры
-        const minStep = 0.25 * Math.pow(2, -clamp(Math.round(Math.log2(0.25 / Math.max(rawGrassScale * 0.6, 1e-4))), 0, 5));
-        const rawStep = clamp((nearRef * 1.55) / nDim, minStep, 8.0);
+        const minStep = 0.65 * Math.pow(2, -clamp(Math.round(Math.log2(0.25 / Math.max(rawGrassScale * 0.6, 1e-4))), 0, 5));
+        const rawStep = clamp((nearRef * 4.0) / nDim, minStep, 8.0);
         let stepQ = rt._nearStepQ;
         if (!stepQ || stepQ < minStep || rawStep > stepQ * 1.15 || rawStep < stepQ * 0.42) {
           stepQ = Math.pow(2, Math.ceil(Math.log2(rawStep / minStep))) * minStep;
@@ -17195,9 +19666,8 @@ function grassCamProbe() {
       const vFog = ST.view;
       const userMinAlt = vFog.creepingFogMinAlt != null ? vFog.creepingFogMinAlt : 0;
       const userMaxAlt = vFog.creepingFogMaxAlt != null ? vFog.creepingFogMaxAlt : 3000;
-      const dynamicCap = S ? (S.hMax + 150.0) : userMaxAlt;
-      const effectiveMaxAlt = Math.min(userMaxAlt, dynamicCap);
-      const altRangeValid = S && (effectiveMaxAlt > userMinAlt) && (effectiveMaxAlt >= S.hMin) && (userMinAlt <= dynamicCap);
+      const effectiveMaxAlt = userMaxAlt;
+      const altRangeValid = S && (effectiveMaxAlt > userMinAlt);
       const isFogActive = (vFog.creepingFog !== false) && altRangeValid && (vFog.creepingFogOpacity > 0.01);
       const fogClustersCount = isFogActive ? clamp(vFog.creepingFogCount || 22, 1, 80) : 0;
       const fogDensity = clamp(vFog.creepingFogDensity || 8, 3, 16);
@@ -17207,6 +19677,7 @@ function grassCamProbe() {
 
       R.render({
         frame: frameBuf,
+        camTarget: camVis.target,
         recording: !!isRec,
         profileGpu: !isRec && !!I.rt.showPerf,
         season: ST.season,
@@ -17246,6 +19717,8 @@ function grassCamProbe() {
         waterReflectQuality: ST.view.waterReflectQuality || 'mid',
         waterFullDetail: isHighQ,
         trees: ST.view.trees,
+        rocks: ST.view.rocks !== false,
+        rockCfg: ST.view.rockCfg,
         treeW: vegKW(),
         treeAutoScale,
         treeConifer: ST.view.treeConifer,
@@ -17502,7 +19975,7 @@ function grassCamProbe() {
       requestRender();
     };
 
-    I.setters = {
+   I.setters = {
       env() {
         if (!S) return;
         updateEnv();
@@ -17519,6 +19992,22 @@ function grassCamProbe() {
       trees() {
         rebuildTrees();
       },
+      rocks() {
+        if (!R || !S) return;
+        const rk = ST.view.rocks !== false ? placeRocks(S, rockBudget(), ST.view.rockCfg) : { arr: [], cnt: [], total: 0 };
+        R.uploadRocks(rk);
+        rt.shadowDirty = true;
+        requestRender();
+      },
+      rockGeom() {
+        if (R && R.rebuildRockMeshes) R.rebuildRockMeshes(ST.view.rockCfg && ST.view.rockCfg.geom);
+        if (R && S) {
+          const rk = ST.view.rocks !== false ? placeRocks(S, rockBudget(), ST.view.rockCfg) : { arr: [], cnt: [], total: 0 };
+          R.uploadRocks(rk);
+          rt.shadowDirty = true;
+        }
+        requestRender();
+      },
       shadow() {
         rt.shadowDirty = true;
         requestRender();
@@ -17531,6 +20020,7 @@ function grassCamProbe() {
         if (R) {
           R.bkSig = null;
           if (R.buildGrassMesh) R.buildGrassMesh(ST.view.grassPlanes || 1, ST.view.grassSegments || 1);
+          if (R.rebuildRockMeshes) R.rebuildRockMeshes(ST.view.rockCfg && ST.view.rockCfg.geom);
         }
         requestRender();
       }
@@ -18208,6 +20698,7 @@ function ensureS3DStyle() {
         const sShadow  = perf ? (hasGpu ? perf.gpuShadow      : perf.passShadow)      : 0;
         const sTerrain = perf ? (hasGpu ? perf.gpuTerrain     : perf.passTerrain)     : 0;
         const sTrees   = perf ? (hasGpu ? perf.gpuTrees       : perf.passTrees)       : 0;
+        const sRocks   = perf ? (hasGpu ? perf.gpuRocks       : perf.passRocks)       : 0;
         const sGrass   = perf ? (hasGpu ? perf.gpuGrass       : perf.passGrass)       : 0;
         const sClouds  = perf ? (hasGpu ? perf.gpuClouds      : perf.passClouds)      : 0;
         const sTrans   = perf ? (hasGpu ? perf.gpuTransparent : perf.passTransparent) : 0;
@@ -18230,6 +20721,7 @@ function ensureS3DStyle() {
               ['Тени (Shadow FBO)', sShadow],
               ['Земля + Вода (отражения/прибой)', sTerrain],
               ['Деревья (вершины/листва)', sTrees],
+              ['Скалы и камни (3D)', sRocks],
               ['3D-трава (шейдер/овердро)', sGrass],
               ['Стелящиеся облака и дым', sClouds],
               ['Листопад и осадки', sTrans],
@@ -18283,6 +20775,7 @@ function ensureS3DStyle() {
           <div class="s3d-perf-row"><span>• Тени (FBO):</span><b>${fmtStage(sShadow, perf ? perf.passShadow : 0)}</b></div>
           <div class="s3d-perf-row"><span>• Земля + Вода:</span><b>${fmtStage(sTerrain, perf ? perf.passTerrain : 0)}</b></div>
           <div class="s3d-perf-row"><span>• Деревья:</span><b>${fmtStage(sTrees, perf ? perf.passTrees : 0)}</b></div>
+          <div class="s3d-perf-row"><span>• Скалы (3D):</span><b>${fmtStage(sRocks, perf ? perf.passRocks : 0)}</b></div>
           <div class="s3d-perf-row"><span>• Трава:</span><b>${fmtStage(sGrass, perf ? perf.passGrass : 0)}</b></div>
           <div class="s3d-perf-row"><span>• Стелящиеся облака:</span><b>${fmtStage(sClouds, perf ? perf.passClouds : 0)}</b></div>
           <div class="s3d-perf-row"><span>• Листья / Осадки:</span><b>${fmtStage(sTrans, perf ? perf.passTransparent : 0)}</b></div>
@@ -18682,6 +21175,28 @@ const gInit = I.get();
 
       const groundMistRow = row('Низинная дымка', refs.groundMist, 'Стелющаяся снизу вверх дымка в низинах');
 
+      refs.groundMistHeight = rng(0.05, 3.0, 0.05, ST.view.groundMistHeight != null ? ST.view.groundMistHeight : 1.0, v => {
+        ST.view.groundMistHeight = v;
+        I.requestRender();
+        I.save();
+      }, v => {
+        const g = I.get();
+        if (g && g.S) {
+          const z = I.zEff();
+          const base = Math.max(g.S.relief * z * 0.35, Math.max(g.S.W, g.S.H) * 0.045, 28.0);
+          return Math.round((base * v) / Math.max(z, 0.01)) + ' м';
+        }
+        return '×' + v.toFixed(2);
+      });
+      const groundMistHeightRow = row('Высота дымки', refs.groundMistHeight, 'Высота слоя дымки над самой низкой точкой рельефа');
+
+      refs.groundMistSharp = rng(0.0, 1.0, 0.02, ST.view.groundMistSharp != null ? ST.view.groundMistSharp : 0.0, v => {
+        ST.view.groundMistSharp = v;
+        I.requestRender();
+        I.save();
+      }, v => v <= 0.01 ? 'Плавный' : Math.round(v * 100) + '%');
+      const groundMistSharpRow = row('Резкость края', refs.groundMistSharp, 'От мягкого вертикального затухания до чёткой границы слоя тумана');
+
       p.append(card('🌦️', 'Погода и сезон', null,
         refs.autoLockBanner,
         refs.chkSmooth,
@@ -18695,6 +21210,8 @@ const gInit = I.get();
         ),
         fogRow,
         groundMistRow,
+        groundMistHeightRow,
+        groundMistSharpRow,
         refs.groundMistAuto,
         spoiler('🎚 Ручной климат', 'manual_clim', false, refs.chkManualClim, refs.manualClimBox),
         refs.snowDepthSection,
@@ -18730,17 +21247,17 @@ const gInit = I.get();
             W('Хаос наклона', 'bendChaos', 0, 1, 0.05, 0.25, v => Math.round(v * 100) + '%'),
             W('Сила покачивания', 'swayStrength', 0, 1.5, 0.05, 0.0, x2)),
           spoiler('Турбулентность', 'wind_turb', false,
-            W('Турбулентность', 'turbulence', 0, 1, 0.02, 0.78, x2),
-            W('Масштаб шума', 'turbAmp', 0.2, 3, 0.1, 0.6, x1),
-            W('Скорость шума', 'turbSpeed', 0.2, 5, 0.1, 0.8, x1)),
+            W('Турбулентность', 'turbulence', 0, 1, 0.02, 0.42, x2),
+            W('Масштаб шума', 'turbAmp', 0.1, 3, 0.1, 0.6, x1),
+            W('Скорость шума', 'turbSpeed', 0.1, 5, 0.1, 0.8, x1)),
           spoiler('Порывы', 'wind_gust', false,
-            W('Сила порывов', 'gustStrength', 0, 6, 0.1, 3.4, x1),
-            W('Размер пятна', 'gustSize', 20, 400, 10, 120, v => v + ' м'),
-            W('Частота', 'gustFreq', 0.1, 1, 0.01, 0.6, x2),
-            W('Плавность', 'gustSmoothness', 0.2, 2.5, 0.1, 0.7, x1),
-            W('Дугообразность', 'gustArc', 0, 0.05, 0.001, 0.0, v => v.toFixed(3)),
-            W('Скорость фронта', 'gustSpeed', 0.2, 5, 0.1, 5.0, x1),
-            W('Хаос и паузы', 'windChaos', 0, 1, 0.05, 0.4, v => Math.round(v * 100) + '%'))
+            W('Сила порывов', 'gustStrength', 0, 16, 0.1, 2.6, x1),
+            W('Размер пятна', 'gustSize', 5, 300, 5, 120, v => v + ' м'),
+            W('Частота', 'gustFreq', 0, 1, 0.01, 0.53, x2),
+            W('Плавность', 'gustSmoothness', 0, 1, 0.02, 0.7, x2),
+            W('Волны / пятна (Arc)', 'gustArc', 0, 1, 0.05, 0.25, v => Math.round(v * 100) + '%'),
+            W('Скорость фронта', 'gustSpeed', 0.1, 5, 0.1, 2.0, x1),
+            W('Хаос и паузы', 'windChaos', 0, 1, 0.05, 0.5, v => Math.round(v * 100) + '%'))
         )
       ));
 
@@ -18836,7 +21353,8 @@ const gInit = I.get();
 
       p.append(card('🌲', 'Деревья и кустарники', null,
         chk('Показывать деревья', V.trees, v => { V.trees = v; I.setters.trees(); I.save(); }),
-        row('Густота леса', rng(0.02, 3.5, 0.02, V.treeDensity, v => {
+        chk('Скалы и обрывы (3D)', V.rocks !== false, v => { V.rocks = v; I.rebuild(); I.save(); }),
+        row('Густота леса',rng(0.02, 3.5, 0.02, V.treeDensity, v => {
           V.treeDensity = v; clearTimeout(refs.tdT);
           refs.tdT = setTimeout(() => { I.setters.trees(); I.setters.shadow(); }, 150); I.save();
         }, v => '×' + v.toFixed(v < 0.1 ? 2 : 1))),
@@ -18866,6 +21384,118 @@ const gInit = I.get();
         spoiler('⚙️ Параметры групп деревьев', 'tree_groups', false,
           treeGroup('🌲 Хвойные (ель, сосна)', 'tree_conifer', V.treeConifer),
           treeGroup('🌳 Лиственные и кустарники', 'tree_decid', V.treeDeciduous)
+        )
+      ));
+
+      // ---------- 3D-СКАЛЫ И КАМНИ (3 УРОВНЯ НАСТРОЙКИ) ----------
+      const rc = V.rockCfg = deepMerge(JSON.parse(JSON.stringify(ROCK_DEF)), V.rockCfg || {});
+      const pl = rc.place, gm = rc.geom, lk = rc.look;
+
+      const trigRocks = (delay = 70) => {
+        clearTimeout(refs.rkT);
+        refs.rkT = setTimeout(() => { I.setters.rocks(); }, delay);
+        I.save();
+      };
+      const trigGeomMesh = (delay = 70) => {
+        clearTimeout(refs.rkG);
+        refs.rkG = setTimeout(() => { I.setters.rockGeom(); }, delay);
+        I.save();
+      };
+      const trigLook = () => {
+        I.requestRender();
+        I.save();
+      };
+
+      const rockPlaceSpoiler = spoiler('📍 1. Расположение и группировка', 'rock_place', false,
+        row('Зона появления', sel([
+          ['all', '🌍 Везде (обрывы, пики, осыпи, берега)'],
+          ['cliffs', '🧗 Только крутые обрывы'],
+          ['peaks', '🏔️ Высокогорье и выходы породы'],
+          ['scree', '🪨 Осыпи и склоны'],
+          ['shores', '🏖️ Каменистые берега у воды']
+        ], pl.zoneMode, v => { pl.zoneMode = v; trigRocks(10); })),
+        row('Частота / плотность', rng(0.1, 2.5, 0.05, pl.density, v => { pl.density = v; trigRocks(); }, v => '×' + v.toFixed(2))),
+        row('Кучность (пятна)', rng(0, 1, 0.05, pl.clumping, v => { pl.clumping = v; trigRocks(); }, v => Math.round(v * 100) + '%')),
+        row('Спутники у глыб', rng(0, 1, 0.05, pl.satelliteChance, v => { pl.satelliteChance = v; trigRocks(); }, v => Math.round(v * 100) + '%'), 'Мелкие осколки вокруг крупных валунов'),
+        row('Камни у воды', rng(0, 1, 0.05, pl.shoreRocks, v => { pl.shoreRocks = v; trigRocks(); }, v => Math.round(v * 100) + '%')),
+        row('Заступание в воду', rng(0, 80, 1, pl.shoreWaterReach != null ? pl.shoreWaterReach : 0, v => { pl.shoreWaterReach = v; trigRocks(); }, v => v === 0 ? 'Нет' : v + ' м'), 'Дальность появления камней от уреза воды в глубь водоёма (при «Камни у воды» > 0%)'),
+        row('Заступание на берег', rng(0, 120, 2, pl.shoreLandReach != null ? pl.shoreLandReach : 28, v => { pl.shoreLandReach = v; trigRocks(); }, v => v === 0 ? 'Нет' : v + ' м'), 'Ширина полосы прибрежных камней на суше'),
+        row('Размер камней у воды', rng(0.2, 5.0, 0.05, pl.shoreSizeRatio != null ? pl.shoreSizeRatio : 1.0, v => { pl.shoreSizeRatio = v; trigRocks(); }, v => '×' + v.toFixed(2)), 'Персональный размер камней и валунов у воды (не влияет на горы)'),
+        row('Вытянутость вверх (вода)', rng(0.2, 4.0, 0.05, pl.shoreStretchY != null ? pl.shoreStretchY : 1.0, v => { pl.shoreStretchY = v; trigRocks(); }, v => '×' + v.toFixed(2)), 'Вертикальное растяжение исключительно для камней у воды'),
+        row('Мин. уклон', rng(0, 50, 1, pl.minSlopeDeg, v => { pl.minSlopeDeg = v; trigRocks(); }, v => v + '°'), '0° — допускает валуны и на равнинах'),
+
+        row('Сгладить вершины', rng(0, 1, 0.05, pl.crestSuppress != null ? pl.crestSuppress : 0, v => { pl.crestSuppress = v; trigRocks(); }, v => Math.round(v * 100) + '%'), 'Убирает или прижимает торчащие камни на пологих/выпуклых вершинах, не трогая резкие обрывы'),
+        row('Срез торчащих пиков', rng(0, 1, 0.05, pl.skylineTrim != null ? pl.skylineTrim : 0, v => { pl.skylineTrim = v; trigRocks(); }, v => Math.round(v * 100) + '%'), 'Уменьшает только те камни, чьи верхушки выступают выше окружающего рельефа (кромки каньонов, гребни), не трогая стены и низины'),
+        row('Избегание леса', rng(0, 1, 0.05, pl.forestAvoid, v => { pl.forestAvoid = v; trigRocks(); }, v => Math.round(v * 100) + '%')),
+        row('Общий размер', rng(0.3, 5.0, 0.05, pl.sizeRatio, v => { pl.sizeRatio = v; trigRocks(); }, v => '×' + v.toFixed(2))),
+        row('Контраст размеров', rng(0, 1, 0.05, pl.sizeContrast, v => { pl.sizeContrast = v; trigRocks(); }, v => Math.round(v * 100) + '%'), 'Больше разница между глыбами и щебнем'),
+        row('Анти-слипание', rng(0, 1, 0.05, pl.avoidOverlap, v => { pl.avoidOverlap = v; trigRocks(); }, v => v === 0 ? 'Кучами' : Math.round(v * 100) + '%'))
+      );
+
+      const rockGeomSpoiler = spoiler('🔷 2. Геометрия и формы сколов', 'rock_geom', false,
+        row('Характер формы', sel([
+          ['mixed', '🎲 Смешанный (естественный)'],
+          ['angular', '💎 Острые угловатые скалы'],
+          ['slabs', '▭ Плоские плиты и уступы'],
+          ['spires', '▲ Высокие шпили и пики'],
+          ['boulders', '⚪ Округлые валуны'],
+          ['columns', '⬡ Базальтовые столбы']
+        ], gm.shapeStyle, v => { gm.shapeStyle = v; trigGeomMesh(0); })),
+        row('Угловатость вершин', rng(0, 0.6, 0.02, gm.jaggedness, v => { gm.jaggedness = v; trigGeomMesh(); }, v => Math.round(v / 0.6 * 100) + '%')),
+        row('Число граней / сколов', rng(0.5, 1.8, 0.05, gm.facets, v => { gm.facets = v; trigGeomMesh(); }, v => '×' + v.toFixed(2))),
+        row('Острота срезов', rng(0.42, 0.82, 0.02, gm.cutDepth, v => { gm.cutDepth = v; trigGeomMesh(); }, v => Math.round((0.82 - v) / 0.4 * 100) + '%')),
+        row('Плоская верхушка', rng(0, 1, 0.05, gm.flatTop, v => { gm.flatTop = v; trigGeomMesh(); }, v => Math.round(v * 100) + '%')),
+        row('Вытянутость вверх', rng(0.4, 2.4, 0.05, gm.stretchY, v => { gm.stretchY = v; trigGeomMesh(); }, v => '×' + v.toFixed(2))),
+        row('Вытянутость в плане', rng(0.5, 2.2, 0.05, gm.stretchXZ, v => { gm.stretchXZ = v; trigGeomMesh(); }, v => '×' + v.toFixed(2))),
+        row('Вростание в грунт (Y)', rng(0, 0.75, 0.05, gm.burial, v => { gm.burial = v; trigRocks(); }, v => Math.round(v * 100) + '%')),
+        row('Вростание в склон (XZ)', rng(0, 2.0, 0.05, gm.slopeEmbed != null ? gm.slopeEmbed : 0.45, v => { gm.slopeEmbed = v; trigLook(); }, v => Math.round(v * 100) + '%'), 'Вытягивает и сдвигает камень по XZ внутрь ближайшего подъёма склона'),
+        row('Наклон по склону', rng(0, 1, 0.05, gm.slopeAlign, v => { gm.slopeAlign = v; trigRocks(); }, v => Math.round(v * 100) + '%')),
+        row('Разброс пропорций', rng(0, 1, 0.05, gm.variety, v => { gm.variety = v; trigRocks(); }, v => Math.round(v * 100) + '%'))
+      );
+
+      const rockLookSpoiler = spoiler('🎨 3. Внешний вид, градиент и мох', 'rock_look', false,
+        colPicker('Светлая порода', lk.colTop, v => { lk.colTop = v; trigLook(); }),
+        colPicker('Тёмная порода', lk.colBot, v => { lk.colBot = v; trigLook(); }),
+        row('Градиент по высоте', sel([
+          ['local', '⬆️ От низа камня к верхушке'],
+          ['world', '🏔️ По высоте горы (поясность)'],
+          ['strata', '≡ Полосы осадочных слоёв']
+        ], lk.heightGradMode, v => { lk.heightGradMode = v; trigLook(); })),
+        colPicker('Оттенок высоты', lk.colHeightTint, v => { lk.colHeightTint = v; trigLook(); }),
+        row('Сила градиента', rng(0, 1, 0.05, lk.heightGradStr, v => { lk.heightGradStr = v; trigLook(); }, v => Math.round(v * 100) + '%')),
+        row('Затемнение к низу', rng(0, 1, 0.05, lk.baseDarken, v => { lk.baseDarken = v; trigLook(); }, v => Math.round(v * 100) + '%')),
+        row('Общий масштаб текстур', rng(0.2, 5.0, 0.05, lk.texScale, v => { lk.texScale = v; trigLook(); }, v => '×' + v.toFixed(2))),
+        row('Мох / грунт у земли', rng(0, 1, 0.05, lk.mossAmount, v => { lk.mossAmount = v; trigLook(); }, v => Math.round(v * 100) + '%')),
+        row('Масштаб пятен мха', rng(0.2, 4.0, 0.05, lk.mossScale, v => { lk.mossScale = v; trigLook(); }, v => '×' + v.toFixed(2))),
+        colPicker('Цвет мха / земли', lk.mossColor, v => { lk.mossColor = v; trigLook(); }),
+        row('Слоистость породы', rng(0, 1, 0.05, lk.strataStr, v => { lk.strataStr = v; trigLook(); }, v => Math.round(v * 100) + '%')),
+        row('Масштаб слоистости', rng(0.2, 4.0, 0.05, lk.strataScale, v => { lk.strataScale = v; trigLook(); }, v => '×' + v.toFixed(2))),
+        row('Зернистость породы', rng(0, 1.2, 0.05, lk.grainStr, v => { lk.grainStr = v; trigLook(); }, v => Math.round(v * 100) + '%')),
+        row('Трещины в породе', rng(0, 1.2, 0.05, lk.crackStr, v => { lk.crackStr = v; trigLook(); }, v => Math.round(v * 100) + '%')),
+        row('Масштаб зерна/трещин', rng(0.2, 4.0, 0.05, lk.grainScale, v => { lk.grainScale = v; trigLook(); }, v => '×' + v.toFixed(2))),
+        row('Контраст сколов', rng(0, 1, 0.05, lk.facetContrast, v => { lk.facetContrast = v; trigLook(); }, v => Math.round(v * 100) + '%')),
+        row('Снег на гранях', rng(0, 1.5, 0.05, lk.snowCap, v => { lk.snowCap = v; trigLook(); }, v => Math.round(v * 100) + '%')),
+        row('Влажный блеск', rng(0, 1, 0.05, lk.wetShine, v => { lk.wetShine = v; trigLook(); }, v => Math.round(v * 100) + '%'))
+      );
+
+      p.append(card('🪨', '3D-скалы и камни', null,
+        chk('Показывать 3D-скалы и камни', V.rocks !== false, v => { V.rocks = v; I.setters.rocks(); I.save(); }),
+        chk('Резьба ярусов на самой карте рельефа', V.rockRelief !== false, v => { V.rockRelief = v; I.rebuild(); I.save(); }, 'Уступы и промоины прямо в сетке DEM'),
+        spoiler('⚙️ Тонкая настройка 3D-камней', 'rock_tune', false,
+          rockPlaceSpoiler,
+          rockGeomSpoiler,
+          rockLookSpoiler,
+          el('div', { class: 's3d-btns', style: 'margin-top:8px;' },
+            btn('↺ Сбросить настройки камней', () => {
+              const resolved = V.quality === 'auto' ? (mobile ? 'low' : 'mid') : V.quality;
+              const rp = ROCK_PRESETS[resolved];
+              V.rockCfg = JSON.parse(JSON.stringify(rp ? rp.rockCfg : ROCK_DEF));
+              I.save();
+              I.setters.rockGeom();
+              I.setters.rocks();
+              if (ui.rebuildViewPage) ui.rebuildViewPage();
+            }, 'warn')
+          )
         )
       ));
 
@@ -19471,6 +22101,14 @@ const gInit = I.get();
         refs.groundMist.input.value = clamp(ST.view.groundMist != null ? ST.view.groundMist : 0.8, 0, 2.0);
       }
       refs.groundMist.upd();
+      if (refs.groundMistHeight) {
+        refs.groundMistHeight.input.value = clamp(ST.view.groundMistHeight != null ? ST.view.groundMistHeight : 1.0, 0.05, 3.0);
+        refs.groundMistHeight.upd();
+      }
+      if (refs.groundMistSharp) {
+        refs.groundMistSharp.input.value = clamp(ST.view.groundMistSharp != null ? ST.view.groundMistSharp : 0.0, 0.0, 1.0);
+        refs.groundMistSharp.upd();
+      }
     };
     ui.syncTimeUI = () => {
       ui.syncGroundMistUI();
@@ -20234,7 +22872,7 @@ const gInit = I.get();
       sunPosition, seasonState, weatherAt, makeArea, zoomFor, tileRange,
       decodeClassGrid, decodeHeightGrid, lcLUT, composeScene, placeTrees,
       buildSoilLayers, computeEnv, M4, LC, buildTreeMeshes,
-      SHADERS: { VS_TERRAIN, FS_TERRAIN, FS_SKY, FS_SHADOW, VS_TREE, FS_TREE, VS_WALL, FS_WALL, VS_RAIN, FS_RAIN, VS_SNOW, FS_SNOW, VS_TRI, VS_TREE_STATE, VS_TREE2, VS_GRASS_STATE, VS_GRASS2, FS_NULL, FS_GRASS, VS_GRASS }
+      SHADERS: { VS_TERRAIN, FS_TERRAIN, FS_TERRAIN_ALT, FS_TERRAIN_BAKE, FS_WATER_SIMPLE, FS_WATER_FULL, FS_SKY, FS_SHADOW, VS_TREE, FS_TREE, VS_WALL, FS_WALL, VS_RAIN, FS_RAIN, VS_SNOW, FS_SNOW, VS_TRI, VS_TREE_STATE, VS_TREE2, VS_GRASS_STATIC, VS_GRASS_STATE, VS_GRASS2, FS_NULL, FS_GRASS, VS_GRASS, VS_ROCK, VS_ROCK_STATE, VS_ROCK2, FS_ROCK }
     }
   };
 
